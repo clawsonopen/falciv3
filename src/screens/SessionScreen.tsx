@@ -18,6 +18,7 @@ import type { RootStackParamList } from '../../App';
 import { useSession } from '../hooks/useSession';
 import { TokenUsage } from '../components/TokenUsage';
 import { ImageUploader } from '../components/ImageUploader';
+import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import {
   getLatestNativeTranscript,
   resetNativeTranscript,
@@ -42,6 +43,7 @@ import {
 } from '../services/tokenLedgerService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Session'>;
+const MAX_HOLD_TO_TALK_SECONDS = 30;
 
 const PHOTO_RETRY_MESSAGE =
   'Bu fotoğraf bu fal türü için uygun görünmüyor canım. Kahve falı için telveyi gösteren fincan veya tabak, el falı için avuç içi fotoğrafı yükleyelim.';
@@ -67,9 +69,16 @@ export function SessionScreen({ route, navigation }: Props) {
   const messageYRef = useRef<Record<string, number>>({});
   const draftBaseRef = useRef('');
   const liveSegmentRef = useRef('');
+  const holdBudgetAtPressStartRef = useRef(MAX_HOLD_TO_TALK_SECONDS * 1000);
+  const recordStartAtRef = useRef(0);
+  const isRecordingRef = useRef(false);
+  const autoStopLockRef = useRef(false);
   const [draftText, setDraftText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [sttHint, setSttHint] = useState('');
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [recordElapsedMs, setRecordElapsedMs] = useState(0);
+  const [holdRemainingMs, setHoldRemainingMs] = useState(MAX_HOLD_TO_TALK_SECONDS * 1000);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [sessionImageUris, setSessionImageUris] = useState({
     cup: config.cupImageUri,
@@ -80,12 +89,22 @@ export function SessionScreen({ route, navigation }: Props) {
   const [isReadPaused, setIsReadPaused] = useState(false);
   const [readingMessageId, setReadingMessageId] = useState<string | null>(null);
   const [pendingTurnMessageId, setPendingTurnMessageId] = useState<string | null>(null);
+  const [holdToTalkUnlocked, setHoldToTalkUnlocked] = useState(false);
+  const [pauseWarningVisible, setPauseWarningVisible] = useState(false);
+  const [sendErrorModal, setSendErrorModal] = useState<{ visible: boolean; message: string }>({
+    visible: false,
+    message: '',
+  });
   const [startupError, setStartupError] = useState<string | null>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     sendUserTranscriptRef.current = sendUserTranscript;
   }, [sendUserTranscript]);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   useEffect(() => {
     navigation.setOptions({
@@ -98,7 +117,7 @@ export function SessionScreen({ route, navigation }: Props) {
     startSession(config)
       .then(() => {
         if (isCancelled) return;
-        setSttHint('Bas-Konuş ile dikte et, metni kontrol et, sonra gönder.');
+        setSttHint('Basılı tut konuş ile dikte et, bırakınca metin hazır olur.');
       })
       .catch((err) => {
         if (isCancelled) return;
@@ -135,6 +154,8 @@ export function SessionScreen({ route, navigation }: Props) {
     setIsReadPaused(false);
     setReadingMessageId(latestAssistant.id);
     setPendingTurnMessageId(latestAssistant.id);
+    setHoldToTalkUnlocked(false);
+    setHoldRemainingMs(MAX_HOLD_TO_TALK_SECONDS * 1000);
     prepareAssistantSpeech(latestAssistant.text);
   }, [state.messages]);
 
@@ -157,16 +178,37 @@ export function SessionScreen({ route, navigation }: Props) {
 
   const isTurnLocked =
     state.isAiSpeaking || isAssistantSpeaking() || isReading || Boolean(pendingTurnMessageId);
+  const hasPausedUnreadTurn = Boolean(pendingTurnMessageId) && isReadPaused;
+  const isHoldToTalkDisabled =
+    state.isAiSpeaking ||
+    isAssistantSpeaking() ||
+    isReading ||
+    (Boolean(pendingTurnMessageId) && !holdToTalkUnlocked && !hasPausedUnreadTurn);
 
   const handleStartRecording = async () => {
-    if (isTurnLocked && !isRecording) {
+    if (!holdToTalkUnlocked && hasPausedUnreadTurn && !isRecording) {
+      setPauseWarningVisible(true);
+      return;
+    }
+    if (
+      (state.isAiSpeaking || isAssistantSpeaking() || isReading || (Boolean(pendingTurnMessageId) && !holdToTalkUnlocked)) &&
+      !isRecording
+    ) {
       Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan konuşma başlatılamaz. Önce mesajı oku veya Okudum de.');
       return;
     }
     try {
       setSttHint('');
+      if (holdRemainingMs <= 0) {
+        setSttHint(`Bu tur için ses limiti doldu (${MAX_HOLD_TO_TALK_SECONDS} sn).`);
+        return;
+      }
       draftBaseRef.current = draftText.trim();
       liveSegmentRef.current = '';
+      recordStartAtRef.current = Date.now();
+      holdBudgetAtPressStartRef.current = holdRemainingMs;
+      autoStopLockRef.current = false;
+      setRecordElapsedMs(0);
       setUserSpeakingActive(true);
       await startNativeRecording(
         (text) => {
@@ -192,8 +234,13 @@ export function SessionScreen({ route, navigation }: Props) {
   };
 
   const handleStopRecording = async () => {
-    await stopNativeRecording().catch(() => {});
+    if (!isRecordingRef.current) return;
+    const elapsed = Math.max(0, Date.now() - recordStartAtRef.current);
+    const nextRemaining = Math.max(0, holdBudgetAtPressStartRef.current - elapsed);
+    setHoldRemainingMs(nextRemaining);
+    isRecordingRef.current = false;
     setIsRecording(false);
+    await stopNativeRecording().catch(() => {});
     setUserSpeakingActive(false);
     const latest = getLatestNativeTranscript().trim();
     const segment = latest || liveSegmentRef.current;
@@ -202,15 +249,22 @@ export function SessionScreen({ route, navigation }: Props) {
     if (merged) setDraftText(merged);
     draftBaseRef.current = '';
     liveSegmentRef.current = '';
+    setRecordElapsedMs(0);
   };
 
-  const handleClearDraft = () => {
-    setDraftText('');
-    setSttHint('');
-    resetNativeTranscript();
-    draftBaseRef.current = '';
-    liveSegmentRef.current = '';
-  };
+  useEffect(() => {
+    if (!isRecording) return;
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - recordStartAtRef.current;
+      setRecordElapsedMs(elapsed);
+      if (elapsed >= MAX_HOLD_TO_TALK_SECONDS * 1000 && !autoStopLockRef.current) {
+        autoStopLockRef.current = true;
+        setSttHint(`Limit: En fazla ${MAX_HOLD_TO_TALK_SECONDS} saniye.`);
+        void handleStopRecording();
+      }
+    }, 250);
+    return () => clearInterval(timer);
+  }, [isRecording]);
 
   const handleSendDraft = async () => {
     const rawText = draftText;
@@ -219,11 +273,21 @@ export function SessionScreen({ route, navigation }: Props) {
       Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan yeni mesaj gönderemezsin.');
       return;
     }
+    const sendResult = await sendUserTranscriptRef.current(rawText).then(
+      () => ({ ok: true as const }),
+      (err) => ({ ok: false as const, err }),
+    );
+    if (!sendResult.ok) {
+      setSendErrorModal({
+        visible: true,
+        message: sendResult.err?.message || 'Mesaj gönderilemedi canım, bir daha deneyelim.',
+      });
+      return;
+    }
     setDraftText('');
+    setEditorVisible(false);
     setSttHint('');
-    await sendUserTranscriptRef.current(rawText).catch((err) => {
-      Alert.alert('Falcıdan Not', err?.message || 'Mesaj gönderilemedi canım, bir daha deneyelim.');
-    });
+    setHoldRemainingMs(MAX_HOLD_TO_TALK_SECONDS * 1000);
   };
 
   const handleSessionImageSelected = async (slot: 'cup' | 'saucer' | 'palm', uri: string) => {
@@ -278,13 +342,19 @@ export function SessionScreen({ route, navigation }: Props) {
     setIsReading(false);
     setIsReadPaused(false);
     setPendingTurnMessageId(null);
+    setHoldToTalkUnlocked(false);
+    setHoldRemainingMs(MAX_HOLD_TO_TALK_SECONDS * 1000);
   };
 
   const readButtonLabel = (() => {
     if (isAssistantSpeaking() || isReading) return 'Duraklat';
     if (isReadPaused) return 'Devam Et';
-    return `Anlat ${assistantLabel}`;
+    return 'Telefon Okusun';
   })();
+  const remainingMsLive = isRecording
+    ? Math.max(0, holdBudgetAtPressStartRef.current - recordElapsedMs)
+    : holdRemainingMs;
+  const remainingSeconds = Math.ceil(remainingMsLive / 1000);
 
   const persistReadingAndEnd = async () => {
     const transcript = state.messages.map((message) => ({
@@ -467,7 +537,7 @@ export function SessionScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        <View style={styles.readControlRow}>
+        <View style={styles.imageAudioRow}>
           <TouchableOpacity
             style={[
               styles.readControlButton,
@@ -477,6 +547,9 @@ export function SessionScreen({ route, navigation }: Props) {
             disabled={!pendingTurnMessageId || state.isAiSpeaking}
           >
             <Text style={styles.readControlButtonText}>{readButtonLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.readControlButton, styles.readControlDisabled]} disabled>
+            <Text style={styles.readControlButtonText}>[x] Okusun</Text>
           </TouchableOpacity>
         </View>
 
@@ -514,50 +587,53 @@ export function SessionScreen({ route, navigation }: Props) {
             <Text style={styles.squareButtonText}>Okundu, Tamam</Text>
           </TouchableOpacity>
         </View>
+        <View style={styles.holdCountdownRow}>
+          <Text style={styles.holdCountdownText}>
+            Basılı tut konuş süresi: {remainingSeconds} sn
+          </Text>
+        </View>
 
         <View style={styles.footer}>
           <View style={styles.composeRow}>
-            <TextInput
-              style={styles.composeInput}
-              value={draftText}
-              onChangeText={setDraftText}
-              placeholder="Konuşman burada metne dökülür; düzenleyip gönderebilirsin."
-              placeholderTextColor="rgba(255,255,255,0.35)"
-              multiline
-              scrollEnabled
-            />
+            <View style={styles.composeInputWrap}>
+              <TouchableOpacity
+                style={styles.composeInputTouch}
+                activeOpacity={0.88}
+                onPress={() => setEditorVisible(true)}
+              >
+                <Text style={[styles.composePreviewText, !draftText.trim() && styles.composePreviewPlaceholder]}>
+                  {draftText.trim() || 'Konuşman burada metne dökülür; düzenlemek için dokun.'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.sendInInputButton,
+                  (isTurnLocked || isRecording || !draftText.trim()) && styles.squareButtonDisabled,
+                ]}
+                onPress={handleSendDraft}
+                disabled={isTurnLocked || isRecording || !draftText.trim()}
+              >
+                <Text style={styles.sendInInputText}>Gönder</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity
               style={[
-                styles.sendIconButton,
-                (isTurnLocked || isRecording || !draftText.trim()) && styles.squareButtonDisabled,
-              ]}
-              onPress={handleSendDraft}
-              disabled={isTurnLocked || isRecording || !draftText.trim()}
-            >
-              <Text style={styles.sendIconText}>Gönder</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={[
-                styles.squareButton,
-                styles.micButton,
+                styles.micSquareButton,
                 isRecording && styles.squareButtonStop,
-                !isRecording && isTurnLocked && styles.squareButtonDisabled,
+                !isRecording && isHoldToTalkDisabled && styles.squareButtonDisabled,
               ]}
-              onPress={isRecording ? handleStopRecording : handleStartRecording}
-              disabled={!isRecording && isTurnLocked}
+              onPressIn={() => {
+                void handleStartRecording();
+              }}
+              onPressOut={() => {
+                void handleStopRecording();
+              }}
+              disabled={!isRecording && isHoldToTalkDisabled}
             >
-              <Text style={styles.squareButtonText}>{isRecording ? 'Kaydı Durdur' : 'Bas-Konuş'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.squareButton, (isRecording || !draftText.trim()) && styles.squareButtonDisabled]}
-              onPress={handleClearDraft}
-              disabled={isRecording || !draftText.trim()}
-            >
-              <Text style={styles.squareButtonText}>Temizle</Text>
+              <Text style={styles.micSquareText}>Basılı Tut{'\n'}Konuş</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.limitInfoText}>Bu tur için ses limitin: {MAX_HOLD_TO_TALK_SECONDS} sn</Text>
           {!!sttHint ? <Text style={styles.sttHint}>{sttHint}</Text> : null}
           <TouchableOpacity style={styles.endButton} onPress={() => void persistReadingAndEnd()}>
             <Text style={styles.endButtonText}>Falı Bitir</Text>
@@ -569,6 +645,67 @@ export function SessionScreen({ route, navigation }: Props) {
             {viewerUri ? <Image source={{ uri: viewerUri }} style={styles.fullscreenImage} resizeMode="contain" /> : null}
           </TouchableOpacity>
         </Modal>
+
+        <BrandedConfirmModal
+          visible={pauseWarningVisible}
+          title={APP_NAME}
+          message="Falcı okumasını bitirip soru sorarak mı devam etmek istiyorsunuz?"
+          confirmLabel="Evet"
+          cancelLabel="Hayır"
+          onConfirm={() => {
+            setPauseWarningVisible(false);
+            setHoldToTalkUnlocked(true);
+            setPendingTurnMessageId(null);
+            setIsReadPaused(false);
+          }}
+          onCancel={() => setPauseWarningVisible(false)}
+        />
+
+        <Modal
+          visible={editorVisible}
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => setEditorVisible(false)}
+        >
+          <KeyboardAvoidingView style={styles.editorOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <View style={styles.editorCard}>
+              <Text style={styles.editorTitle}>Sorunu Düzenle</Text>
+              <TextInput
+                style={styles.editorInput}
+                value={draftText}
+                onChangeText={setDraftText}
+                placeholder="Sorunu buradan düzenleyebilirsin..."
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                autoFocus
+                scrollEnabled
+              />
+              <View style={styles.editorActions}>
+                <TouchableOpacity style={styles.editorGhostBtn} onPress={() => setEditorVisible(false)}>
+                  <Text style={styles.editorGhostText}>Kapat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.editorSendBtn, (isTurnLocked || isRecording || !draftText.trim()) && styles.squareButtonDisabled]}
+                  onPress={handleSendDraft}
+                  disabled={isTurnLocked || isRecording || !draftText.trim()}
+                >
+                  <Text style={styles.editorSendText}>Gönder</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        <BrandedConfirmModal
+          visible={sendErrorModal.visible}
+          title={APP_NAME}
+          message={sendErrorModal.message}
+          confirmLabel="Tamam"
+          cancelLabel="Kapat"
+          onConfirm={() => setSendErrorModal({ visible: false, message: '' })}
+          onCancel={() => setSendErrorModal({ visible: false, message: '' })}
+        />
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
@@ -620,8 +757,11 @@ const styles = StyleSheet.create({
   },
   sessionImageSlot: { alignItems: 'center' },
   sessionImageLabel: { color: '#D4A574', fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  readControlRow: {
-    alignItems: 'center',
+  imageAudioRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 12,
     paddingBottom: 4,
   },
   tokenAckRow: {
@@ -732,15 +872,123 @@ const styles = StyleSheet.create({
   },
   composeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     gap: 8,
     marginTop: 8,
   },
-  composeInput: {
+  holdCountdownRow: {
+    paddingHorizontal: 12,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  holdCountdownText: {
+    color: '#F6C38B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  composeInputWrap: {
     flex: 1,
-    minHeight: 108,
-    maxHeight: 158,
+    position: 'relative',
+  },
+  micSquareButton: {
+    width: 92,
+    minHeight: 92,
     borderRadius: 10,
+    backgroundColor: '#4CAF50',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
+  micSquareText: {
+    color: '#14141E',
+    textAlign: 'center',
+    fontWeight: '800',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  composeInputTouch: {
+    minHeight: 92,
+    maxHeight: 92,
+    borderRadius: 10,
+    borderColor: 'rgba(212,165,116,0.35)',
+    borderWidth: 1,
+    backgroundColor: 'rgba(30,30,40,0.95)',
+    justifyContent: 'flex-start',
+    paddingLeft: 74,
+    paddingRight: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  composePreviewText: {
+    color: '#FFF',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  composePreviewPlaceholder: {
+    color: 'rgba(255,255,255,0.45)',
+  },
+  composeInput: {
+    minHeight: 92,
+    maxHeight: 92,
+    borderRadius: 10,
+    borderColor: 'rgba(212,165,116,0.35)',
+    borderWidth: 1,
+    backgroundColor: 'rgba(30,30,40,0.95)',
+    color: '#FFF',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    textAlignVertical: 'top',
+  },
+  sendInInputButton: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    zIndex: 3,
+    elevation: 3,
+    width: 54,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#D4A574',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendInInputText: {
+    color: '#14141E',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  limitInfoText: {
+    color: 'rgba(212,165,116,0.9)',
+    fontSize: 11,
+    marginTop: 8,
+  },
+  editorOverlay: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingTop: 52,
+    paddingHorizontal: 10,
+  },
+  editorCard: {
+    borderRadius: 18,
+    backgroundColor: '#1E1E28',
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.28)',
+    padding: 14,
+    maxHeight: '58%',
+  },
+  editorTitle: {
+    color: '#E8C49A',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  editorInput: {
+    minHeight: 170,
+    maxHeight: 260,
+    borderRadius: 12,
     borderColor: 'rgba(212,165,116,0.35)',
     borderWidth: 1,
     backgroundColor: 'rgba(30,30,40,0.95)',
@@ -749,23 +997,36 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     textAlignVertical: 'top',
   },
-  sendIconButton: {
-    width: 64,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#D4A574',
-    alignItems: 'center',
-    justifyContent: 'center',
+  editorActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
   },
-  sendIconText: {
+  editorGhostBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.5)',
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,165,116,0.12)',
+  },
+  editorGhostText: {
+    color: '#E8C49A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editorSendBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: '#D4A574',
+  },
+  editorSendText: {
     color: '#14141E',
     fontSize: 12,
     fontWeight: '800',
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
   },
   squareButton: {
     flex: 1,

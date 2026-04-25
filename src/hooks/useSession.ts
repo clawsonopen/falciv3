@@ -10,6 +10,13 @@ import {
   consumeRejectedUploadAttempts,
 } from '../services/tokenLedgerService';
 
+function looksLikeQuestion(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized.includes('?')) return true;
+  return /\b(ne|neden|nasil|nasıl|ne zaman|kim|hangi|mi|mı|mu|mü|olur mu|var mi|var mı)\b/.test(normalized);
+}
+
 export function useSession() {
   const [state, setState] = useState<SessionState>({
     status: 'idle',
@@ -197,7 +204,9 @@ export function useSession() {
       const userMsg = addMessage('user', trimmed);
       const next = [...messagesRef.current, userMsg];
       try {
-        await appendUserConversationMemory(configRef.current?.profileId || '', trimmed).catch(() => {});
+        if (looksLikeQuestion(trimmed)) {
+          await appendUserConversationMemory(configRef.current?.profileId || '', trimmed).catch(() => {});
+        }
         await askAgent(next);
       } finally {
         setUserSpeakingActive(false);

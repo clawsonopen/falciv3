@@ -6,6 +6,7 @@ interface ReaderState {
   speaking: boolean;
   token: number;
   stopRequested: boolean;
+  chunkBoundaryCharIndex: number;
 }
 
 const state: ReaderState = {
@@ -14,6 +15,7 @@ const state: ReaderState = {
   speaking: false,
   token: 0,
   stopRequested: false,
+  chunkBoundaryCharIndex: 0,
 };
 
 function splitTextIntoChunks(text: string, maxLen = 220): string[] {
@@ -40,7 +42,7 @@ function splitTextIntoChunks(text: string, maxLen = 220): string[] {
   return chunks.length ? chunks : [normalized];
 }
 
-async function speakChunk(text: string): Promise<void> {
+async function speakChunk(text: string, onBoundary?: (charIndex: number) => void): Promise<void> {
   const voices = await Speech.getAvailableVoicesAsync().catch(() => []);
   const trVoice = voices.find((v) => (v.language || '').toLowerCase().startsWith('tr'));
 
@@ -50,6 +52,10 @@ async function speakChunk(text: string): Promise<void> {
         ...opts,
         rate: 0.95,
         pitch: 1.0,
+        onBoundary: (ev: any) => {
+          const idx = typeof ev?.charIndex === 'number' ? ev.charIndex : 0;
+          onBoundary?.(idx);
+        },
         onDone: () => resolve(),
         onStopped: () => resolve(),
         onError: (err) => reject(err),
@@ -70,6 +76,7 @@ export function prepareAssistantSpeech(text: string): void {
   state.chunks = splitTextIntoChunks(text);
   state.index = 0;
   state.stopRequested = false;
+  state.chunkBoundaryCharIndex = 0;
 }
 
 export function stopAssistantSpeech(): void {
@@ -97,12 +104,28 @@ export async function startOrResumeAssistantSpeech(
     while (state.index < state.chunks.length && token === state.token) {
       onChunkStart?.(state.index);
       const chunk = state.chunks[state.index];
-      await speakChunk(chunk);
-      if (state.stopRequested || token !== state.token) break;
+      state.chunkBoundaryCharIndex = 0;
+      await speakChunk(chunk, (charIndex) => {
+        if (charIndex > state.chunkBoundaryCharIndex) {
+          state.chunkBoundaryCharIndex = charIndex;
+        }
+      });
+      if (state.stopRequested || token !== state.token) {
+        if (state.chunkBoundaryCharIndex > 0 && state.chunkBoundaryCharIndex < chunk.length) {
+          const remaining = chunk.slice(state.chunkBoundaryCharIndex).trim();
+          if (remaining) {
+            state.chunks[state.index] = remaining;
+          } else {
+            state.index += 1;
+          }
+        }
+        break;
+      }
       state.index += 1;
     }
   } finally {
     state.speaking = false;
+    state.chunkBoundaryCharIndex = 0;
   }
 }
 

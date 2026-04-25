@@ -10,6 +10,20 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ReadingDetail'>;
 
 export function ReadingDetailScreen({ route, navigation }: Props) {
   const { reading, profileName } = route.params;
+  const qaPairs = (() => {
+    const transcript = Array.isArray(reading.transcript) ? reading.transcript : [];
+    const firstAssistantIndex = transcript.findIndex((item) => item.role === 'assistant');
+    if (firstAssistantIndex < 0) return [] as Array<{ question: string; answer: string }>;
+    const followup = transcript.slice(firstAssistantIndex + 1);
+    const pairs: Array<{ question: string; answer: string }> = [];
+    for (let i = 0; i < followup.length; i += 1) {
+      const item = followup[i];
+      if (item.role !== 'user') continue;
+      const answer = followup.slice(i + 1).find((next) => next.role === 'assistant');
+      pairs.push({ question: item.text, answer: answer?.text || '' });
+    }
+    return pairs;
+  })();
 
   const handleDelete = () => {
     Alert.alert(
@@ -44,6 +58,20 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
           <Text style={styles.readingText}>{reading.summary}</Text>
         </View>
 
+        {qaPairs.length ? (
+          <View style={styles.readingCard}>
+            <Text style={styles.sectionTitle}>Soru-Cevap</Text>
+            {qaPairs.map((item, index) => (
+              <View key={`${index}-${item.question.slice(0, 16)}`} style={styles.qaBlock}>
+                <Text style={styles.qaLabel}>Soru</Text>
+                <Text style={styles.readingText}>{item.question}</Text>
+                <Text style={[styles.qaLabel, styles.qaLabelTop]}>Cevap</Text>
+                <Text style={styles.readingText}>{item.answer || 'Bu soruya kayıtlı cevap bulunamadı.'}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
           <Text style={styles.deleteButtonText}>Bu Falı Sil</Text>
         </TouchableOpacity>
@@ -76,6 +104,14 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: '#E8C49A', fontSize: 15, fontWeight: '700', marginBottom: 12 },
   readingText: { color: '#FFF5E8', fontSize: 15, lineHeight: 24 },
+  qaBlock: {
+    marginBottom: 14,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  qaLabel: { color: '#D4A574', fontSize: 12, fontWeight: '700', marginBottom: 4 },
+  qaLabelTop: { marginTop: 8 },
   deleteButton: {
     borderRadius: 14,
     borderWidth: 1,

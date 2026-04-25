@@ -42,18 +42,18 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
       {
         id: 'tarot-personal',
         title: 'Kişiye Özel Tarot',
-        description: '3 kart, Celtic Cross ve 5 kartli Kopru açılımi.',
+        description: '3 Kart, 5 Kart Köprü Açılımı, 9 Kart Celtic Cross Açılımı.',
         currentlyAvailable: false,
       },
       {
         id: 'numerology-personal',
         title: 'Kişiye Özel Numeroloji',
-        description: 'Doğum tarihi/saati bazli numeroloji yorumu.',
+        description: 'Doğum tarihi/saati bazlı numeroloji yorumu.',
         currentlyAvailable: false,
       },
       {
         id: 'angel-personal',
-        title: 'Kişiye Özel Melek Kartlari',
+        title: 'Kişiye Özel Melek Kartları',
         description: '3 kartlık melek kartı okumaları.',
         currentlyAvailable: false,
       },

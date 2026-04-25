@@ -19,6 +19,8 @@ import type { MemoryAnalysisResult } from './memoryAnalysisService';
 const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const DATA_FILE = `${DATA_DIR}account-state.json`;
 const MEMORY_DIR = `${DATA_DIR}profile-memories/`;
+const MAX_MEMORY_ITEMS = 8;
+const ASSISTANT_NAME_SET = new Set(['durdane hanim', 'hikmet bey', 'bahar hanim', 'mert bey', 'caner']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -169,50 +171,66 @@ function mergeTopicMemory(
     const key = (item.key || '').trim();
     const label = (item.label || '').trim();
     if (!key || !label) continue;
-    const existing = next.find((entry) => entry.key === key);
-    if (existing) {
-      existing.label = label;
-      existing.salience = Math.min(1, Math.max(existing.salience, Number(item.salience || 0.68)));
-      existing.lastSeenAt = nowIso();
-    } else {
-      next.push({
-        key,
-        label,
-        salience: Math.min(1, Math.max(0.45, Number(item.salience || 0.68))),
-        lastSeenAt: nowIso(),
-      });
-    }
+    const existingIndex = next.findIndex((entry) => entry.key === key);
+    const prev = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      key,
+      label,
+      salience: Math.min(1, Math.max(prev?.salience || 0.45, Number(item.salience || 0.68))),
+      lastSeenAt: nowIso(),
+    });
   }
-  return next.slice(0, 8);
+  return next.slice(-MAX_MEMORY_ITEMS);
 }
-
 function mergePeopleMemory(
   current: Array<{ id: string; label: string; relationship: string; salience: number }>,
   incoming: Array<{ key?: string; label?: string; relationship?: string; salience?: number }>,
+  profiles: SubjectProfile[] = [],
 ) {
-  const next = [...current];
-  for (const item of incoming) {
-    const id = (item.key || '').trim();
-    const label = (item.label || '').trim();
-    const relationship = normalizeRelationshipLabel((item.relationship || '').trim() || 'ilgili kişi');
-    if (!id || !label) continue;
-    const existing = next.find((entry) => entry.id === id);
-    if (existing) {
-      existing.label = label;
-      existing.relationship = relationship;
-      existing.salience = Math.min(1, Math.max(existing.salience, Number(item.salience || 0.7)));
-    } else {
-      next.push({
-        id,
-        label,
-        relationship,
-        salience: Math.min(1, Math.max(0.5, Number(item.salience || 0.7))),
-      });
-    }
+  const normalizedProfileByName = new Map<string, SubjectProfile>();
+  for (const profile of profiles) {
+    normalizedProfileByName.set(normalizeForMatching(profile.displayName), profile);
   }
-  return next.slice(0, 8);
-}
 
+  const next: Array<{ id: string; label: string; relationship: string; salience: number }> = [];
+  const allItems = [
+    ...current.map((person) => ({
+      key: person.id,
+      label: person.label,
+      relationship: person.relationship,
+      salience: person.salience,
+    })),
+    ...incoming,
+  ];
+
+  for (const item of allItems) {
+    const label = (item.label || '').trim();
+    if (!label) continue;
+    const normalizedLabel = normalizeForMatching(label);
+    if (!normalizedLabel || ASSISTANT_NAME_SET.has(normalizedLabel)) continue;
+
+    const profileHit = normalizedProfileByName.get(normalizedLabel);
+    const id = profileHit ? `profile:${profileHit.profileId}` : (item.key || normalizedLabel).trim();
+    if (!id) continue;
+
+    const relationship = profileHit
+      ? ownerToProfileRelationship(profileHit)
+      : normalizeRelationshipLabel((item.relationship || '').trim() || 'ilgili kişi');
+    const salience = Math.min(1, Math.max(0.5, Number(item.salience || 0.7)));
+
+    const existingIndex = next.findIndex((entry) => normalizeForMatching(entry.label) === normalizedLabel);
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      id,
+      label: profileHit ? profileHit.displayName : label,
+      relationship,
+      salience,
+    });
+  }
+
+  return next.slice(-MAX_MEMORY_ITEMS);
+}
 function mergePatternMemory(
   current: Array<{ key: string; label: string; confidence: number }>,
   incoming: Array<{ key?: string; label?: string; confidence?: number }>,
@@ -222,21 +240,17 @@ function mergePatternMemory(
     const key = (item.key || '').trim();
     const label = (item.label || '').trim();
     if (!key || !label) continue;
-    const existing = next.find((entry) => entry.key === key);
-    if (existing) {
-      existing.label = label;
-      existing.confidence = Math.min(0.98, Math.max(existing.confidence, Number(item.confidence || 0.7)));
-    } else {
-      next.push({
-        key,
-        label,
-        confidence: Math.min(0.98, Math.max(0.5, Number(item.confidence || 0.7))),
-      });
-    }
+    const existingIndex = next.findIndex((entry) => entry.key === key);
+    const prev = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      key,
+      label,
+      confidence: Math.min(0.98, Math.max(prev?.confidence || 0.5, Number(item.confidence || 0.7))),
+    });
   }
-  return next.slice(0, 8);
+  return next.slice(-MAX_MEMORY_ITEMS);
 }
-
 export async function loadAccountState(): Promise<AccountState> {
   await ensureBaseDirs();
   const info = await FileSystem.getInfoAsync(DATA_FILE);
@@ -409,7 +423,7 @@ function upsertImportantPerson<T extends UserStatedMemoryFile | ReadingDerivedMe
   }
   return {
     ...memory,
-    importantPeople: importantPeople.slice(0, 8),
+    importantPeople: importantPeople.slice(-MAX_MEMORY_ITEMS),
     updatedAt: nowIso(),
   };
 }
@@ -436,8 +450,6 @@ function childLabelForProfile(profile: SubjectProfile): string {
 }
 
 async function pruneDanglingProfileReferences(state: AccountState): Promise<void> {
-  const validIds = new Set(state.profiles.map((profile) => profile.profileId));
-
   for (const profile of state.profiles) {
     await ensureProfileMemoryFiles(profile.profileId, state.accountId);
     const current = await readJsonFile<UserStatedMemoryFile>(
@@ -449,10 +461,9 @@ async function pruneDanglingProfileReferences(state: AccountState): Promise<void
     const filtered = current.importantPeople.filter((person) => {
       if (seen.has(person.id)) return false;
       seen.add(person.id);
-
-      const referenced = extractReferencedProfileId(person.id);
-      if (!referenced) return true;
-      return validIds.has(referenced);
+      if (extractReferencedProfileId(person.id)) return false;
+      if (ASSISTANT_NAME_SET.has(normalizeForMatching(person.label))) return false;
+      return true;
     });
 
     if (filtered.length !== current.importantPeople.length) {
@@ -587,10 +598,6 @@ async function linkSpouseAndChildrenMemory(state: AccountState): Promise<void> {
 
 async function ensureProfileRelationshipMemoryLinks(state: AccountState): Promise<void> {
   await pruneDanglingProfileReferences(state);
-  for (const profile of state.profiles) {
-    await linkProfileToOwnerMemory(state, profile);
-  }
-  await linkSpouseAndChildrenMemory(state);
 }
 
 function inferNamedRelationship(source: SubjectProfile, target: SubjectProfile, text: string): {
@@ -807,9 +814,17 @@ function updateMemoryFromText<T extends UserStatedMemoryFile | ReadingDerivedMem
 
   return {
     ...memory,
-    recurringTopics: recurringTopics.slice(0, 8),
-    emotionalPatterns: emotionalPatterns.slice(0, 8),
-    importantPeople: importantPeople.slice(0, 8),
+    recurringTopics: recurringTopics.slice(-MAX_MEMORY_ITEMS),
+    emotionalPatterns: emotionalPatterns.slice(-MAX_MEMORY_ITEMS),
+    importantPeople: mergePeopleMemory(
+      [],
+      importantPeople.map((item) => ({
+        key: item.id,
+        label: item.label,
+        relationship: item.relationship,
+        salience: item.salience,
+      })),
+    ),
     updatedAt: nowIso(),
   };
 }
@@ -867,39 +882,12 @@ export async function appendUserConversationMemory(profileId: string, text: stri
   if (!trimmed) return;
   const state = await loadAccountState();
   await ensureProfileMemoryFiles(profileId, state.accountId);
-  const sourceProfile = state.profiles.find((profile) => profile.profileId === profileId);
-  if (!sourceProfile) return;
+  if (!state.profiles.find((profile) => profile.profileId === profileId)) return;
   const current = await readJsonFile<UserStatedMemoryFile>(
     userMemoryFile(profileId),
     emptyUserStatedMemory(profileId, state.accountId),
   );
-  let next = updateMemoryFromText(current, trimmed);
-
-  for (const otherProfile of state.profiles) {
-    if (otherProfile.profileId === profileId) continue;
-    const inferred = inferNamedRelationship(sourceProfile, otherProfile, trimmed);
-    if (!inferred) continue;
-
-    next = upsertImportantPerson(
-      next,
-      `profile:${otherProfile.profileId}`,
-      otherProfile.displayName,
-      inferred.sourceToTarget,
-    );
-
-    const otherCurrent = await readJsonFile<UserStatedMemoryFile>(
-      userMemoryFile(otherProfile.profileId),
-      emptyUserStatedMemory(otherProfile.profileId, state.accountId),
-    );
-    const otherNext = upsertImportantPerson(
-      otherCurrent,
-      `profile:${sourceProfile.profileId}`,
-      sourceProfile.displayName,
-      inferred.targetToSource,
-    );
-    await writeJsonFile(userMemoryFile(otherProfile.profileId), otherNext);
-  }
-
+  const next = updateMemoryFromText(current, trimmed);
   await writeJsonFile(userMemoryFile(profileId), next);
 }
 
@@ -939,6 +927,7 @@ export async function applyMemoryAnalysisResult(
     importantPeople: mergePeopleMemory(
       currentReadingMemory.importantPeople,
       result.readingDerived.importantPeople || [],
+      state.profiles,
     ),
     emotionalPatterns: mergePatternMemory(
       currentReadingMemory.emotionalPatterns,
@@ -1060,3 +1049,4 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
   }
   return 'Fal';
 }
+

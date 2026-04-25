@@ -62,18 +62,18 @@ export function HomeScreen({ navigation }: Props) {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Ayarlar</Text>
           <Text style={styles.panelText}>
-            Profilleri buradan oluşturabilirsiniz. Eşki fallarınıza ve hafıza kayıtlarınıza buradan ulaşabilirsiniz.
+            Profilleri buradan oluşturabilirsiniz. Eski fallarınıza ve hafıza kayıtlarınıza buradan ulaşabilirsiniz.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('ProfileSettings')}>
             <Text style={styles.primaryButtonText}>Profil Ayarları ve Kayıtlar</Text>
           </TouchableOpacity>
-          <Text style={styles.panelHint}>Mevcut profil sayisi: {profileCount}</Text>
+          <Text style={styles.panelHint}>Mevcut profil sayısı: {profileCount}</Text>
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Genel Fallar</Text>
           <Text style={styles.panelText}>
-            Genel astro gunluk/haftalik/aylik okumalar, kismet kurabiyesi, sihirli kure, gunluk tarot, gunluk melek karti ve gunun numerolojisi burada.
+            Genel astro günlük/haftalık/aylık okumalar, kısmet kurabiyesi, sihirli küre, günlük tarot, günlük melek kartı ve günün numerolojisi burada.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('GeneralReadings')}>
             <Text style={styles.primaryButtonText}>Genel Fallara Git</Text>
@@ -83,7 +83,7 @@ export function HomeScreen({ navigation }: Props) {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kişiye Özel</Text>
           <Text style={styles.panelText}>
-            Profil seçimi ve onay adımından sonra kişiye özel fal tipini seçip falcı ailesinden birini belirleyebilirsin.
+            Profili üstten seçip aynı sayfada fal tipine geçersin. Sonrasında falcıyı seçip doğrudan fal okumayı başlatırsın.
           </Text>
           <TouchableOpacity
             style={styles.primaryButton}

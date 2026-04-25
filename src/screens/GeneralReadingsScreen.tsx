@@ -1,15 +1,18 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import type { SubjectProfile } from '../types/memory';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
+import { createDailyGeneralReading, type GeneralDivinationType } from '../services/divinationEngine';
+import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { APP_NAME } from '../config/constants';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GeneralReadings'>;
 
 type GeneralReadingItem = {
-  id: string;
+  id: GeneralDivinationType | 'astro-daily' | 'astro-weekly' | 'astro-monthly';
   title: string;
   description: string;
   isPaid: boolean;
@@ -50,7 +53,14 @@ function sortProfiles(profiles: SubjectProfile[], primaryProfileId: string | nul
 export function GeneralReadingsScreen({ navigation }: Props) {
   const [profiles, setProfiles] = useState<SubjectProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [confirmedProfileId, setConfirmedProfileId] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [pendingItem, setPendingItem] = useState<GeneralReadingItem | null>(null);
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [infoModal, setInfoModal] = useState<{ visible: boolean; message: string; title: string }>({
+    visible: false,
+    message: '',
+    title: APP_NAME,
+  });
 
   const loadProfiles = useCallback(async () => {
     const state = await loadAccountState();
@@ -76,11 +86,6 @@ export function GeneralReadingsScreen({ navigation }: Props) {
     [profiles, selectedProfileId],
   );
 
-  const confirmedProfile = useMemo(
-    () => profiles.find((profile) => profile.profileId === confirmedProfileId) || null,
-    [confirmedProfileId, profiles],
-  );
-
   const items: GeneralReadingItem[] = useMemo(
     () => [
       {
@@ -88,7 +93,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         title: 'Genel Astro Günlük',
         description: 'Yükselen veya ay burcunu dikkate almayan, 3-4 ana konuya değinen kısa genel yorum.',
         isPaid: false,
-        refreshLabel: 'Her gun yenilenir',
+        refreshLabel: 'Her gün yenilenir',
       },
       {
         id: 'astro-weekly',
@@ -119,16 +124,44 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         refreshLabel: 'Günlük',
       },
       {
+        id: 'daily-affirmation',
+        title: 'Günlük Olumlamalar',
+        description: 'Her gün için kısa, güçlendirici olumlama metni.',
+        isPaid: false,
+        refreshLabel: 'Günlük',
+      },
+      {
+        id: 'daily-quote',
+        title: 'Günlük Quote',
+        description: 'Ünlü isimlerden ilham veren gerçek alıntılar.',
+        isPaid: false,
+        refreshLabel: 'Günlük',
+      },
+      {
+        id: 'daily-runes',
+        title: 'Günlük Runes',
+        description: 'Günün runesi ve kısa anlamı.',
+        isPaid: false,
+        refreshLabel: 'Günlük',
+      },
+      {
+        id: 'daily-i-ching',
+        title: 'Günlük I-Ching',
+        description: 'Günlük hexagram odaklı kısa içgörü.',
+        isPaid: false,
+        refreshLabel: 'Günlük',
+      },
+      {
         id: 'daily-tarot',
         title: 'Günlük Tek Tarot Karti',
-        description: 'Günlük enerjiye yönelik tek kartlik genel açılım.',
+        description: 'Günlük enerjiye yönelik tek kartlık genel açılım.',
         isPaid: true,
         refreshLabel: 'Günlük',
       },
       {
         id: 'daily-angel',
-        title: 'Günlük Melek Karti',
-        description: 'Günlük niyet ve rehberlik odaklı tek kartlik okuma.',
+        title: 'Günlük Melek Kartı',
+        description: 'Günlük niyet ve rehberlik odaklı tek kartlık okuma.',
         isPaid: true,
         refreshLabel: 'Günlük',
       },
@@ -139,25 +172,88 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         isPaid: false,
         refreshLabel: 'Günlük',
       },
+      {
+        id: 'daily-angel-number',
+        title: 'Günün Uğurlu Melek Sayısı',
+        description: 'Güne özel melek sayısı ve kısa anlamı.',
+        isPaid: false,
+        refreshLabel: 'Günlük',
+      },
     ],
     [],
   );
 
-  const confirmProfile = useCallback(() => {
-    if (!selectedProfile) {
-      Alert.alert('Eksik', 'Önce profil seçmelisin.');
-      return;
-    }
+  const runGeneralReading = useCallback(
+    async (item: GeneralReadingItem) => {
+      if (!selectedProfile) {
+        setInfoModal({
+          visible: true,
+          title: APP_NAME,
+          message: 'Önce bir profil seçmelisin.',
+        });
+        return;
+      }
 
-    Alert.alert(
-      'Profil Onayı',
-      `${selectedProfile.displayName} için bakıyoruz, emin misin?`,
-      [
-        { text: 'Hayır, geri git', style: 'cancel', onPress: () => setConfirmedProfileId(null) },
-        { text: 'Evet, devam', onPress: () => setConfirmedProfileId(selectedProfile.profileId) },
-      ],
-    );
-  }, [selectedProfile]);
+      if (
+        item.id !== 'fortune-cookie' &&
+        item.id !== 'magic-ball' &&
+        item.id !== 'daily-affirmation' &&
+        item.id !== 'daily-quote' &&
+        item.id !== 'daily-runes' &&
+        item.id !== 'daily-i-ching' &&
+        item.id !== 'daily-numerology' &&
+        item.id !== 'daily-tarot' &&
+        item.id !== 'daily-angel' &&
+        item.id !== 'daily-angel-number'
+      ) {
+        setInfoModal({
+          visible: true,
+          title: 'Hazırlanıyor',
+          message: `${item.title} servisi bağlantı planında. Bu ekran akışı hazır.`,
+        });
+        return;
+      }
+
+      if (isGenerating) return;
+      setIsGenerating(true);
+      try {
+        const result = await createDailyGeneralReading({
+          type: item.id,
+          profileId: selectedProfile.profileId,
+        });
+        setInfoModal({
+          visible: true,
+          title: item.title,
+          message: result.text,
+        });
+      } catch (err: any) {
+        setInfoModal({
+          visible: true,
+          title: APP_NAME,
+          message: err?.message || 'Şu an metin üretilemedi, lütfen tekrar dene.',
+        });
+      } finally {
+        setIsGenerating(false);
+      }
+    },
+    [isGenerating, selectedProfile],
+  );
+
+  const handleGeneralReadingPress = useCallback(
+    (item: GeneralReadingItem) => {
+      if (!selectedProfile) {
+        setInfoModal({
+          visible: true,
+          title: APP_NAME,
+          message: 'Önce bir profil seçmelisin.',
+        });
+        return;
+      }
+      setPendingItem(item);
+      setConfirmVisible(true);
+    },
+    [selectedProfile],
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -174,7 +270,6 @@ export function GeneralReadingsScreen({ navigation }: Props) {
                   style={[styles.profileCard, selected && styles.profileCardSelected]}
                   onPress={() => {
                     setSelectedProfileId(profile.profileId);
-                    setConfirmedProfileId(null);
                   }}
                 >
                   <Text style={styles.profileName}>{profile.displayName}</Text>
@@ -183,36 +278,62 @@ export function GeneralReadingsScreen({ navigation }: Props) {
               );
             })}
           </ScrollView>
-          <TouchableOpacity style={styles.primaryButton} onPress={confirmProfile}>
-            <Text style={styles.primaryButtonText}>Profili Onayla</Text>
-          </TouchableOpacity>
-          {confirmedProfile ? <Text style={styles.confirmText}>Onaylandı: {confirmedProfile.displayName}</Text> : null}
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Genel Fal Türleri</Text>
-          {items.map((item) => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.readingCard}
-              onPress={() => {
-                if (!confirmedProfile) {
-                  Alert.alert('Eksik', 'Önce profil seçimini onaylamalısın.');
-                  return;
-                }
-                Alert.alert('Hazırlanıyor', `${item.title} servisi bağlantı planında. Bu ekran akışı hazır.`);
-              }}
-            >
-              <View style={styles.rowBetween}>
-                <Text style={styles.readingTitle}>{item.title}</Text>
+          <View style={styles.grid}>
+            {items.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.readingSquareCard}
+                onPress={() => {
+                  handleGeneralReadingPress(item);
+                }}
+                disabled={isGenerating}
+              >
+                <Text style={styles.readingSquareTitle}>{item.title}</Text>
                 <Text style={item.isPaid ? styles.paidTag : styles.freeTag}>{item.isPaid ? 'Ücretli' : 'Ücretsiz'}</Text>
-              </View>
-              <Text style={styles.readingDescription}>{item.description}</Text>
-              <Text style={styles.refreshText}>{item.refreshLabel}</Text>
-            </TouchableOpacity>
-          ))}
+                <Text style={styles.refreshText}>{item.refreshLabel}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </ScrollView>
+
+      <BrandedConfirmModal
+        visible={confirmVisible}
+        title={APP_NAME}
+        message={
+          pendingItem && selectedProfile
+            ? `${selectedProfile.displayName} için bakıyoruz, değil mi?`
+            : 'Bu profil için bakıyoruz, değil mi?'
+        }
+        confirmLabel="Evet"
+        cancelLabel="Hayır"
+        onConfirm={() => {
+          const item = pendingItem;
+          setConfirmVisible(false);
+          setPendingItem(null);
+          if (item) {
+            void runGeneralReading(item);
+          }
+        }}
+        onCancel={() => {
+          setConfirmVisible(false);
+          setPendingItem(null);
+        }}
+      />
+
+      <BrandedConfirmModal
+        visible={infoModal.visible}
+        title={infoModal.title}
+        message={infoModal.message}
+        confirmLabel="Tamam"
+        cancelLabel="Kapat"
+        onConfirm={() => setInfoModal({ visible: false, message: '', title: APP_NAME })}
+        onCancel={() => setInfoModal({ visible: false, message: '', title: APP_NAME })}
+      />
     </SafeAreaView>
   );
 }
@@ -243,35 +364,39 @@ const styles = StyleSheet.create({
   profileCardSelected: { borderColor: '#D4A574', backgroundColor: 'rgba(212,165,116,0.14)' },
   profileName: { color: '#FFF5E8', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   profileMeta: { color: 'rgba(212,165,116,0.72)', fontSize: 12 },
-  primaryButton: {
-    marginTop: 12,
-    borderRadius: 14,
-    backgroundColor: '#D4A574',
-    paddingVertical: 12,
-    alignItems: 'center',
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
-  primaryButtonText: { color: '#14141E', fontSize: 14, fontWeight: '800' },
-  confirmText: { marginTop: 8, color: '#F6C38B', fontSize: 12, fontWeight: '700' },
-  readingCard: {
+  readingSquareCard: {
+    width: '31.5%',
+    aspectRatio: 1,
     borderRadius: 14,
-    padding: 12,
+    padding: 8,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.2)',
     backgroundColor: 'rgba(0,0,0,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  readingTitle: { color: '#FFF5E8', fontSize: 14, fontWeight: '700', flex: 1, paddingRight: 6 },
-  readingDescription: { color: 'rgba(255,255,255,0.76)', fontSize: 12, lineHeight: 18, marginBottom: 4 },
-  refreshText: { color: 'rgba(212,165,116,0.8)', fontSize: 11 },
+  readingSquareTitle: {
+    color: '#FFF5E8',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  refreshText: { color: 'rgba(212,165,116,0.8)', fontSize: 9, textAlign: 'center', marginTop: 6 },
   freeTag: {
     color: '#7DDC9A',
     borderColor: 'rgba(125,220,154,0.45)',
     borderWidth: 1,
     borderRadius: 9,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
   paidTag: {
@@ -279,9 +404,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(246,195,139,0.45)',
     borderWidth: 1,
     borderRadius: 9,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
 });

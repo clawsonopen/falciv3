@@ -100,7 +100,6 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
             <>
               {renderTopicList('Tekrar eden konular', bundle.readingDerived.recurringTopics)}
               {renderPeopleList('Öne çıkan ilişkiler', bundle.readingDerived.importantPeople)}
-              {renderPatternList('Duygusal kalıplar', bundle.readingDerived.emotionalPatterns)}
             </>
           ) : (
             <Text style={styles.emptyText}>Yükleniyor...</Text>

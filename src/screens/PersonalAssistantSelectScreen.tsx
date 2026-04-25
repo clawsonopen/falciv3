@@ -4,19 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { AVAILABLE_ASSISTANTS, applyAssistantPreset } from '../config/constants';
-import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalAssistantSelect'>;
 
 export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   const { devSettings, profileId, readingType } = route.params;
   const [selectedAssistantId, setSelectedAssistantId] = useState<string>(AVAILABLE_ASSISTANTS[0].id);
-  const [confirmVisible, setConfirmVisible] = useState(false);
-
-  const selectedAssistant = useMemo(
-    () => AVAILABLE_ASSISTANTS.find((assistant) => assistant.id === selectedAssistantId) || AVAILABLE_ASSISTANTS[0],
-    [selectedAssistantId],
-  );
 
   const selectedReadingLabel = useMemo(() => {
     if (readingType === 'coffee') return 'Kahve Falı';
@@ -24,7 +17,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
     if (readingType === 'astro-personal') return 'Astroloji';
     if (readingType === 'tarot-personal') return 'Kişiye Özel Tarot';
     if (readingType === 'numerology-personal') return 'Kişiye Özel Numeroloji';
-    if (readingType === 'angel-personal') return 'Kişiye Özel Melek Kartlari';
+    if (readingType === 'angel-personal') return 'Kişiye Özel Melek Kartları';
     return 'Sohbetli Manifestleme';
   }, [readingType]);
 
@@ -32,7 +25,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>4. Falcı Seçimi</Text>
+          <Text style={styles.panelTitle}>Falcı Seçimi</Text>
           <Text style={styles.helperText}>Seçilen fal tipi: {selectedReadingLabel}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {AVAILABLE_ASSISTANTS.map((assistant) => {
@@ -50,34 +43,26 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
               );
             })}
           </ScrollView>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setConfirmVisible(true)}>
-            <Text style={styles.primaryButtonText}>Evet - Devam</Text>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => {
+              if (readingType !== 'coffee' && readingType !== 'palm') {
+                navigation.navigate('Home');
+                return;
+              }
+
+              navigation.navigate('PersonalReadingSetup', {
+                preselectedProfileId: profileId,
+                preselectedReadingType: readingType,
+                preselectedAssistantId: selectedAssistantId,
+                preselectedDevSettings: applyAssistantPreset(devSettings, selectedAssistantId),
+              });
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Fal Okumaya Geç</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
-
-      <BrandedConfirmModal
-        visible={confirmVisible}
-        title="Falcı Onayı"
-        message={`${selectedAssistant.label} ile devam edilsin mi?`}
-        confirmLabel="Evet - Devam"
-        cancelLabel="Hayır"
-        onCancel={() => setConfirmVisible(false)}
-        onConfirm={() => {
-          setConfirmVisible(false);
-          if (readingType !== 'coffee' && readingType !== 'palm') {
-            navigation.navigate('Home');
-            return;
-          }
-
-          navigation.navigate('PersonalReadingSetup', {
-            preselectedProfileId: profileId,
-            preselectedReadingType: readingType,
-            preselectedAssistantId: selectedAssistantId,
-            preselectedDevSettings: applyAssistantPreset(devSettings, selectedAssistantId),
-          });
-        }}
-      />
     </SafeAreaView>
   );
 }
@@ -116,4 +101,3 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: '#14141E', fontSize: 14, fontWeight: '800' },
 });
-

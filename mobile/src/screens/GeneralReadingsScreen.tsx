@@ -26,9 +26,9 @@ import FortuneCookieCard from '../components/FortuneCookieCard';
 import MagicSphereCard from '../components/MagicSphereCard';
 import TarotReadingCard from '../components/TarotReadingCard';
 import IChingCard from '../components/IChingCard';
-import InspirationCard from '../components/InspirationCard';
 import { APP_NAME } from '../config/constants';
 import type { AngelCard, AngelNumber } from '../data/divinationData';
+import GeneralAstroCard from '../components/GeneralAstroCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'GeneralReadings'>;
 
@@ -110,6 +110,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
   const [fortuneCookieReveal, setFortuneCookieReveal] = useState<{ text: string; sign: string } | null>(null);
   const [magicBallReveal, setMagicBallReveal] = useState<{ text: string; sign: string } | null>(null);
   const [inspirationReveal, setInspirationReveal] = useState<string | null>(null);
+  const [astroReveal, setAstroReveal] = useState<{ title: string; text: string } | null>(null);
   const speechRunRef = useRef(0);
 
   const stopSpeechAndReset = useCallback(() => {
@@ -130,6 +131,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
     setFortuneCookieReveal(null);
     setMagicBallReveal(null);
     setInspirationReveal(null);
+    setAstroReveal(null);
     setInfoModal((prev) => ({ ...prev, visible: false, message: '', title: APP_NAME }));
   }, [stopSpeechAndReset]);
 
@@ -286,8 +288,19 @@ export function GeneralReadingsScreen({ navigation }: Props) {
           if (!result) {
             throw new Error('Genel astro şu an hazırlanamadı. Lütfen birazdan tekrar dene.');
           }
+          setAstroReveal({ title: item.title, text: result.text });
           setTarotReveal(null);
+          setRuneReveal(null);
+          setIChingReveal(null);
+          setAngelReveal(null);
+          setAngelNumberReveal(null);
+          setAffirmationReveal(null);
+          setNumerologyReveal(null);
+          setFortuneCookieReveal(null);
+          setMagicBallReveal(null);
+          setInspirationReveal(null);
         } else {
+          setAstroReveal(null);
           const divinationType = item.id as GeneralDivinationType;
           result = await createDailyGeneralReading({
             type: divinationType,
@@ -399,6 +412,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         setSpeechMode(isAstro ? 'idle' : 'hidden');
       } catch (err: any) {
         setTarotReveal(null);
+        setAstroReveal(null);
         setInfoModal({
           visible: true,
           title: APP_NAME,
@@ -528,9 +542,11 @@ export function GeneralReadingsScreen({ navigation }: Props) {
             <MagicSphereCard data={magicBallReveal} />
           ) : inspirationReveal ? (
             <InspirationCard text={inspirationReveal} />
+          ) : astroReveal ? (
+            <GeneralAstroCard title={astroReveal.title} text={astroReveal.text} />
           ) : undefined
         }
-        hideMessageText={!!tarotReveal || !!angelReveal || !!angelNumberReveal || !!affirmationReveal || !!numerologyReveal || !!runeReveal || !!fortuneCookieReveal || !!magicBallReveal || !!iChingReveal || !!inspirationReveal}
+        hideMessageText={!!tarotReveal || !!angelReveal || !!angelNumberReveal || !!affirmationReveal || !!numerologyReveal || !!runeReveal || !!fortuneCookieReveal || !!magicBallReveal || !!iChingReveal || !!inspirationReveal || !!astroReveal}
         confirmLabel="Tamam"
         cancelLabel={null}
         speechMode={speechMode}

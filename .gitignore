@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+mobile/node_modules/
+
+# Sensitive files
+*.txt
+agent/.env
+.env
+
+# Python
+agent/__pycache__/
+*.pyc
+
+# Logs
+agent/*.log
+agent/error.log
+agent/token_server_out.log
+agent/token_server_err.log
+
+# Cache
+agent/general_astro_llm_store.json
+
+# Test files
+agent/test_*.py
+
+# Expo / React Native
+mobile/.expo/
+mobile/android/
+mobile/ios/
+*.jks
+*.keystore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

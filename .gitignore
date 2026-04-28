@@ -1,41 +1,39 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# Dependencies
 node_modules/
+mobile/node_modules/
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+# Sensitive files
+*.txt
+agent/.env
+.env
 
-# Native
-.kotlin/
-*.orig.*
+# Python
+agent/__pycache__/
+*.pyc
+
+# Logs
+agent/*.log
+agent/error.log
+agent/token_server_out.log
+agent/token_server_err.log
+
+# Cache
+agent/general_astro_llm_store.json
+
+# Test files
+agent/test_*.py
+
+# Expo / React Native
+mobile/.expo/
+mobile/android/
+mobile/ios/
 *.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
+*.keystore
 
-# Metro
-.metro-health-check*
+# IDE
+.vscode/
+.idea/
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
+# OS
 .DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
+Thumbs.db

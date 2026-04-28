@@ -1,9 +1,26 @@
-# Proje Kuralları (Türkçe / UTF-8)
+# FALCI v3 — Genel Proje Kuralları
 
-- Proje dili Türkçe.
-- Kullanıcıya görünen metinlerde Türkçe karakter zorunlu: `ç, ğ, ı, İ, ö, ş, ü`.
-- ASCII-Türkçe biçimler kullanılmaz: ör. `icin`, `secim`, `baslat`, `gorsel`, `lutfen`.
-- Dosya kodlaması UTF-8 olmalı.
-- Mojibake karakter dizileri (`Ã`, `Ä`, `Å`, `�`) kabul edilmez.
-- Yeni metin eklerken mevcut metinleri ASCII'ye düşürme; UTF-8 Türkçe ile yaz.
-- Commit öncesi `npm run check:turkish:utf8` çalıştır.
+## ⚠️ KRİTİK: Türkçe Karakter Kuralları (Tüm Proje)
+
+Bu proje Türkçe bir uygulamadır. **Tüm kullanıcıya görünen metinlerde** doğru UTF-8 Türkçe karakterler zorunludur.
+
+### Yasaklanan paternler (hem `mobile/` hem `agent/` için geçerli):
+
+1. **Soru işareti replacement**: `ba?lang?c`, `G?nl?k`, `?li?kiler` → **YASAK**
+2. **Mojibake**: `Ã¼`, `Ã¶`, `Å`, `Ä±` → **YASAK**
+3. **ASCII-Türkçe**: `icin`, `secim`, `gorsel` → **YASAK**
+
+### Doğru kullanım:
+- `başlangıç`, `Günlük`, `İlişkiler` ✅
+- `ü`, `ö`, `ş`, `ı` ✅
+- `için`, `seçim`, `görsel` ✅
+
+### Doğrulama komutları:
+- **Frontend**: `cd mobile && npm run check:turkish:utf8`
+- **Backend**: `cd agent && python scripts/check_turkish_utf8.py`
+
+Her iki komutu da commit öncesi çalıştır.
+
+Detaylı kurallar için bkz:
+- `mobile/AGENTS.md`
+- `agent/AGENTS.md`

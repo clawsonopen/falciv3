@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+
+echo "UTF-8/Türkçe kontrolü çalışıyor..."
+npm run check:turkish:utf8

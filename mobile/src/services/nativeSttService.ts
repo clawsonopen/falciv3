@@ -27,7 +27,16 @@ const STT_START_OPTIONS = {
 } as const;
 
 function normalize(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  return collapseDuplicateTranscript(text.replace(/\s+/g, ' ').trim());
+}
+
+function collapseDuplicateTranscript(text: string): string {
+  const words = text.split(' ').filter(Boolean);
+  if (words.length < 4 || words.length % 2 !== 0) return text;
+  const half = words.length / 2;
+  const left = words.slice(0, half).join(' ').toLocaleLowerCase('tr-TR');
+  const right = words.slice(half).join(' ').toLocaleLowerCase('tr-TR');
+  return left === right ? words.slice(0, half).join(' ') : text;
 }
 
 function buildCombinedTranscript(): string {

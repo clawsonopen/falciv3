@@ -321,11 +321,11 @@ export function PersonalAstroReadingScreen({ route }: Props) {
             />
             <View style={styles.quickActions}>
               <TouchableOpacity
-                style={[styles.secondaryAction, isRecordingQuestion && styles.recordingAction]}
+                style={[styles.holdTalkAction, isRecordingQuestion && styles.holdTalkActionRecording]}
                 onPressIn={() => void handleQuestionRecordStart()}
                 onPressOut={() => void handleQuestionRecordStop()}
               >
-                <Text style={styles.secondaryActionText}>{isRecordingQuestion ? 'Bırakınca Yaz' : 'Basılı Tut Konuş'}</Text>
+                <Text style={styles.holdTalkActionText}>{isRecordingQuestion ? 'Bırakınca Yaz' : 'Basılı Tut Konuş'}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.primaryAction, (!questionText.trim() || isSendingQuestion) && styles.disabledAction]}
@@ -425,7 +425,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.12)',
   },
   secondaryActionText: { color: '#E8C49A', fontSize: 12, fontWeight: '800', textAlign: 'center' },
-  recordingAction: { borderColor: '#7DDC9A', backgroundColor: 'rgba(125,220,154,0.12)' },
+  holdTalkAction: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  holdTalkActionRecording: { backgroundColor: '#FF6B6B' },
+  holdTalkActionText: { color: '#14141E', fontSize: 12, fontWeight: '800', textAlign: 'center' },
   disabledAction: { opacity: 0.55 },
   periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   periodButton: {

@@ -63,6 +63,22 @@ function retryKindForSession(config: Props['route']['params']['config']) {
   return config.readingType === 'palm' ? 'palm' : 'coffee';
 }
 
+function mergeDraftWithTranscript(baseText: string, transcriptText: string) {
+  const base = baseText.replace(/\s+/g, ' ').trim();
+  const transcript = transcriptText.replace(/\s+/g, ' ').trim();
+  if (!base) return transcript;
+  if (!transcript) return base;
+  const baseLower = base.toLocaleLowerCase('tr-TR');
+  const transcriptLower = transcript.toLocaleLowerCase('tr-TR');
+  if (transcriptLower === baseLower || transcriptLower.startsWith(`${baseLower} `)) {
+    return transcript;
+  }
+  if (baseLower.endsWith(` ${transcriptLower}`)) {
+    return base;
+  }
+  return `${base} ${transcript}`;
+}
+
 export function SessionScreen({ route, navigation }: Props) {
   const { config } = route.params;
   const assistantLabel = getAssistantLabel(config.devSettings.assistantId);
@@ -225,8 +241,7 @@ export function SessionScreen({ route, navigation }: Props) {
           const segment = text.trim();
           liveSegmentRef.current = segment;
           const base = draftBaseRef.current;
-          const merged = base && segment ? `${base} ${segment}` : base || segment;
-          setDraftText(merged);
+          setDraftText(mergeDraftWithTranscript(base, segment));
         },
         (code, message) => {
           if (code === 'no-speech') {
@@ -255,7 +270,7 @@ export function SessionScreen({ route, navigation }: Props) {
     const latest = getLatestNativeTranscript().trim();
     const segment = latest || liveSegmentRef.current;
     const base = draftBaseRef.current;
-    const merged = base && segment ? `${base} ${segment}` : base || segment;
+    const merged = mergeDraftWithTranscript(base, segment);
     if (merged) setDraftText(merged);
     draftBaseRef.current = '';
     liveSegmentRef.current = '';
@@ -552,22 +567,6 @@ export function SessionScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        <View style={styles.imageAudioRow}>
-          <TouchableOpacity
-            style={[
-              styles.readControlButton,
-              (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
-            ]}
-            onPress={handleToggleRead}
-            disabled={!pendingTurnMessageId || state.isAiSpeaking}
-          >
-            <Text style={styles.readControlButtonText}>{readButtonLabel}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.readControlButton, styles.readControlDisabled]} disabled>
-            <Text style={styles.readControlButtonText}>{assistantLabel} Okusun</Text>
-          </TouchableOpacity>
-        </View>
-
         <ScrollView
           ref={chatScrollRef}
           style={styles.chatArea}
@@ -609,32 +608,21 @@ export function SessionScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.footer}>
-          <View style={styles.composeRow}>
-            <View style={styles.composeInputWrap}>
-              <TouchableOpacity
-                style={styles.composeInputTouch}
-                activeOpacity={0.88}
-                onPress={() => setEditorVisible(true)}
-              >
-                <Text style={[styles.composePreviewText, !draftText.trim() && styles.composePreviewPlaceholder]}>
-                  {draftText.trim() || 'Konuşman burada metne dökülür; düzenlemek için dokun.'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.sendInInputButton,
-                  (isTurnLocked || isRecording || !draftText.trim()) && styles.squareButtonDisabled,
-                ]}
-                onPress={handleSendDraft}
-                disabled={isTurnLocked || isRecording || !draftText.trim()}
-              >
-                <Text style={styles.sendInInputText}>Gönder</Text>
-              </TouchableOpacity>
-            </View>
+          <Text style={styles.footerTitle}>Sorunu Sor</Text>
+          <TouchableOpacity
+            style={styles.questionInput}
+            activeOpacity={0.88}
+            onPress={() => setEditorVisible(true)}
+          >
+            <Text style={[styles.composePreviewText, !draftText.trim() && styles.composePreviewPlaceholder]}>
+              {draftText.trim() || 'Bu yorumla ilgili ne sormak istersin?'}
+            </Text>
+          </TouchableOpacity>
+          <View style={styles.quickActions}>
             <TouchableOpacity
               style={[
-                styles.micSquareButton,
-                isRecording && styles.squareButtonStop,
+                styles.holdTalkAction,
+                isRecording && styles.holdTalkActionRecording,
                 !isRecording && isHoldToTalkDisabled && styles.squareButtonDisabled,
               ]}
               onPressIn={() => {
@@ -645,7 +633,32 @@ export function SessionScreen({ route, navigation }: Props) {
               }}
               disabled={!isRecording && isHoldToTalkDisabled}
             >
-              <Text style={styles.micSquareText}>Basılı Tut{'\n'}Konuş</Text>
+              <Text style={styles.holdTalkActionText}>{isRecording ? 'Bırakınca Yaz' : 'Basılı Tut Konuş'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.primaryAction,
+                (isTurnLocked || isRecording || !draftText.trim()) && styles.squareButtonDisabled,
+              ]}
+              onPress={handleSendDraft}
+              disabled={isTurnLocked || isRecording || !draftText.trim()}
+            >
+              <Text style={styles.primaryActionText}>Sor</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[
+                styles.secondaryAction,
+                (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
+              ]}
+              onPress={handleToggleRead}
+              disabled={!pendingTurnMessageId || state.isAiSpeaking}
+            >
+              <Text style={styles.secondaryActionText}>{readButtonLabel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.secondaryAction, styles.readControlDisabled]} disabled>
+              <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.limitInfoText}>Bu tur için ses limitin: {MAX_HOLD_TO_TALK_SECONDS} sn</Text>
@@ -884,6 +897,69 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(168,130,82,0.12)',
     backgroundColor: 'rgba(20,20,30,0.95)',
+  },
+  footerTitle: {
+    color: '#E8C49A',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  questionInput: {
+    minHeight: 82,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    padding: 12,
+    justifyContent: 'flex-start',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  primaryAction: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#D4A574',
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  primaryActionText: {
+    color: '#14141E',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  secondaryAction: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.45)',
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.12)',
+  },
+  secondaryActionText: {
+    color: '#E8C49A',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  holdTalkAction: {
+    flex: 1,
+    borderRadius: 12,
+    backgroundColor: '#4CAF50',
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  holdTalkActionRecording: {
+    backgroundColor: '#FF6B6B',
+  },
+  holdTalkActionText: {
+    color: '#14141E',
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
   },
   composeRow: {
     flexDirection: 'row',

@@ -856,7 +856,7 @@ def _analyze_memory_from_transcript(
             "- observations.kind alanı event/fact/person/emotion/state/question/decision/environment değerlerinden biri olsun.",
             "- observations içinde who/what/when/where/how sinyallerini entities, timeText, placeText, emotions ve summary alanlarına yerleştir.",
             "- İki entity, olay, kişi, duygu, yer veya zaman arasında açık ilişki varsa entityRelations alanına yaz; ilişki açık değilse uydurma.",
-            "- Türkçede anne/baba kayınvalide veya kayınpeder için de kullanılabilir; bu yüzden entities.relationshipHint alanına açık ilişki ipucunu yaz ve emin değilsen biyolojik ebeveyn varsayma.",
+            "- Türkçede anne/baba çoğunlukla kullanıcının kendi anne/babasıdır; ancak eş, kayınvalide, kayınpeder, eşimin annesi/babası gibi ipuçları varsa bunu entities.relationshipHint alanına açıkça yaz ve biyolojik ebeveyn varsayma.",
             "- Bir observation mevcut ana taksonomiye sığıyorsa group/subgroup alanlarını mevcut taksonomiden seç.",
             "- category alanına group ile aynı ana kategori adını yaz.",
             "- Gerçekten sığmıyorsa group='Genel', subgroup='Diğer konuşulanlar' yap ve suggestedCategory alanında yeni grup öner.",

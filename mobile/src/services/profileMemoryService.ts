@@ -334,6 +334,15 @@ function profileForEntity(entity: { label?: string; type?: string }, profiles: S
   const normalizedRelationshipHint = normalizeForMatching((entity as { relationshipHint?: string; relationship?: string }).relationshipHint || (entity as { relationship?: string }).relationship || '');
   if (!normalizedLabel) return null;
   const ambiguousKinship = new Set(['anne', 'annem', 'baba', 'babam']);
+  const inLawHints = /(kayin|kayinvalid|kaynpeder|esin|esimin|eşin|eşimin|partnerin|partnerimin)/;
+  if (ambiguousKinship.has(normalizedLabel) && !inLawHints.test(normalizedRelationshipHint)) {
+    const directParent = profiles.find((profile) => {
+      if (normalizedLabel.startsWith('anne')) return profile.relationshipPrimary === 'anne';
+      if (normalizedLabel.startsWith('baba')) return profile.relationshipPrimary === 'baba';
+      return false;
+    });
+    if (directParent) return directParent;
+  }
   for (const profile of profiles) {
     const nameAliases = [profile.displayName].map(normalizeForMatching);
     if (nameAliases.some((alias) => alias && alias === normalizedLabel)) {
@@ -345,7 +354,9 @@ function profileForEntity(entity: { label?: string; type?: string }, profiles: S
       profile.relationshipFreeform || '',
     ].map(normalizeForMatching);
     const hasRelationHint = normalizedRelationshipHint && relationAliases.some((alias) => alias && alias === normalizedRelationshipHint);
-    const canUseGenericKinship = !ambiguousKinship.has(normalizedLabel) || Boolean(hasRelationHint);
+    const canUseGenericKinship =
+      !ambiguousKinship.has(normalizedLabel) ||
+      Boolean(hasRelationHint && !inLawHints.test(normalizedRelationshipHint));
     if (canUseGenericKinship && relationAliases.some((alias) => alias && alias === normalizedLabel)) return profile;
     if (hasRelationHint) return profile;
   }

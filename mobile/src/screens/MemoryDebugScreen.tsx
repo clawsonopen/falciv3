@@ -38,38 +38,65 @@ function chartPrecisionLabel(raw: string | null | undefined) {
   return raw ? map[raw] || raw : 'kayıt yok';
 }
 
-function renderTaxonomy() {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Konu Taksonomisi</Text>
-      {TOPIC_TAXONOMY.map((item) => (
-        <Text key={`${item.group}-${item.subgroup}`} style={styles.itemText}>
-          {item.group} / {item.subgroup}
-        </Text>
-      ))}
-    </View>
-  );
+function peopleForTaxonomy(items: ProfilePersonMemory[], group: string, subgroup: string) {
+  if (group !== 'İlişkiler') return [];
+  return items.filter((item) => {
+    const rel = (item.relationship || '').toLowerCase();
+    if (subgroup === 'Romantik bağlar') return /(sevgili|eş|esi|partner|spouse|partner)/.test(rel);
+    if (subgroup === 'Aile ve yakın çevre') return /(anne|baba|kardeş|kardes|çocuk|cocuk|oglu|oğlu|kizi|kızı|akraba|aile|mother|father|child|sibling|relative)/.test(rel);
+    if (subgroup === 'Arkadaşlık ve sosyal çevre') return /(arkadaş|arkadas|dost|iş arkadaşı|is arkadasi|friend|colleague)/.test(rel);
+    return false;
+  });
 }
 
-function renderTopicList(title: string, items: ProfileTopicMemory[]) {
+function renderTaxonomyMemory(
+  title: string,
+  topics: ProfileTopicMemory[],
+  people: ProfilePersonMemory[],
+  patterns: ProfilePatternMemory[],
+) {
   const groups = new Map<string, ProfileTopicMemory[]>();
-  for (const item of items.slice(-10)) {
+  for (const item of topics.slice(-10)) {
     const groupKey = `${item.group || 'Genel'} / ${item.subgroup || 'Diğer konuşulanlar'}`;
     groups.set(groupKey, [...(groups.get(groupKey) || []), item]);
   }
+
+  const hasAnyMemory = topics.length > 0 || people.length > 0 || patterns.length > 0;
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      {items.length ? Array.from(groups.entries()).map(([groupKey, groupItems]) => (
-        <View key={groupKey} style={styles.topicGroup}>
-          <Text style={styles.groupTitle}>{groupKey}</Text>
-          {groupItems.map((item) => (
-            <Text key={item.key} style={styles.itemText}>
-              {item.label}{item.detailGroup ? ` - ${item.detailGroup}` : ''}
-            </Text>
-          ))}
-        </View>
-      )) : <Text style={styles.emptyText}>Kayıt yok</Text>}
+      {TOPIC_TAXONOMY.map((taxonomy) => {
+        const groupKey = `${taxonomy.group} / ${taxonomy.subgroup}`;
+        const groupTopics = groups.get(groupKey) || [];
+        const groupPeople = peopleForTaxonomy(people, taxonomy.group, taxonomy.subgroup).slice(0, 10);
+        const groupPatterns = taxonomy.group === 'İç Dünya' ? patterns.slice(0, 10) : [];
+        const hasGroupMemory = groupTopics.length > 0 || groupPeople.length > 0 || groupPatterns.length > 0;
+        return (
+          <View key={groupKey} style={styles.topicGroup}>
+            <Text style={styles.groupTitle}>{groupKey}</Text>
+            {hasGroupMemory ? (
+              <>
+                {groupTopics.map((item) => (
+                  <Text key={`topic-${item.key}`} style={styles.itemText}>
+                    Konu: {item.label}{item.detailGroup ? ` - ${item.detailGroup}` : ''}
+                  </Text>
+                ))}
+                {groupPeople.map((item) => (
+                  <Text key={`person-${item.id}`} style={styles.itemText}>
+                    İlişki: {item.label} - {relationLabel(item.relationship)}
+                  </Text>
+                ))}
+                {groupPatterns.map((item) => (
+                  <Text key={`pattern-${item.key}`} style={styles.itemText}>Kalıp: {item.label}</Text>
+                ))}
+              </>
+            ) : (
+              <Text style={styles.emptyText}>Kayıt yok</Text>
+            )}
+          </View>
+        );
+      })}
+      {!hasAnyMemory ? <Text style={styles.emptyText}>Bu kaynakta henüz hafıza kaydı yok</Text> : null}
     </View>
   );
 }
@@ -96,17 +123,6 @@ function renderPeopleList(title: string, items: ProfilePersonMemory[]) {
       <Text style={styles.sectionTitle}>{title}</Text>
       {items.length ? items.map((item) => (
         <Text key={item.id} style={styles.itemText}>{item.label} - {relationLabel(item.relationship)}</Text>
-      )) : <Text style={styles.emptyText}>Kayıt yok</Text>}
-    </View>
-  );
-}
-
-function renderPatternList(title: string, items: ProfilePatternMemory[]) {
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {items.length ? items.map((item) => (
-        <Text key={item.key} style={styles.itemText}>{item.label}</Text>
       )) : <Text style={styles.emptyText}>Kayıt yok</Text>}
     </View>
   );
@@ -166,28 +182,29 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
           {snippet?.prominentRelations.length ? renderPeopleList('Tekilleştirilmiş öne çıkan ilişkiler', snippet.prominentRelations) : null}
         </View>
 
-        <View style={styles.card}>{renderTaxonomy()}</View>
-
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Kullanıcının Yazdıkları</Text>
+          <Text style={styles.cardTitle}>Kullanıcı Kaynaklı Taksonomi</Text>
           {bundle ? (
-            <>
-              {renderTopicList('Konuşulan konular (son 10)', bundle.userStated.recurringTopics)}
-              {renderPeopleList('Öne çıkan ilişkiler (son 10)', bundle.userStated.importantPeople)}
-              {renderPatternList('Duygusal kalıplar (son 10)', bundle.userStated.emotionalPatterns)}
-            </>
+            renderTaxonomyMemory(
+              'Kullanıcının yazdıkları',
+              bundle.userStated.recurringTopics,
+              bundle.userStated.importantPeople,
+              bundle.userStated.emotionalPatterns,
+            )
           ) : (
             <Text style={styles.emptyText}>Yükleniyor...</Text>
           )}
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Fallarda Çıkanlar</Text>
+          <Text style={styles.cardTitle}>Fal Kaynaklı Taksonomi</Text>
           {bundle ? (
-            <>
-              {renderTopicList('Falda çıkan konular (son 10)', bundle.readingDerived.recurringTopics)}
-              {renderPeopleList('Öne çıkan ilişkiler (son 10)', bundle.readingDerived.importantPeople)}
-            </>
+            renderTaxonomyMemory(
+              'Fallarda çıkanlar',
+              bundle.readingDerived.recurringTopics,
+              bundle.readingDerived.importantPeople,
+              bundle.readingDerived.emotionalPatterns,
+            )
           ) : (
             <Text style={styles.emptyText}>Yükleniyor...</Text>
           )}

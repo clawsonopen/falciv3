@@ -65,6 +65,9 @@ export interface SubjectProfile {
 export interface ProfileTopicMemory {
   key: string;
   label: string;
+  group?: string;
+  subgroup?: string;
+  detailGroup?: string;
   salience: number;
   lastSeenAt: string;
 }
@@ -143,7 +146,48 @@ export interface ProfileMemorySnippet {
   profileGender: ProfileGender | null;
   petSpecies: string | null;
   chartPrecision: ChartPrecision;
+  profileInfo: {
+    profileId: string;
+    displayName: string;
+    isAccountOwner: boolean;
+    relationshipToAccountOwner: string;
+    gender: ProfileGender | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  accountOwnerProfile: {
+    profileId: string;
+    displayName: string;
+  } | null;
+  birthChartData: {
+    birthDate: string | null;
+    birthTime: string | null;
+    timeKnown: boolean;
+    country: string | null;
+    cityOrRegion: string | null;
+    district: string | null;
+    subdistrict: string | null;
+    freeformLocation: string | null;
+    chartPrecision: ChartPrecision;
+    hasBirthDate: boolean;
+    hasBirthPlace: boolean;
+    hasExactBirthTime: boolean;
+  };
+  prominentRelations: Array<{
+    id: string;
+    label: string;
+    relationship: string;
+    salience: number;
+  }>;
   userStatedTopics: string[];
+  userTopicGroups: Array<{
+    key: string;
+    label: string;
+    group: string;
+    subgroup: string;
+    detailGroup: string;
+    salience: number;
+  }>;
   userStatedPeople: string[];
   userStatedPatterns: string[];
   readingTopics: string[];

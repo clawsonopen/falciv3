@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { getAssistantLabel } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
-import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
+import { appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import {
   createPersonalAstroReading,
@@ -199,6 +199,7 @@ export function PersonalAstroReadingScreen({ route }: Props) {
     setQuestionText('');
     setIsSendingQuestion(true);
     try {
+      await appendUserConversationMemory(profileId, question).catch(() => {});
       const answer = await createPersonalAstroFollowUp({
         profileName: profileName || 'Profil',
         assistantId,

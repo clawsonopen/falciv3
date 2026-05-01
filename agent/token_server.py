@@ -1862,11 +1862,11 @@ def fortune():
         validated_surfaces: list[str] | None = None
         validation_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
         palm_validation = None
-        if reading_type == "coffee" and coffee_mode == "upload":
+        if (not is_follow_up) and reading_type == "coffee" and coffee_mode == "upload":
             validation_error, validated_surfaces, validation_usage = _validate_coffee_images_dynamic(images)
             if validation_error:
                 return jsonify({"userMessage": validation_error, "usage": validation_usage}), 422
-        elif reading_type == "palm":
+        elif (not is_follow_up) and reading_type == "palm":
             validated_surfaces = ["palm"]
             validation_error, validation_usage, palm_validation = _validate_palm_image_dynamic(images, memory_snippet)
             if validation_error:

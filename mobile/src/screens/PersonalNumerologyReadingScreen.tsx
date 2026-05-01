@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
-import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
+import { appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import {
   createPersonalNumerologyFollowUp,
@@ -187,6 +187,7 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
     setQuestionText('');
     setIsSendingQuestion(true);
     try {
+      await appendUserConversationMemory(profileId, question).catch(() => {});
       const answer = await createPersonalNumerologyFollowUp({
         profileName: profileName || 'Profil',
         assistantId,

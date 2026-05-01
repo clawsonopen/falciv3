@@ -220,11 +220,44 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         )
 
     if memory_snippet:
+        profile_info = memory_snippet.get("profileInfo") or {}
+        owner_profile = memory_snippet.get("accountOwnerProfile") or {}
+        birth_chart_data = memory_snippet.get("birthChartData") or {}
+        prominent_relations = memory_snippet.get("prominentRelations") or []
         is_self = bool(memory_snippet.get("isSelf"))
         relationship = memory_snippet.get("relationshipLabel")
         relationship_primary = memory_snippet.get("relationshipPrimary")
         profile_gender = memory_snippet.get("profileGender")
         pet_species = memory_snippet.get("petSpecies")
+        if profile_info:
+            lines.append(
+                "- Profil bilgileri: "
+                + f"ad={profile_info.get('displayName') or profile_name or 'bilinmiyor'}, "
+                + f"hesap sahibi mi={'evet' if profile_info.get('isAccountOwner') else 'hayır'}, "
+                + f"hesap sahibiyle bağ={profile_info.get('relationshipToAccountOwner') or relationship or 'bilinmiyor'}."
+            )
+        if owner_profile and not is_self:
+            lines.append(f"- Hesap sahibi: {owner_profile.get('displayName')}. Okuma yine seçili profil için kalmalı.")
+        if birth_chart_data:
+            birth_bits = []
+            if birth_chart_data.get("birthDate"):
+                birth_bits.append(f"tarih={birth_chart_data.get('birthDate')}")
+            if birth_chart_data.get("birthTime") and birth_chart_data.get("timeKnown"):
+                birth_bits.append(f"saat={birth_chart_data.get('birthTime')}")
+            elif birth_chart_data.get("birthDate"):
+                birth_bits.append("saat=bilinmiyor")
+            location = ", ".join(
+                item
+                for item in [
+                    birth_chart_data.get("cityOrRegion"),
+                    birth_chart_data.get("country"),
+                ]
+                if item
+            )
+            if location:
+                birth_bits.append(f"yer={location}")
+            birth_bits.append(f"hassasiyet={birth_chart_data.get('chartPrecision') or memory_snippet.get('chartPrecision')}")
+            lines.append("- Doğum/harita verisi: " + "; ".join(birth_bits) + ".")
         if relationship:
             lines.append(f"- Hesap sahibiyle yakinlik: {relationship}.")
         if relationship_primary in {"arkadas", "akraba"}:
@@ -256,6 +289,7 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         )
 
         user_stated_topics = memory_snippet.get("userStatedTopics") or []
+        user_topic_groups = memory_snippet.get("userTopicGroups") or []
         user_stated_people = memory_snippet.get("userStatedPeople") or []
         user_stated_patterns = memory_snippet.get("userStatedPatterns") or []
         reading_topics = memory_snippet.get("readingTopics") or []
@@ -265,13 +299,30 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         if user_stated_topics:
             lines.append(
                 "- Kullanicinin yazdiklarinda tekrar eden konular: "
-                + ", ".join(user_stated_topics[:3])
+                + ", ".join(user_stated_topics[:10])
                 + "."
             )
+        if user_topic_groups:
+            grouped = []
+            for item in user_topic_groups[:10]:
+                if isinstance(item, dict) and item.get("label"):
+                    grouped.append(
+                        f"{item.get('group') or 'Genel'} / {item.get('subgroup') or 'Diğer'}: {item.get('label')}"
+                    )
+            if grouped:
+                lines.append("- Kullanıcının konuştuğu konuların gruplu hafızası: " + "; ".join(grouped) + ".")
         if user_stated_people:
             lines.append(
                 "- Kullanicinin yazdiklarinda one cikan kisiler: " + ", ".join(user_stated_people[:3]) + "."
             )
+        if prominent_relations:
+            relation_text = []
+            for item in prominent_relations[:5]:
+                if isinstance(item, dict) and item.get("label"):
+                    rel = item.get("relationship") or "ilgili kişi"
+                    relation_text.append(f"{item.get('label')} ({rel})")
+            if relation_text:
+                lines.append("- Tekilleştirilmiş öne çıkan ilişkiler: " + ", ".join(relation_text) + ".")
         if user_stated_patterns:
             lines.append(
                 "- Kullanicinin yazdiklarinda gorulen duygusal kaliplar: " + ", ".join(user_stated_patterns[:3]) + "."

@@ -19,7 +19,7 @@ import type { MemoryAnalysisResult } from './memoryAnalysisService';
 const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const DATA_FILE = `${DATA_DIR}account-state.json`;
 const MEMORY_DIR = `${DATA_DIR}profile-memories/`;
-const MAX_MEMORY_ITEMS = 8;
+const MAX_MEMORY_ITEMS = 10;
 const ASSISTANT_NAME_SET = new Set(['durdane hanim', 'hikmet bey', 'bahar hanim', 'mert bey', 'caner']);
 
 function nowIso() {
@@ -162,21 +162,48 @@ async function writeJsonFile(path: string, value: unknown) {
   await FileSystem.writeAsStringAsync(path, JSON.stringify(value, null, 2));
 }
 
+function topicGroupFor(key: string, label: string) {
+  const normalized = normalizeForMatching(`${key} ${label}`);
+  if (/(ask|iliski|sevgili|es|evlilik|flort|ayrilik|baris|partner)/.test(normalized)) {
+    return { group: 'İlişkiler', subgroup: 'Romantik bağlar', detailGroup: 'Duygusal yakınlık' };
+  }
+  if (/(aile|anne|baba|kardes|cocuk|ev|hane|akraba)/.test(normalized)) {
+    return { group: 'İlişkiler', subgroup: 'Aile ve yakın çevre', detailGroup: 'Aile dinamikleri' };
+  }
+  if (/(arkadas|dost|sosyal|cevre)/.test(normalized)) {
+    return { group: 'İlişkiler', subgroup: 'Arkadaşlık ve sosyal çevre', detailGroup: 'Sosyal destek' };
+  }
+  if (/(is|kariyer|ofis|patron|para|maddi|borc|kazanc|odeme|finans)/.test(normalized)) {
+    return { group: 'İş ve Para', subgroup: /para|maddi|borc|kazanc|odeme|finans/.test(normalized) ? 'Finans' : 'Kariyer', detailGroup: 'Güvenlik ve yön' };
+  }
+  if (/(saglik|beden|yorgun|stres|kaygi|ruh|enerji)/.test(normalized)) {
+    return { group: 'İç Dünya', subgroup: 'Ruh hali ve beden', detailGroup: 'Duygusal ihtiyaç' };
+  }
+  if (/(tasin|tasın|sehir|yol|seyahat|okul|egitim|sinav)/.test(normalized)) {
+    return { group: 'Yaşam Düzeni', subgroup: 'Değişim ve planlar', detailGroup: 'Gündelik kararlar' };
+  }
+  return { group: 'Genel', subgroup: 'Diğer konuşulanlar', detailGroup: 'Serbest not' };
+}
+
 function mergeTopicMemory(
-  current: Array<{ key: string; label: string; salience: number; lastSeenAt: string }>,
-  incoming: Array<{ key?: string; label?: string; salience?: number }>,
+  current: Array<{ key: string; label: string; group?: string; subgroup?: string; detailGroup?: string; salience: number; lastSeenAt: string }>,
+  incoming: Array<{ key?: string; label?: string; group?: string; subgroup?: string; detailGroup?: string; salience?: number }>,
 ) {
   const next = [...current];
   for (const item of incoming) {
     const key = (item.key || '').trim();
     const label = (item.label || '').trim();
     if (!key || !label) continue;
+    const fallbackGroup = topicGroupFor(key, label);
     const existingIndex = next.findIndex((entry) => entry.key === key);
     const prev = existingIndex >= 0 ? next[existingIndex] : null;
     if (existingIndex >= 0) next.splice(existingIndex, 1);
     next.push({
       key,
       label,
+      group: item.group || prev?.group || fallbackGroup.group,
+      subgroup: item.subgroup || prev?.subgroup || fallbackGroup.subgroup,
+      detailGroup: item.detailGroup || prev?.detailGroup || fallbackGroup.detailGroup,
       salience: Math.min(1, Math.max(prev?.salience || 0.45, Number(item.salience || 0.68))),
       lastSeenAt: nowIso(),
     });
@@ -189,8 +216,13 @@ function mergePeopleMemory(
   profiles: SubjectProfile[] = [],
 ) {
   const normalizedProfileByName = new Map<string, SubjectProfile>();
+  const normalizedProfileByRelationship = new Map<string, SubjectProfile>();
   for (const profile of profiles) {
     normalizedProfileByName.set(normalizeForMatching(profile.displayName), profile);
+    if (profile.relationshipPrimary !== 'kendi') {
+      normalizedProfileByRelationship.set(normalizeForMatching(relationshipLabel(profile)), profile);
+      normalizedProfileByRelationship.set(normalizeForMatching(ownerToProfileRelationship(profile)), profile);
+    }
   }
 
   const next: Array<{ id: string; label: string; relationship: string; salience: number }> = [];
@@ -210,7 +242,11 @@ function mergePeopleMemory(
     const normalizedLabel = normalizeForMatching(label);
     if (!normalizedLabel || ASSISTANT_NAME_SET.has(normalizedLabel)) continue;
 
-    const profileHit = normalizedProfileByName.get(normalizedLabel);
+    const normalizedRelationship = normalizeForMatching(normalizeRelationshipLabel((item.relationship || '').trim()));
+    const profileHit =
+      normalizedProfileByName.get(normalizedLabel) ||
+      normalizedProfileByRelationship.get(normalizedLabel) ||
+      normalizedProfileByRelationship.get(normalizedRelationship);
     const id = profileHit ? `profile:${profileHit.profileId}` : (item.key || normalizedLabel).trim();
     if (!id) continue;
 
@@ -219,7 +255,12 @@ function mergePeopleMemory(
       : normalizeRelationshipLabel((item.relationship || '').trim() || 'ilgili kişi');
     const salience = Math.min(1, Math.max(0.5, Number(item.salience || 0.7)));
 
-    const existingIndex = next.findIndex((entry) => normalizeForMatching(entry.label) === normalizedLabel);
+    const existingIndex = next.findIndex(
+      (entry) =>
+        entry.id === id ||
+        normalizeForMatching(entry.label) === normalizedLabel ||
+        (profileHit && entry.id === `profile:${profileHit.profileId}`),
+    );
     if (existingIndex >= 0) next.splice(existingIndex, 1);
     next.push({
       id,
@@ -428,13 +469,22 @@ function upsertImportantPerson<T extends UserStatedMemoryFile | ReadingDerivedMe
   salience = 0.72,
 ): T {
   const importantPeople = [...memory.importantPeople];
-  const existing = importantPeople.find((item) => item.id === id);
+  const normalizedLabel = normalizeForMatching(label);
+  const existing = importantPeople.find((item) => item.id === id || normalizeForMatching(item.label) === normalizedLabel);
   const normalizedRelationship = normalizeRelationshipLabel(relationship);
   if (existing) {
     existing.label = label;
     existing.relationship = normalizedRelationship;
     existing.salience = Math.min(1, existing.salience + 0.08);
   } else {
+    if (isProfileReference(id)) {
+      for (let index = importantPeople.length - 1; index >= 0; index -= 1) {
+        const item = importantPeople[index];
+        if (normalizeForMatching(item.label) === normalizedLabel || normalizeForMatching(item.relationship) === normalizeForMatching(normalizedRelationship)) {
+          importantPeople.splice(index, 1);
+        }
+      }
+    }
     importantPeople.push({ id, label, relationship: normalizedRelationship, salience });
   }
   return {
@@ -466,6 +516,7 @@ function childLabelForProfile(profile: SubjectProfile): string {
 }
 
 async function pruneDanglingProfileReferences(state: AccountState): Promise<void> {
+  const profileIds = new Set(state.profiles.map((profile) => profile.profileId));
   for (const profile of state.profiles) {
     await ensureProfileMemoryFiles(profile.profileId, state.accountId);
     const current = await readJsonFile<UserStatedMemoryFile>(
@@ -477,7 +528,8 @@ async function pruneDanglingProfileReferences(state: AccountState): Promise<void
     const filtered = current.importantPeople.filter((person) => {
       if (seen.has(person.id)) return false;
       seen.add(person.id);
-      if (extractReferencedProfileId(person.id)) return false;
+      const referencedProfileId = extractReferencedProfileId(person.id);
+      if (referencedProfileId && !profileIds.has(referencedProfileId)) return false;
       if (ASSISTANT_NAME_SET.has(normalizeForMatching(person.label))) return false;
       return true;
     });
@@ -614,6 +666,12 @@ async function linkSpouseAndChildrenMemory(state: AccountState): Promise<void> {
 
 async function ensureProfileRelationshipMemoryLinks(state: AccountState): Promise<void> {
   await pruneDanglingProfileReferences(state);
+  for (const profile of state.profiles) {
+    if (profile.relationshipPrimary !== 'kendi') {
+      await linkProfileToOwnerMemory(state, profile);
+    }
+  }
+  await linkSpouseAndChildrenMemory(state);
 }
 
 function inferNamedRelationship(source: SubjectProfile, target: SubjectProfile, text: string): {
@@ -648,16 +706,19 @@ function inferNamedRelationship(source: SubjectProfile, target: SubjectProfile, 
 }
 
 const TOPIC_KEYWORDS: Array<{ key: string; label: string; keywords: string[] }> = [
-  { key: 'money', label: 'maddi kaygi', keywords: ['para', 'maddi', 'borc', 'odeme', 'kazanc'] },
-  { key: 'career', label: 'kariyer stresi', keywords: ['is', 'kariyer', 'ofis', 'patron', 'toplanti'] },
-  { key: 'love', label: 'ask ve iliski belirsizligi', keywords: ['ask', 'iliski', 'sevgili', 'kalp'] },
-  { key: 'family', label: 'aile ici gerilim', keywords: ['anne', 'baba', 'aile', 'ev', 'hane'] },
+  { key: 'money', label: 'maddi kaygı', keywords: ['para', 'maddi', 'borc', 'borç', 'odeme', 'ödeme', 'kazanc', 'kazanç'] },
+  { key: 'career', label: 'kariyer stresi', keywords: ['iş', 'is', 'kariyer', 'ofis', 'patron', 'toplanti', 'toplantı'] },
+  { key: 'love', label: 'aşk ve ilişki belirsizliği', keywords: ['aşk', 'ask', 'ilişki', 'iliski', 'sevgili', 'kalp'] },
+  { key: 'family', label: 'aile içi gündem', keywords: ['anne', 'baba', 'aile', 'ev', 'hane', 'kardeş', 'kardes', 'çocuk', 'cocuk'] },
+  { key: 'friendship', label: 'arkadaşlık ve sosyal çevre', keywords: ['arkadaş', 'arkadas', 'dost', 'sosyal', 'çevre', 'cevre'] },
+  { key: 'health_energy', label: 'sağlık ve enerji', keywords: ['sağlık', 'saglik', 'yorgun', 'stres', 'kaygı', 'kaygi', 'enerji'] },
+  { key: 'life_changes', label: 'yaşam düzeni değişimi', keywords: ['taşın', 'tasin', 'şehir', 'sehir', 'yol', 'seyahat', 'okul', 'eğitim', 'egitim'] },
 ];
 
 const PATTERN_KEYWORDS: Array<{ key: string; label: string; keywords: string[] }> = [
-  { key: 'boundaries', label: 'hayir diyememe', keywords: ['hayir diyem', 'sinir', 'fazla fedakar'] },
-  { key: 'fatigue', label: 'yorgunluk birikimi', keywords: ['yorgun', 'tuken', 'daralm', 'yorul'] },
-  { key: 'control', label: 'kontrol ihtiyaci', keywords: ['kontrol', 'sabirsiz', 'bekleyis'] },
+  { key: 'boundaries', label: 'hayır diyememe', keywords: ['hayır diyem', 'hayir diyem', 'sınır', 'sinir', 'fazla fedakar'] },
+  { key: 'fatigue', label: 'yorgunluk birikimi', keywords: ['yorgun', 'tüken', 'tuken', 'daralm', 'yorul'] },
+  { key: 'control', label: 'kontrol ihtiyacı', keywords: ['kontrol', 'sabırsız', 'sabirsiz', 'bekleyiş', 'bekleyis'] },
 ];
 
 const PEOPLE_KEYWORDS: Array<{ id: string; label: string; relationship: string; keywords: string[] }> = [
@@ -845,6 +906,22 @@ function updateMemoryFromText<T extends UserStatedMemoryFile | ReadingDerivedMem
   };
 }
 
+function dedupePeopleForSnippet(
+  people: Array<{ id: string; label: string; relationship: string; salience: number }>,
+  profiles: SubjectProfile[],
+) {
+  return mergePeopleMemory(
+    [],
+    people.map((item) => ({
+      key: item.id,
+      label: item.label,
+      relationship: item.relationship,
+      salience: item.salience,
+    })),
+    profiles,
+  ).sort((a, b) => b.salience - a.salience);
+}
+
 export async function loadProfileMemoryBundle(
   state: AccountState,
   profileId: string,
@@ -875,20 +952,68 @@ export async function loadProfileMemorySnippet(
   if (!profile) return null;
   const bundle = await loadProfileMemoryBundle(state, profileId);
   if (!bundle) return null;
+  const owner = getPrimaryProfile(state) || state.profiles.find((item) => item.relationshipPrimary === 'kendi') || null;
+  const userPeople = dedupePeopleForSnippet(bundle.userStated.importantPeople, state.profiles);
+  const readingPeople = dedupePeopleForSnippet(bundle.readingDerived.importantPeople, state.profiles);
+  const prominentRelations = dedupePeopleForSnippet(
+    [...bundle.userStated.importantPeople, ...bundle.readingDerived.importantPeople],
+    state.profiles,
+  ).slice(0, 5);
+  const birth = profile.birth;
 
   return {
     profileName: profile.displayName,
-    isSelf: profile.relationshipPrimary === 'kendi',
+    isSelf: profile.relationshipPrimary === 'kendi' || profile.profileId === owner?.profileId || profile.isPrimary,
     relationshipLabel: relationshipLabel(profile),
     relationshipPrimary: profile.relationshipPrimary,
     profileGender: profile.gender,
     petSpecies: profile.relationshipPrimary === 'evcil_hayvan' ? petSpeciesLabel(profile) : null,
     chartPrecision: profile.chartPrecision,
+    profileInfo: {
+      profileId: profile.profileId,
+      displayName: profile.displayName,
+      isAccountOwner: profile.relationshipPrimary === 'kendi' || profile.profileId === owner?.profileId || profile.isPrimary,
+      relationshipToAccountOwner: relationshipLabel(profile),
+      gender: profile.gender,
+      createdAt: profile.createdAt,
+      updatedAt: profile.updatedAt,
+    },
+    accountOwnerProfile: owner
+      ? {
+          profileId: owner.profileId,
+          displayName: owner.displayName,
+        }
+      : null,
+    birthChartData: {
+      birthDate: birth.date,
+      birthTime: birth.time,
+      timeKnown: birth.timeKnown,
+      country: birth.location.country,
+      cityOrRegion: birth.location.cityOrRegion,
+      district: birth.location.district,
+      subdistrict: birth.location.subdistrict,
+      freeformLocation: birth.location.freeform,
+      chartPrecision: profile.chartPrecision,
+      hasBirthDate: Boolean(birth.date),
+      hasBirthPlace: Boolean(birth.location.country && birth.location.cityOrRegion),
+      hasExactBirthTime: Boolean(birth.time && birth.timeKnown),
+    },
+    prominentRelations,
     userStatedTopics: bundle.userStated.recurringTopics.map((item) => item.label).slice(0, 3),
-    userStatedPeople: bundle.userStated.importantPeople.map((item) => item.label).slice(0, 3),
+    userTopicGroups: bundle.userStated.recurringTopics
+      .slice(-MAX_MEMORY_ITEMS)
+      .map((item) => ({
+        key: item.key,
+        label: item.label,
+        group: item.group || topicGroupFor(item.key, item.label).group,
+        subgroup: item.subgroup || topicGroupFor(item.key, item.label).subgroup,
+        detailGroup: item.detailGroup || topicGroupFor(item.key, item.label).detailGroup,
+        salience: item.salience,
+      })),
+    userStatedPeople: userPeople.map((item) => item.label).slice(0, 3),
     userStatedPatterns: bundle.userStated.emotionalPatterns.map((item) => item.label).slice(0, 3),
     readingTopics: bundle.readingDerived.recurringTopics.map((item) => item.label).slice(0, 3),
-    readingPeople: bundle.readingDerived.importantPeople.map((item) => item.label).slice(0, 3),
+    readingPeople: readingPeople.map((item) => item.label).slice(0, 3),
     readingPatterns: bundle.readingDerived.emotionalPatterns.map((item) => item.label).slice(0, 3),
   };
 }
@@ -926,7 +1051,7 @@ export async function applyMemoryAnalysisResult(
   const nextUserMemory: UserStatedMemoryFile = {
     ...currentUserMemory,
     recurringTopics: mergeTopicMemory(currentUserMemory.recurringTopics, result.userStated.recurringTopics || []),
-    importantPeople: mergePeopleMemory(currentUserMemory.importantPeople, result.userStated.importantPeople || []),
+    importantPeople: mergePeopleMemory(currentUserMemory.importantPeople, result.userStated.importantPeople || [], state.profiles),
     emotionalPatterns: mergePatternMemory(
       currentUserMemory.emotionalPatterns,
       result.userStated.emotionalPatterns || [],

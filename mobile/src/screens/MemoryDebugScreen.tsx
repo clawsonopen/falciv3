@@ -8,6 +8,49 @@ import type { ProfileMemoryBundle, ProfileMemorySnippet, ProfilePatternMemory, P
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MemoryDebug'>;
 
+const TOPIC_TAXONOMY = [
+  { group: 'İlişkiler', subgroup: 'Romantik bağlar' },
+  { group: 'İlişkiler', subgroup: 'Aile ve yakın çevre' },
+  { group: 'İlişkiler', subgroup: 'Arkadaşlık ve sosyal çevre' },
+  { group: 'İş ve Para', subgroup: 'Kariyer' },
+  { group: 'İş ve Para', subgroup: 'Finans' },
+  { group: 'İç Dünya', subgroup: 'Ruh hali ve beden' },
+  { group: 'Yaşam Düzeni', subgroup: 'Değişim ve planlar' },
+  { group: 'Genel', subgroup: 'Diğer konuşulanlar' },
+];
+
+function genderLabel(raw: string | null | undefined) {
+  const map: Record<string, string> = {
+    erkek: 'Erkek',
+    kadin: 'Kadın',
+    hicbiri: 'Hiçbiri',
+    belirtmek_istemiyorum: 'Belirtmek istemiyor',
+  };
+  return raw ? map[raw] || raw : 'kayıt yok';
+}
+
+function chartPrecisionLabel(raw: string | null | undefined) {
+  const map: Record<string, string> = {
+    full: 'Doğum saati ve yeri var',
+    'date-only': 'Sadece doğum tarihi var',
+    missing: 'Doğum bilgisi eksik',
+  };
+  return raw ? map[raw] || raw : 'kayıt yok';
+}
+
+function renderTaxonomy() {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Konu Taksonomisi</Text>
+      {TOPIC_TAXONOMY.map((item) => (
+        <Text key={`${item.group}-${item.subgroup}`} style={styles.itemText}>
+          {item.group} / {item.subgroup}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 function renderTopicList(title: string, items: ProfileTopicMemory[]) {
   const groups = new Map<string, ProfileTopicMemory[]>();
   for (const item of items.slice(-10)) {
@@ -79,11 +122,12 @@ function renderBirthLine(snippet: ProfileMemorySnippet | null) {
       <Text style={styles.itemText}>
         {snippet.profileInfo.displayName} - {snippet.profileInfo.isAccountOwner ? 'hesap sahibi' : snippet.profileInfo.relationshipToAccountOwner}
       </Text>
+      <Text style={styles.itemText}>Cinsiyet: {genderLabel(snippet.profileInfo.gender)}</Text>
       <Text style={styles.itemText}>
         Doğum: {birth.birthDate || 'kayıt yok'} {birth.hasExactBirthTime ? `- ${birth.birthTime}` : birth.birthDate ? '- saat bilinmiyor' : ''}
       </Text>
       <Text style={styles.itemText}>Yer: {location || birth.freeformLocation || 'kayıt yok'}</Text>
-      <Text style={styles.itemText}>Harita hassasiyeti: {birth.chartPrecision}</Text>
+      <Text style={styles.itemText}>Harita hassasiyeti: {chartPrecisionLabel(birth.chartPrecision)}</Text>
     </View>
   );
 }
@@ -121,6 +165,8 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
           {renderBirthLine(snippet)}
           {snippet?.prominentRelations.length ? renderPeopleList('Tekilleştirilmiş öne çıkan ilişkiler', snippet.prominentRelations) : null}
         </View>
+
+        <View style={styles.card}>{renderTaxonomy()}</View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Kullanıcının Yazdıkları</Text>

@@ -5,8 +5,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
-import { appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
+import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
+import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
 import {
   createPersonalNumerologyFollowUp,
   createPersonalNumerologyReading,
@@ -201,6 +202,19 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
         memorySnippet: semanticMemorySnippet,
       });
       setFollowUps((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', text: answer }]);
+      void analyzeMemoryTranscript({
+        profileId,
+        profileName: profileName || 'Profil',
+        readingType: 'personal-numerology',
+        memorySnippet: semanticMemorySnippet,
+        transcript: [
+          { role: 'assistant', text, timestamp: Date.now() },
+          { role: 'user', text: question, timestamp: Date.now() },
+          { role: 'assistant', text: answer, timestamp: Date.now() },
+        ],
+      })
+        .then((result) => applyMemoryAnalysisResult(profileId, result))
+        .catch(() => {});
       setSpeechMode('idle');
     } catch (err: any) {
       setInfoModal({

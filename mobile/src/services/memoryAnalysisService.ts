@@ -40,7 +40,7 @@ export interface MemoryAnalysisResult {
 interface MemoryAnalysisRequest {
   profileName: string;
   profileId: string;
-  readingType: 'coffee' | 'palm';
+  readingType: 'coffee' | 'palm' | 'personal-astro' | 'personal-numerology' | 'birth-chart' | string;
   memorySnippet?: ProfileMemorySnippet | null;
   transcript: MemoryAnalysisTranscriptEntry[];
 }

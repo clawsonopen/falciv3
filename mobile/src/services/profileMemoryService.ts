@@ -176,8 +176,8 @@ function topicGroupFor(key: string, label: string) {
   if (/(is|kariyer|ofis|patron|para|maddi|borc|kazanc|odeme|finans)/.test(normalized)) {
     return { group: 'İş ve Para', subgroup: /para|maddi|borc|kazanc|odeme|finans/.test(normalized) ? 'Finans' : 'Kariyer', detailGroup: 'Güvenlik ve yön' };
   }
-  if (/(saglik|beden|yorgun|stres|kaygi|ruh|enerji)/.test(normalized)) {
-    return { group: 'İç Dünya', subgroup: 'Ruh hali ve beden', detailGroup: 'Duygusal ihtiyaç' };
+  if (/(saglik|beden|bel|sirt|uyku|uykusuz|yorgun|stres|kaygi|ruh|enerji|hareket|randevu|doktor|soguk|sicak|kaynar|agri)/.test(normalized)) {
+    return { group: 'İç Dünya', subgroup: 'Ruh hali ve beden', detailGroup: 'Beden dengesi' };
   }
   if (/(tasin|tasın|sehir|yol|seyahat|okul|egitim|sinav)/.test(normalized)) {
     return { group: 'Yaşam Düzeni', subgroup: 'Değişim ve planlar', detailGroup: 'Gündelik kararlar' };
@@ -711,7 +711,35 @@ const TOPIC_KEYWORDS: Array<{ key: string; label: string; keywords: string[] }> 
   { key: 'love', label: 'aşk ve ilişki belirsizliği', keywords: ['aşk', 'ask', 'ilişki', 'iliski', 'sevgili', 'kalp'] },
   { key: 'family', label: 'aile içi gündem', keywords: ['anne', 'baba', 'aile', 'ev', 'hane', 'kardeş', 'kardes', 'çocuk', 'cocuk'] },
   { key: 'friendship', label: 'arkadaşlık ve sosyal çevre', keywords: ['arkadaş', 'arkadas', 'dost', 'sosyal', 'çevre', 'cevre'] },
-  { key: 'health_energy', label: 'sağlık ve enerji', keywords: ['sağlık', 'saglik', 'yorgun', 'stres', 'kaygı', 'kaygi', 'enerji'] },
+  {
+    key: 'health_energy',
+    label: 'sağlık ve enerji',
+    keywords: [
+      'sağlık',
+      'saglik',
+      'beden',
+      'bel',
+      'sırt',
+      'sirt',
+      'ağrı',
+      'agri',
+      'yorgun',
+      'uyku',
+      'uykusuz',
+      'stres',
+      'kaygı',
+      'kaygi',
+      'enerji',
+      'hareket',
+      'doktor',
+      'randevu',
+      'soğuk',
+      'soguk',
+      'sıcak',
+      'sicak',
+      'kaynar',
+    ],
+  },
   { key: 'life_changes', label: 'yaşam düzeni değişimi', keywords: ['taşın', 'tasin', 'şehir', 'sehir', 'yol', 'seyahat', 'okul', 'eğitim', 'egitim'] },
 ];
 
@@ -827,10 +855,18 @@ function updateMemoryFromText<T extends UserStatedMemoryFile | ReadingDerivedMem
       if (existing) {
         existing.salience = Math.min(1, existing.salience + 0.08);
         existing.lastSeenAt = nowIso();
+        const group = topicGroupFor(existing.key, existing.label);
+        existing.group = existing.group || group.group;
+        existing.subgroup = existing.subgroup || group.subgroup;
+        existing.detailGroup = existing.detailGroup || group.detailGroup;
       } else {
+        const group = topicGroupFor(topic.key, topic.label);
         recurringTopics.push({
           key: topic.key,
           label: topic.label,
+          group: group.group,
+          subgroup: group.subgroup,
+          detailGroup: group.detailGroup,
           salience: 0.6,
           lastSeenAt: nowIso(),
         });
@@ -1013,6 +1049,19 @@ export async function loadProfileMemorySnippet(
     userStatedPeople: userPeople.map((item) => item.label).slice(0, 3),
     userStatedPatterns: bundle.userStated.emotionalPatterns.map((item) => item.label).slice(0, 3),
     readingTopics: bundle.readingDerived.recurringTopics.map((item) => item.label).slice(0, 3),
+    readingTopicGroups: bundle.readingDerived.recurringTopics
+      .slice(-10)
+      .map((item) => {
+        const fallback = topicGroupFor(item.key, item.label);
+        return {
+          key: item.key,
+          label: item.label,
+          group: item.group || fallback.group,
+          subgroup: item.subgroup || fallback.subgroup,
+          detailGroup: item.detailGroup || fallback.detailGroup,
+          salience: item.salience,
+        };
+      }),
     readingPeople: readingPeople.map((item) => item.label).slice(0, 3),
     readingPatterns: bundle.readingDerived.emotionalPatterns.map((item) => item.label).slice(0, 3),
   };
@@ -1137,8 +1186,8 @@ export async function appendReadingSummary(
     emptyReadingDerivedMemory(reading.profileId, state.accountId),
   );
   const nextReadingMemory = updateMemoryFromText(currentReadingMemory, reading.summary, {
-    includeTopics: false,
-    includePatterns: false,
+    includeTopics: true,
+    includePatterns: true,
     includePeople: false,
   });
   await writeJsonFile(readingMemoryFile(reading.profileId), nextReadingMemory);

@@ -5,6 +5,7 @@ role_family: fortune-family
 persona_type: fortune-reader
 display_name: Mert Bey
 public_label: Mert Bey
+age: 36
 version: 1
 primary_domain:
   id: hybrid-modern-reading

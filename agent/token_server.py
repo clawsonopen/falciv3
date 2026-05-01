@@ -474,10 +474,38 @@ def _validate_palm_image_dynamic(images: dict, memory_snippet: dict | None) -> t
     return None, usage_total, result
 
 
-def _sanitize_gendered_address(text: str, memory_snippet: dict | None) -> str:
+def _profile_age_from_memory(memory_snippet: dict | None) -> int | None:
+    birth_date = ((memory_snippet or {}).get("birthChartData") or {}).get("birthDate")
+    if not birth_date:
+        return None
+    match = re.match(r"^(\d{4})-\d{2}-\d{2}$", str(birth_date).strip())
+    if not match:
+        return None
+    return date.today().year - int(match.group(1))
+
+
+def _assistant_age(assistant_id: str | None) -> int | None:
+    return {
+        "durdane-hanim": 58,
+        "hikmet-bey": 60,
+        "bahar-hanim": 34,
+        "mert-bey": 36,
+        "caner": 29,
+    }.get(assistant_id or "")
+
+
+def _can_use_family_address(dev_settings: dict | None, memory_snippet: dict | None) -> bool:
+    assistant_id = ((dev_settings or {}).get("assistantId") or "").strip()
+    if assistant_id not in {"durdane-hanim", "hikmet-bey"}:
+        return False
+    assistant_age = _assistant_age(assistant_id)
+    profile_age = _profile_age_from_memory(memory_snippet)
+    return bool(assistant_age and profile_age and assistant_age - profile_age >= 10)
+
+
+def _sanitize_gendered_address(text: str, memory_snippet: dict | None, dev_settings: dict | None = None) -> str:
     gender = (memory_snippet or {}).get("profileGender")
-    if gender not in {"erkek", "kadin", "hicbiri", "belirtmek_istemiyorum"}:
-        return text
+    can_use_family_address = _can_use_family_address(dev_settings, memory_snippet)
     feminine_terms = {
         "güzel kızım": "güzel evladım",
         "guzel kizim": "guzel evladim",
@@ -494,12 +522,26 @@ def _sanitize_gendered_address(text: str, memory_snippet: dict | None) -> str:
         "güzel oğlan": "güzel evlat",
         "guzel oglan": "guzel evlat",
     }
+    family_terms = {
+        "yavrum": "canım",
+        "Yavrum": "Canım",
+        "evladım": "canım",
+        "Evladım": "Canım",
+        "evladim": "canim",
+        "Evladim": "Canim",
+        "guzel evladim": "canim",
+        "Guzel evladim": "Canim",
+    }
     if gender == "erkek":
         replacements = feminine_terms
     elif gender == "kadin":
         replacements = masculine_terms
-    else:
+    elif gender in {"hicbiri", "belirtmek_istemiyorum"}:
         replacements = {**feminine_terms, **masculine_terms}
+    else:
+        replacements = {}
+    if not can_use_family_address:
+        replacements = {**replacements, **feminine_terms, **masculine_terms, **family_terms}
     cleaned = text
     for source, target in replacements.items():
         cleaned = cleaned.replace(source, target)
@@ -1394,7 +1436,7 @@ def _gemini_generate(
         raise RuntimeError("GOOGLE_API_KEY (or GEMINI_API_KEY) is missing in environment.")
 
     temperature = float(dev_settings.get("temperature", 0.8))
-    built_prompt = build_prompt(dev_settings, messages, images, session_id or "default-session")
+    built_prompt = build_prompt(dev_settings, messages, images, session_id or "default-session", memory_snippet)
     memory_context = build_memory_context(profile_name, memory_snippet, reading_type, coffee_mode)
     system_instruction = built_prompt.system_instruction
     if memory_context:
@@ -1524,7 +1566,7 @@ def _gemini_generate(
         usage["inputTokens"] = counted_total
         usage["totalTokens"] = counted_total + usage["outputTokens"]
     with_closing = append_persona_closing(text, built_prompt.closing_sentence)
-    sanitized = _sanitize_gendered_address(with_closing, memory_snippet)
+    sanitized = _sanitize_gendered_address(with_closing, memory_snippet, dev_settings)
     non_romantic = _strip_romantic_for_non_romantic_relations(sanitized, memory_snippet)
     diversified = _diversify_time_numbers(non_romantic, session_id)
     repaired = _repair_mojibake_turkish(diversified)

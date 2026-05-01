@@ -1,6 +1,7 @@
 ﻿import hashlib
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ IDENTITY_ROOT = REPO_ROOT / "mobile" / "src" / "identity" / "assistants"
 class PersonaIdentity:
     assistant_id: str
     display_name: str
+    age: int | None
     primary_domain_label: str
     system_body: str
     closing_library: dict[str, list[str]]
@@ -54,6 +56,14 @@ def _extract_primary_domain_label(frontmatter: str) -> str:
     block = match.group(1)
     label_match = re.search(r"^\s+label:\s*(.+?)\s*$", block, flags=re.MULTILINE)
     return label_match.group(1).strip() if label_match else "Kahve Fali"
+
+
+def _extract_int(frontmatter: str, key: str) -> int | None:
+    value = _extract_scalar(frontmatter, key, "")
+    try:
+        return int(value)
+    except Exception:
+        return None
 
 
 def _extract_section(body: str, heading: str) -> str:
@@ -100,6 +110,7 @@ def load_persona_identity(assistant_id: str) -> PersonaIdentity:
     return PersonaIdentity(
         assistant_id=_extract_scalar(frontmatter, "id", assistant_id),
         display_name=_extract_scalar(frontmatter, "display_name", assistant_id),
+        age=_extract_int(frontmatter, "age"),
         primary_domain_label=_extract_primary_domain_label(frontmatter),
         system_body=body_without_notes.strip(),
         closing_library=_extract_closing_library(closing_section),
@@ -142,7 +153,71 @@ def select_closing_sentence(
     return options[index]
 
 
-def build_prompt(dev_settings: dict, messages: list[dict], images: dict, session_id: str) -> BuiltPrompt:
+ASSISTANT_AGE_FALLBACKS = {
+    "durdane-hanim": 58,
+    "hikmet-bey": 60,
+    "bahar-hanim": 34,
+    "mert-bey": 36,
+    "caner": 29,
+}
+
+
+def _age_from_birth_date(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.match(r"^(\d{4})-\d{2}-\d{2}$", str(value).strip())
+    if not match:
+        return None
+    return date.today().year - int(match.group(1))
+
+
+def build_safety_policy() -> str:
+    return "\n".join(
+        [
+            "## Sağlık ve Finans Sınırları",
+            "- Konu taksonomisinde sağlık, enerji, uyku, bel/sırt, hareket ve basit beden uyarıları 'İç Dünya / Ruh hali ve beden' altında değerlendirilir.",
+            "- Sağlık temaları yalnızca gündelik beden dengesi, dinlenme, hareket, randevu takibi ve genel dikkat diliyle anlatılabilir; teşhis, tedavi, ilaç, doz veya acil durum yönlendirmesi üretme.",
+            "- Sağlıkla ilgili ciddi, ani veya uzun süren bir belirti görünürse kullanıcıyı uygun bir uzmana danışmaya nazikçe yönlendir.",
+            "- Finans temaları bütçe farkındalığı, yatırımları gözden geçirme, acele karar vermeme, riski dağıtma, 'tüm yumurtaları aynı sepete koymama' ve planlama diliyle anlatılabilir; belirli ürün/varlık için al-sat, borçlanma, kredi veya sigorta tavsiyesi verme.",
+            "- Para veya kariyer konusunda kesin kazanç, garanti sonuç ya da kişiye özel finansal karar dili kullanma; olasılık ve dikkat diliyle kal.",
+        ]
+    )
+
+
+def build_address_policy(identity: PersonaIdentity, memory_snippet: dict | None) -> str:
+    assistant_age = identity.age or ASSISTANT_AGE_FALLBACKS.get(identity.assistant_id)
+    profile_info = (memory_snippet or {}).get("profileInfo") or {}
+    birth_chart_data = (memory_snippet or {}).get("birthChartData") or {}
+    profile_gender = profile_info.get("gender") or (memory_snippet or {}).get("profileGender")
+    subject_age = _age_from_birth_date(birth_chart_data.get("birthDate"))
+    older_enough = bool(assistant_age and subject_age and assistant_age - subject_age >= 10)
+    family_style_allowed = identity.assistant_id in {"durdane-hanim", "hikmet-bey"} and older_enough
+
+    lines = [
+        "## Hitap ve Yaş Politikası",
+        "- Hitapta profil cinsiyeti ve yaş farkı güvenlik kuralıdır; persona sıcaklığı bu kuralı ezemez.",
+        "- 'yavrum', 'kızım', 'oğlum', 'evladım', 'güzel kızım', 'güzel oğlum' gibi aile-büyüğü hitaplarını gereksiz kullanma.",
+    ]
+    if assistant_age:
+        lines.append(f"- Falcı yaşı: yaklaşık {assistant_age}.")
+    if subject_age:
+        lines.append(f"- Seçili profil yaşı: yaklaşık {subject_age}.")
+    if identity.assistant_id in {"bahar-hanim", "mert-bey", "caner"}:
+        lines.append("- Bu falcı için 'yavrum', 'kızım', 'oğlum', 'evladım' ve benzeri büyük/ebeveyn hitapları tamamen yasak.")
+    elif family_style_allowed:
+        lines.append("- Dürdane/Hikmet bu profilden en az 10 yaş büyük görünüyor; yine de 'yavrum' gibi hitapları sık değil, nadiren ve doğal gelirse kullan.")
+    else:
+        lines.append("- Dürdane/Hikmet için yaş farkı yeterli değil veya bilinmiyor; 'yavrum', 'kızım', 'oğlum', 'evladım' kullanma.")
+    if profile_gender == "erkek":
+        lines.append("- Profil erkekse 'kızım' ve 'güzel kızım' kesinlikle yasak.")
+    elif profile_gender == "kadin":
+        lines.append("- Profil kadınsa 'oğlum' ve 'güzel oğlum' kesinlikle yasak.")
+    elif profile_gender in {"hicbiri", "belirtmek_istemiyorum"}:
+        lines.append("- Profil cinsiyetsiz veya cinsiyet belirtmek istemiyor; tüm cinsiyetli hitaplar yasak.")
+    return "\n".join(lines)
+
+
+def build_prompt(dev_settings: dict, messages: list[dict], images: dict, session_id: str, memory_snippet: dict | None = None) -> BuiltPrompt:
     assistant_id = (dev_settings.get("assistantId") or "durdane-hanim").strip() or "durdane-hanim"
     identity = load_persona_identity(assistant_id)
     closing_tone = select_closing_tone(messages, identity)
@@ -187,7 +262,12 @@ def build_prompt(dev_settings: dict, messages: list[dict], images: dict, session
         ]
     )
 
-    system_parts = [identity.system_body.strip(), runtime_rules]
+    system_parts = [
+        identity.system_body.strip(),
+        runtime_rules,
+        build_address_policy(identity, memory_snippet),
+        build_safety_policy(),
+    ]
     if override_prompt:
         system_parts.append("## Developer Override\n" + override_prompt)
 
@@ -293,12 +373,13 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         user_stated_people = memory_snippet.get("userStatedPeople") or []
         user_stated_patterns = memory_snippet.get("userStatedPatterns") or []
         reading_topics = memory_snippet.get("readingTopics") or []
+        reading_topic_groups = memory_snippet.get("readingTopicGroups") or []
         reading_people = memory_snippet.get("readingPeople") or []
         reading_patterns = memory_snippet.get("readingPatterns") or []
 
         if user_stated_topics:
             lines.append(
-                "- Kullanicinin yazdiklarinda tekrar eden konular: "
+                "- Kullanıcının yazdıklarında tekrar eden konular: "
                 + ", ".join(user_stated_topics[:10])
                 + "."
             )
@@ -313,7 +394,7 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
                 lines.append("- Kullanıcının konuştuğu konuların gruplu hafızası: " + "; ".join(grouped) + ".")
         if user_stated_people:
             lines.append(
-                "- Kullanicinin yazdiklarinda one cikan kisiler: " + ", ".join(user_stated_people[:3]) + "."
+                "- Kullanıcının yazdıklarında öne çıkan kişiler: " + ", ".join(user_stated_people[:3]) + "."
             )
         if prominent_relations:
             relation_text = []
@@ -325,19 +406,28 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
                 lines.append("- Tekilleştirilmiş öne çıkan ilişkiler: " + ", ".join(relation_text) + ".")
         if user_stated_patterns:
             lines.append(
-                "- Kullanicinin yazdiklarinda gorulen duygusal kaliplar: " + ", ".join(user_stated_patterns[:3]) + "."
+                "- Kullanıcının yazdıklarında görülen duygusal kalıplar: " + ", ".join(user_stated_patterns[:3]) + "."
             )
         if reading_topics:
             lines.append(
-                "- Onceki fallarda tekrar eden konular: " + ", ".join(reading_topics[:3]) + "."
+                "- Önceki fallarda tekrar eden konular: " + ", ".join(reading_topics[:3]) + "."
             )
+        if reading_topic_groups:
+            grouped_readings = []
+            for item in reading_topic_groups[:10]:
+                if isinstance(item, dict) and item.get("label"):
+                    grouped_readings.append(
+                        f"{item.get('group') or 'Genel'} / {item.get('subgroup') or 'Diğer'}: {item.get('label')}"
+                    )
+            if grouped_readings:
+                lines.append("- Falda çıkan konuların gruplu hafızası: " + "; ".join(grouped_readings) + ".")
         if reading_people:
             lines.append(
-                "- Onceki fallarda one cikan kisiler: " + ", ".join(reading_people[:3]) + "."
+                "- Önceki fallarda öne çıkan kişiler: " + ", ".join(reading_people[:3]) + "."
             )
         if reading_patterns:
             lines.append(
-                "- Onceki fallarda gorulen kaliplar: " + ", ".join(reading_patterns[:3]) + "."
+                "- Önceki fallarda görülen kalıplar: " + ", ".join(reading_patterns[:3]) + "."
             )
 
         lines.extend(

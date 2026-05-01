@@ -191,6 +191,14 @@ export interface ProfileMemorySnippet {
   userStatedPeople: string[];
   userStatedPatterns: string[];
   readingTopics: string[];
+  readingTopicGroups: Array<{
+    key: string;
+    label: string;
+    group: string;
+    subgroup: string;
+    detailGroup: string;
+    salience: number;
+  }>;
   readingPeople: string[];
   readingPatterns: string[];
 }

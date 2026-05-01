@@ -5,6 +5,7 @@ role_family: fortune-family
 persona_type: fortune-reader
 display_name: Bahar Hanım
 public_label: Bahar Hanım
+age: 34
 version: 1
 primary_domain:
   id: astro-fortune

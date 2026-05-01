@@ -5,6 +5,7 @@ role_family: fortune-family
 persona_type: fortune-reader
 display_name: Caner
 public_label: Caner
+age: 29
 version: 1
 primary_domain:
   id: tarot

@@ -139,7 +139,7 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
           <Text style={styles.cardTitle}>Fallarda Çıkanlar</Text>
           {bundle ? (
             <>
-              {renderTopicList('Tekrar eden konular (son 10)', bundle.readingDerived.recurringTopics)}
+              {renderTopicList('Falda çıkan konular (son 10)', bundle.readingDerived.recurringTopics)}
               {renderPeopleList('Öne çıkan ilişkiler (son 10)', bundle.readingDerived.importantPeople)}
             </>
           ) : (

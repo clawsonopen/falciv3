@@ -5,6 +5,7 @@ role_family: fortune-family
 persona_type: fortune-reader
 display_name: Hikmet Bey
 public_label: Hikmet Bey
+age: 60
 version: 1
 primary_domain:
   id: palm-reading

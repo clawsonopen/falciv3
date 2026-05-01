@@ -5,6 +5,7 @@ role_family: fortune-family
 persona_type: fortune-reader
 display_name: Durdane Hanım
 public_label: Durdane Hanım
+age: 58
 version: 1
 primary_domain:
   id: coffee-fortune

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SessionConfig, SessionState, ChatMessage } from '../types';
 import { compressImage } from '../services/imageService';
 import { getFortuneReply, type FortuneMessage } from '../services/fortuneApiService';
-import { appendUserConversationMemory } from '../services/profileMemoryService';
+import { appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import {
   addPendingInputTokens,
   addRejectedUploadAttempt,
@@ -152,6 +152,16 @@ export function useSession() {
 
       setState((s) => ({ ...s, isAiSpeaking: true }));
       try {
+        const semanticQuery = options?.isFollowUp
+          ? [...nextMessages].reverse().find((message) => message.role === 'user')?.text
+          : undefined;
+        const semanticMemorySnippet = semanticQuery
+          ? await loadAccountState()
+              .then((accountState) =>
+                loadProfileMemorySnippet(accountState, config.profileId, { semanticQuery }),
+              )
+              .catch(() => config.memorySnippet)
+          : config.memorySnippet;
         const text = await getFortuneReply({
           sessionId: sessionIdRef.current,
           devSettings: config.devSettings,
@@ -160,7 +170,7 @@ export function useSession() {
           profileIsSelf: config.profileIsSelf,
           readingType: config.readingType,
           coffeeMode: config.coffeeMode,
-          memorySnippet: config.memorySnippet,
+          memorySnippet: semanticMemorySnippet,
           messages: toFortuneMessages(nextMessages),
           isFollowUp: Boolean(options?.isFollowUp),
           images: imagesRef.current,

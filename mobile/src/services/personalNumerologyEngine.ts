@@ -1,10 +1,25 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import type { SubjectProfile } from '../types/memory';
+import type { ProfileMemorySnippet, SubjectProfile } from '../types/memory';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { isRetryableLlmError } from './llmRetryMessages';
 
 export type PersonalNumerologyMode = 'core' | 'period';
 export type PersonalNumerologyPeriod = 'monthly';
+
+function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
+  const items = snippet?.relevantObservations || [];
+  if (!items.length) return '';
+  return items
+    .slice(0, 5)
+    .map((item) => {
+      const parts = [`${item.category || item.group} / ${item.subgroup}`, item.title, item.summary];
+      if (item.timeText) parts.push(`zaman=${item.timeText}`);
+      if (item.placeText) parts.push(`yer=${item.placeText}`);
+      if (item.emotions.length) parts.push(`duygu=${item.emotions.slice(0, 3).join(', ')}`);
+      return parts.join(' | ');
+    })
+    .join('\n');
+}
 
 export type PersonalNumerologyCore = {
   lifePath: number;
@@ -632,7 +647,9 @@ export async function createPersonalNumerologyFollowUp(params: {
   mode: PersonalNumerologyMode;
   readingText: string;
   question: string;
+  memorySnippet?: ProfileMemorySnippet | null;
 }): Promise<string> {
+  const relevantMemory = formatRelevantMemory(params.memorySnippet);
   const systemText = [
     `Sen ${params.assistantLabel} adlı falcısın.`,
     'Türkçe, sıcak, net ve kişiye özel konuş.',
@@ -643,10 +660,11 @@ export async function createPersonalNumerologyFollowUp(params: {
     `Profil: ${params.profileName}`,
     `Bölüm: ${params.mode}`,
     `Falcı kimliği: ${params.assistantId}`,
+    relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Önceki kişisel numeroloji yorumu:\n${params.readingText}`,
     `Kullanıcının sorusu:\n${params.question}`,
     'Yanıtı tek paragraf olarak ver. Kısa geçiştirme yapma; önce net yanıtı, sonra numeroloji bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver. Yaklaşık 120-170 token içinde tamamla.',
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
   const payload = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],

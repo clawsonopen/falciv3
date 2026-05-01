@@ -23,6 +23,40 @@ const DATA_FILE = `${DATA_DIR}account-state.json`;
 const MEMORY_DIR = `${DATA_DIR}profile-memories/`;
 const MAX_MEMORY_ITEMS = 10;
 const ASSISTANT_NAME_SET = new Set(['durdane hanim', 'hikmet bey', 'bahar hanim', 'mert bey', 'caner']);
+const SEMANTIC_STOP_WORDS = new Set([
+  'ben',
+  'beni',
+  'bana',
+  'benim',
+  'sen',
+  'sana',
+  'ne',
+  'mi',
+  'mı',
+  'mu',
+  'mü',
+  've',
+  'veya',
+  'ile',
+  'için',
+  'icin',
+  'bir',
+  'bu',
+  'şu',
+  'su',
+  'o',
+  'da',
+  'de',
+  'ki',
+  'çok',
+  'cok',
+  'nasıl',
+  'nasil',
+  'neden',
+  'acaba',
+  'olur',
+  'olacak',
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -980,6 +1014,38 @@ function containsKeyword(text: string, keyword: string): boolean {
   return tokens.includes(normalizedKeyword);
 }
 
+function observationSemanticText(item: MemoryObservation) {
+  return [
+    item.title,
+    item.summary,
+    item.category,
+    item.group,
+    item.subgroup,
+    item.detailGroup,
+    item.kind,
+    item.timeText || '',
+    item.placeText || '',
+    ...item.emotions,
+    ...item.entities.flatMap((entity) => [entity.label, entity.type, entity.relationship || '', entity.relationshipHint || '']),
+    ...item.entityRelations.flatMap((relation) => [relation.from, relation.to, relation.type, relation.summary]),
+  ].join(' ');
+}
+
+function observationSemanticScore(item: MemoryObservation, queryTokens: Set<string>) {
+  const observationTokens = new Set(
+    tokenize(observationSemanticText(item)).filter((token) => !SEMANTIC_STOP_WORDS.has(token)),
+  );
+  let overlap = 0;
+  queryTokens.forEach((token) => {
+    if (observationTokens.has(token)) overlap += 1;
+  });
+  if (!overlap) return 0;
+  const coverage = overlap / Math.max(1, queryTokens.size);
+  const density = overlap / Math.max(4, observationTokens.size);
+  const confidence = Math.min(1, Math.max(0.35, item.confidence || 0.5));
+  return coverage * 0.68 + density * 0.12 + confidence * 0.2;
+}
+
 function slugifyPersonId(value: string): string {
   return normalizeForMatching(value).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -1161,6 +1227,7 @@ export async function loadProfileMemoryBundle(
 export async function loadProfileMemorySnippet(
   state: AccountState,
   profileId: string,
+  options?: { semanticQuery?: string },
 ): Promise<ProfileMemorySnippet | null> {
   const profile = state.profiles.find((item) => item.profileId === profileId);
   if (!profile) return null;
@@ -1176,13 +1243,10 @@ export async function loadProfileMemorySnippet(
   const birth = profile.birth;
   const userObservations = bundle.userStated.observations.slice(0, MAX_MEMORY_ITEMS);
   const readingObservations = bundle.readingDerived.observations.slice(0, MAX_MEMORY_ITEMS);
-  const relevantObservations = [...userObservations, ...readingObservations]
-    .sort((a, b) => {
-      const confidenceDiff = b.confidence - a.confidence;
-      if (Math.abs(confidenceDiff) > 0.08) return confidenceDiff;
-      return b.lastSeenAt.localeCompare(a.lastSeenAt);
-    })
-    .slice(0, 8);
+  const relevantObservations = selectRelevantObservations(
+    [...userObservations, ...readingObservations],
+    options?.semanticQuery,
+  );
 
   return {
     profileName: profile.displayName,
@@ -1257,6 +1321,28 @@ export async function loadProfileMemorySnippet(
     readingCategoryCandidates: bundle.readingDerived.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
     relevantObservations,
   };
+}
+
+function selectRelevantObservations(observations: MemoryObservation[], semanticQuery?: string) {
+  const queryTokens = new Set(tokenize(semanticQuery || '').filter((token) => !SEMANTIC_STOP_WORDS.has(token)));
+  if (!queryTokens.size) {
+    return observations
+      .sort((a, b) => {
+        const confidenceDiff = b.confidence - a.confidence;
+        if (Math.abs(confidenceDiff) > 0.08) return confidenceDiff;
+        return b.lastSeenAt.localeCompare(a.lastSeenAt);
+      })
+      .slice(0, 8);
+  }
+  return observations
+    .map((item) => ({ item, score: observationSemanticScore(item, queryTokens) }))
+    .filter(({ score }) => score > 0)
+    .sort((a, b) => {
+      if (Math.abs(b.score - a.score) > 0.01) return b.score - a.score;
+      return b.item.lastSeenAt.localeCompare(a.item.lastSeenAt);
+    })
+    .slice(0, 8)
+    .map(({ item }) => item);
 }
 
 export async function appendUserConversationMemory(profileId: string, text: string): Promise<void> {

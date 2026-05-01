@@ -1,5 +1,5 @@
 import { AGENT_API_URL } from '../config/constants';
-import type { ProfileMemorySnippet } from '../types/memory';
+import type { MemoryCategoryCandidate, MemoryObservation, ProfileMemorySnippet } from '../types/memory';
 
 export interface MemoryAnalysisTranscriptEntry {
   role: 'user' | 'assistant';
@@ -20,11 +20,15 @@ export interface MemoryAnalysisResult {
     recurringTopics: MemoryAnalysisItem[];
     importantPeople: MemoryAnalysisItem[];
     emotionalPatterns: MemoryAnalysisItem[];
+    observations: MemoryObservation[];
+    categoryCandidates: MemoryCategoryCandidate[];
   };
   readingDerived: {
     recurringTopics: MemoryAnalysisItem[];
     importantPeople: MemoryAnalysisItem[];
     emotionalPatterns: MemoryAnalysisItem[];
+    observations: MemoryObservation[];
+    categoryCandidates: MemoryCategoryCandidate[];
   };
   usage: {
     inputTokens: number;
@@ -62,11 +66,15 @@ export async function analyzeMemoryTranscript(body: MemoryAnalysisRequest): Prom
       recurringTopics: data.userStated?.recurringTopics || [],
       importantPeople: data.userStated?.importantPeople || [],
       emotionalPatterns: data.userStated?.emotionalPatterns || [],
+      observations: data.userStated?.observations || [],
+      categoryCandidates: data.userStated?.categoryCandidates || [],
     },
     readingDerived: {
       recurringTopics: data.readingDerived?.recurringTopics || [],
       importantPeople: data.readingDerived?.importantPeople || [],
       emotionalPatterns: data.readingDerived?.emotionalPatterns || [],
+      observations: data.readingDerived?.observations || [],
+      categoryCandidates: data.readingDerived?.categoryCandidates || [],
     },
     usage: {
       inputTokens: Number(data.usage?.inputTokens || 0),

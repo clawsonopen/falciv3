@@ -85,6 +85,70 @@ export interface ProfilePatternMemory {
   confidence: number;
 }
 
+export type MemoryObservationKind =
+  | 'event'
+  | 'fact'
+  | 'person'
+  | 'emotion'
+  | 'state'
+  | 'question'
+  | 'decision'
+  | 'environment';
+
+export interface MemoryObservationEntity {
+  label: string;
+  type: 'person' | 'place' | 'work' | 'family' | 'body' | 'money' | 'concept' | 'environment' | 'other';
+  relationshipHint?: string;
+  profileId?: string;
+  relationship?: string;
+  gender?: ProfileGender | null;
+}
+
+export interface MemoryObservationRelation {
+  from: string;
+  to: string;
+  type: 'causes' | 'relates_to' | 'conflicts_with' | 'supports' | 'follows' | 'blocks' | 'affects' | 'mentions';
+  summary: string;
+  confidence: number;
+}
+
+export interface MemoryCategoryCandidate {
+  key: string;
+  group: string;
+  subgroup: string;
+  reason: string;
+  count: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  confidence: number;
+}
+
+export interface MemoryObservation {
+  id: string;
+  key: string;
+  source: 'user-stated' | 'reading-derived';
+  category: string;
+  group: string;
+  subgroup: string;
+  detailGroup?: string;
+  suggestedCategory?: {
+    group: string;
+    subgroup: string;
+    reason?: string;
+  };
+  kind: MemoryObservationKind;
+  title: string;
+  summary: string;
+  entities: MemoryObservationEntity[];
+  entityRelations: MemoryObservationRelation[];
+  emotions: string[];
+  timeText?: string | null;
+  placeText?: string | null;
+  mentionedAt: string;
+  lastSeenAt: string;
+  confidence: number;
+}
+
 export interface AssistantBondMemory {
   bondScore: number;
   notes: string[];
@@ -96,6 +160,8 @@ export interface BaseProfileMemoryFile {
   recurringTopics: ProfileTopicMemory[];
   importantPeople: ProfilePersonMemory[];
   emotionalPatterns: ProfilePatternMemory[];
+  observations: MemoryObservation[];
+  categoryCandidates: MemoryCategoryCandidate[];
   assistantAffinity: Record<string, AssistantBondMemory>;
   updatedAt: string;
 }
@@ -190,6 +256,8 @@ export interface ProfileMemorySnippet {
   }>;
   userStatedPeople: string[];
   userStatedPatterns: string[];
+  userObservations: MemoryObservation[];
+  userCategoryCandidates: MemoryCategoryCandidate[];
   readingTopics: string[];
   readingTopicGroups: Array<{
     key: string;
@@ -201,4 +269,7 @@ export interface ProfileMemorySnippet {
   }>;
   readingPeople: string[];
   readingPatterns: string[];
+  readingObservations: MemoryObservation[];
+  readingCategoryCandidates: MemoryCategoryCandidate[];
+  relevantObservations: MemoryObservation[];
 }

@@ -376,6 +376,7 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         reading_topic_groups = memory_snippet.get("readingTopicGroups") or []
         reading_people = memory_snippet.get("readingPeople") or []
         reading_patterns = memory_snippet.get("readingPatterns") or []
+        relevant_observations = memory_snippet.get("relevantObservations") or []
 
         if user_stated_topics:
             lines.append(
@@ -429,11 +430,57 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
             lines.append(
                 "- Önceki fallarda görülen kalıplar: " + ", ".join(reading_patterns[:3]) + "."
             )
+        if relevant_observations:
+            observation_lines = []
+            for item in relevant_observations[:8]:
+                if not isinstance(item, dict):
+                    continue
+                title = item.get("title")
+                summary = item.get("summary")
+                if not title or not summary:
+                    continue
+                source = "kullanıcı" if item.get("source") == "user-stated" else "fal"
+                category = item.get("group") or item.get("category") or "Genel"
+                subgroup = item.get("subgroup") or "Diğer konuşulanlar"
+                details = [f"{source}", f"{category} / {subgroup}", str(title), str(summary)]
+                if item.get("timeText"):
+                    details.append(f"zaman={item.get('timeText')}")
+                if item.get("placeText"):
+                    details.append(f"yer={item.get('placeText')}")
+                emotions = item.get("emotions") or []
+                if emotions:
+                    details.append("duygu=" + ", ".join(str(value) for value in emotions[:3]))
+                entities = item.get("entities") or []
+                linked_entities = []
+                for entity in entities[:4]:
+                    if isinstance(entity, dict) and entity.get("label"):
+                        suffix = ""
+                        if entity.get("relationship"):
+                            suffix += f"/{entity.get('relationship')}"
+                        if entity.get("gender"):
+                            suffix += f"/{entity.get('gender')}"
+                        linked_entities.append(f"{entity.get('label')}{suffix}")
+                if linked_entities:
+                    details.append("varlık=" + ", ".join(linked_entities))
+                relations = item.get("entityRelations") or []
+                if relations:
+                    relation_bits = []
+                    for relation in relations[:3]:
+                        if isinstance(relation, dict) and relation.get("from") and relation.get("to"):
+                            relation_bits.append(
+                                f"{relation.get('from')} -> {relation.get('to')}: {relation.get('summary') or relation.get('type')}"
+                            )
+                    if relation_bits:
+                        details.append("bağ=" + " / ".join(relation_bits))
+                observation_lines.append(" | ".join(details))
+            if observation_lines:
+                lines.append("- Akıllı seçilmiş olay/olgu hafızası: " + "; ".join(observation_lines) + ".")
 
         lines.extend(
             [
                 "- Bu hafızayı veri tabanı gibi değil, doğal bir tanışıklık hissi vermek için kullan.",
                 "- Sadece ilgiliyse hafızadan yararlan; aynı yanıtta 1-2 dokunuştan fazla yapma.",
+                "- Olay/olgu hafızasını yalnızca mevcut soruyla ilişkiliyse kullan; kullanıcının karşısına ham kayıt gibi dökme.",
             ]
         )
 

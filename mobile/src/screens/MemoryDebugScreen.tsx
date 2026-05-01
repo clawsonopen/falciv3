@@ -4,7 +4,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { loadAccountState, loadProfileMemoryBundle, loadProfileMemorySnippet } from '../services/profileMemoryService';
-import type { ProfileMemoryBundle, ProfileMemorySnippet, ProfilePatternMemory, ProfilePersonMemory, ProfileTopicMemory } from '../types/memory';
+import type {
+  MemoryCategoryCandidate,
+  MemoryObservation,
+  ProfileMemoryBundle,
+  ProfileMemorySnippet,
+  ProfilePatternMemory,
+  ProfilePersonMemory,
+  ProfileTopicMemory,
+} from '../types/memory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MemoryDebug'>;
 
@@ -32,6 +40,9 @@ function genderLabel(raw: string | null | undefined) {
 function chartPrecisionLabel(raw: string | null | undefined) {
   const map: Record<string, string> = {
     full: 'Doğum saati ve yeri var',
+    date_plus_place: 'Doğum tarihi ve yeri var',
+    date_only: 'Sadece doğum tarihi var',
+    unknown: 'Doğum bilgisi eksik',
     'date-only': 'Sadece doğum tarihi var',
     missing: 'Doğum bilgisi eksik',
   };
@@ -54,14 +65,21 @@ function renderTaxonomyMemory(
   topics: ProfileTopicMemory[],
   people: ProfilePersonMemory[],
   patterns: ProfilePatternMemory[],
+  observations: MemoryObservation[],
+  categoryCandidates: MemoryCategoryCandidate[],
 ) {
   const groups = new Map<string, ProfileTopicMemory[]>();
   for (const item of topics.slice(-10)) {
     const groupKey = `${item.group || 'Genel'} / ${item.subgroup || 'Diğer konuşulanlar'}`;
     groups.set(groupKey, [...(groups.get(groupKey) || []), item]);
   }
+  const observationsByGroup = new Map<string, MemoryObservation[]>();
+  for (const item of observations.slice(0, 10)) {
+    const groupKey = `${item.group || 'Genel'} / ${item.subgroup || 'Diğer konuşulanlar'}`;
+    observationsByGroup.set(groupKey, [...(observationsByGroup.get(groupKey) || []), item]);
+  }
 
-  const hasAnyMemory = topics.length > 0 || people.length > 0 || patterns.length > 0;
+  const hasAnyMemory = topics.length > 0 || people.length > 0 || patterns.length > 0 || observations.length > 0;
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -70,7 +88,8 @@ function renderTaxonomyMemory(
         const groupTopics = groups.get(groupKey) || [];
         const groupPeople = peopleForTaxonomy(people, taxonomy.group, taxonomy.subgroup).slice(0, 10);
         const groupPatterns = taxonomy.group === 'İç Dünya' ? patterns.slice(0, 10) : [];
-        const hasGroupMemory = groupTopics.length > 0 || groupPeople.length > 0 || groupPatterns.length > 0;
+        const groupObservations = observationsByGroup.get(groupKey) || [];
+        const hasGroupMemory = groupTopics.length > 0 || groupPeople.length > 0 || groupPatterns.length > 0 || groupObservations.length > 0;
         return (
           <View key={groupKey} style={styles.topicGroup}>
             <Text style={styles.groupTitle}>{groupKey}</Text>
@@ -89,6 +108,16 @@ function renderTaxonomyMemory(
                 {groupPatterns.map((item) => (
                   <Text key={`pattern-${item.key}`} style={styles.itemText}>Kalıp: {item.label}</Text>
                 ))}
+                {groupObservations.map((item) => (
+                  <Text key={`observation-${item.id}`} style={styles.itemText}>
+                    {observationKindLabel(item.kind)}: {item.title} - {item.summary}
+                    {item.timeText ? ` | Zaman: ${item.timeText}` : ''}
+                    {item.placeText ? ` | Yer: ${item.placeText}` : ''}
+                    {item.entities.length ? ` | Varlık: ${item.entities.map((entity) => `${entity.label}${entity.relationship ? `/${entity.relationship}` : ''}`).join(', ')}` : ''}
+                    {item.emotions.length ? ` | Duygu: ${item.emotions.join(', ')}` : ''}
+                    {item.entityRelations.length ? ` | Bağ: ${item.entityRelations.map((relation) => `${relation.from} -> ${relation.to}`).join(', ')}` : ''}
+                  </Text>
+                ))}
               </>
             ) : (
               <Text style={styles.emptyText}>Kayıt yok</Text>
@@ -97,8 +126,32 @@ function renderTaxonomyMemory(
         );
       })}
       {!hasAnyMemory ? <Text style={styles.emptyText}>Bu kaynakta henüz hafıza kaydı yok</Text> : null}
+      {categoryCandidates.length ? (
+        <View style={styles.topicGroup}>
+          <Text style={styles.groupTitle}>Önerilen yeni kategoriler</Text>
+          {categoryCandidates.map((item) => (
+            <Text key={item.key} style={styles.itemText}>
+              {item.group} / {item.subgroup} - {item.count} kez - {item.reason}
+            </Text>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
+}
+
+function observationKindLabel(kind: MemoryObservation['kind']) {
+  const map: Record<MemoryObservation['kind'], string> = {
+    event: 'Olay',
+    fact: 'Olgu',
+    person: 'Kişi',
+    emotion: 'Duygu',
+    state: 'Durum',
+    question: 'Soru',
+    decision: 'Karar',
+    environment: 'Çevre',
+  };
+  return map[kind] || 'Kayıt';
 }
 
 function relationLabel(raw: string) {
@@ -190,6 +243,8 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
               bundle.userStated.recurringTopics,
               bundle.userStated.importantPeople,
               bundle.userStated.emotionalPatterns,
+              bundle.userStated.observations,
+              bundle.userStated.categoryCandidates,
             )
           ) : (
             <Text style={styles.emptyText}>Yükleniyor...</Text>
@@ -204,6 +259,8 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
               bundle.readingDerived.recurringTopics,
               bundle.readingDerived.importantPeople,
               bundle.readingDerived.emotionalPatterns,
+              bundle.readingDerived.observations,
+              bundle.readingDerived.categoryCandidates,
             )
           ) : (
             <Text style={styles.emptyText}>Yükleniyor...</Text>

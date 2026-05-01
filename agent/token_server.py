@@ -633,6 +633,77 @@ def _analyze_memory_from_transcript(
     memory_snippet: dict | None,
     transcript: list[dict],
 ) -> tuple[dict, dict]:
+    observation_schema = {
+        "type": "object",
+        "properties": {
+            "key": {"type": "string"},
+            "category": {"type": "string"},
+            "group": {"type": "string"},
+            "subgroup": {"type": "string"},
+            "detailGroup": {"type": "string"},
+            "suggestedCategory": {
+                "type": "object",
+                "properties": {
+                    "group": {"type": "string"},
+                    "subgroup": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+            "kind": {
+                "type": "string",
+                "enum": ["event", "fact", "person", "emotion", "state", "question", "decision", "environment"],
+            },
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string"},
+                        "relationshipHint": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": ["person", "place", "work", "family", "body", "money", "concept", "environment", "other"],
+                        },
+                    },
+                    "required": ["label", "type"],
+                },
+            },
+            "entityRelations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "from": {"type": "string"},
+                        "to": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": ["causes", "relates_to", "conflicts_with", "supports", "follows", "blocks", "affects", "mentions"],
+                        },
+                        "summary": {"type": "string"},
+                        "confidence": {"type": "number"},
+                    },
+                    "required": ["from", "to", "type", "summary", "confidence"],
+                },
+            },
+            "emotions": {"type": "array", "items": {"type": "string"}},
+            "timeText": {"type": "string"},
+            "placeText": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["key", "category", "group", "subgroup", "kind", "title", "summary", "entities", "entityRelations", "emotions", "confidence"],
+    }
+    category_candidate_schema = {
+        "type": "object",
+        "properties": {
+            "group": {"type": "string"},
+            "subgroup": {"type": "string"},
+            "reason": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["group", "subgroup", "reason", "confidence"],
+    }
     schema = {
         "type": "object",
         "properties": {
@@ -676,8 +747,10 @@ def _analyze_memory_from_transcript(
                             "required": ["key", "label", "confidence"],
                         },
                     },
+                    "observations": {"type": "array", "items": observation_schema},
+                    "categoryCandidates": {"type": "array", "items": category_candidate_schema},
                 },
-                "required": ["recurringTopics", "importantPeople", "emotionalPatterns"],
+                "required": ["recurringTopics", "importantPeople", "emotionalPatterns", "observations", "categoryCandidates"],
             },
             "readingDerived": {
                 "type": "object",
@@ -719,8 +792,10 @@ def _analyze_memory_from_transcript(
                             "required": ["key", "label", "confidence"],
                         },
                     },
+                    "observations": {"type": "array", "items": observation_schema},
+                    "categoryCandidates": {"type": "array", "items": category_candidate_schema},
                 },
-                "required": ["recurringTopics", "importantPeople", "emotionalPatterns"],
+                "required": ["recurringTopics", "importantPeople", "emotionalPatterns", "observations", "categoryCandidates"],
             },
         },
         "required": ["userStated", "readingDerived"],
@@ -776,6 +851,16 @@ def _analyze_memory_from_transcript(
             "- key alanlarını kısa ve slug gibi üret.",
             "- Tüm label ve relationship alanları yalnızca Türkçe olsun.",
             "- English kelime kullanma (örnek: mother, father, partner yerine annesi, babası, sevgilisi).",
+            "- Mevcut ana taksonomi: İlişkiler / Romantik bağlar; İlişkiler / Aile ve yakın çevre; İlişkiler / Arkadaşlık ve sosyal çevre; İş ve Para / Kariyer; İş ve Para / Finans; İç Dünya / Ruh hali ve beden; Yaşam Düzeni / Değişim ve planlar; Genel / Diğer konuşulanlar.",
+            "- observations için olay, olgu, kişi, duygu, durum, zaman, yer, karar veya çevresel bağlam gibi spesifik kayıtları çıkar.",
+            "- observations.kind alanı event/fact/person/emotion/state/question/decision/environment değerlerinden biri olsun.",
+            "- observations içinde who/what/when/where/how sinyallerini entities, timeText, placeText, emotions ve summary alanlarına yerleştir.",
+            "- İki entity, olay, kişi, duygu, yer veya zaman arasında açık ilişki varsa entityRelations alanına yaz; ilişki açık değilse uydurma.",
+            "- Türkçede anne/baba kayınvalide veya kayınpeder için de kullanılabilir; bu yüzden entities.relationshipHint alanına açık ilişki ipucunu yaz ve emin değilsen biyolojik ebeveyn varsayma.",
+            "- Bir observation mevcut ana taksonomiye sığıyorsa group/subgroup alanlarını mevcut taksonomiden seç.",
+            "- category alanına group ile aynı ana kategori adını yaz.",
+            "- Gerçekten sığmıyorsa group='Genel', subgroup='Diğer konuşulanlar' yap ve suggestedCategory alanında yeni grup öner.",
+            "- categoryCandidates yalnızca mevcut taksonomiye sıkışmayan tekrar etmeye değer yeni kategori önerileri için dolsun.",
             *subject_context,
             "## USER TRANSCRIPT",
             *user_lines[:40],

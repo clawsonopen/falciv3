@@ -3,6 +3,8 @@ import type {
   AccountState,
   BirthInfo,
   ChartPrecision,
+  MemoryCategoryCandidate,
+  MemoryObservation,
   ProfileGender,
   ProfileMemoryBundle,
   ProfileMemorySnippet,
@@ -89,6 +91,8 @@ function emptyUserStatedMemory(profileId: string, accountId: string): UserStated
     recurringTopics: [],
     importantPeople: [],
     emotionalPatterns: [],
+    observations: [],
+    categoryCandidates: [],
     assistantAffinity: {},
     updatedAt: nowIso(),
   };
@@ -102,6 +106,8 @@ function emptyReadingDerivedMemory(profileId: string, accountId: string): Readin
     recurringTopics: [],
     importantPeople: [],
     emotionalPatterns: [],
+    observations: [],
+    categoryCandidates: [],
     assistantAffinity: {},
     updatedAt: nowIso(),
   };
@@ -160,6 +166,18 @@ async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
 
 async function writeJsonFile(path: string, value: unknown) {
   await FileSystem.writeAsStringAsync(path, JSON.stringify(value, null, 2));
+}
+
+function withMemoryDefaults<T extends UserStatedMemoryFile | ReadingDerivedMemoryFile>(memory: T): T {
+  return {
+    ...memory,
+    recurringTopics: memory.recurringTopics || [],
+    importantPeople: memory.importantPeople || [],
+    emotionalPatterns: memory.emotionalPatterns || [],
+    observations: memory.observations || [],
+    categoryCandidates: memory.categoryCandidates || [],
+    assistantAffinity: memory.assistantAffinity || {},
+  };
 }
 
 function topicGroupFor(key: string, label: string) {
@@ -291,6 +309,155 @@ function mergePatternMemory(
     });
   }
   return next.slice(-MAX_MEMORY_ITEMS);
+}
+
+function categoryCandidateKey(group: string, subgroup: string) {
+  return normalizeForMatching(`${group}-${subgroup}`) || makeId('category');
+}
+
+function normalizeObservationKind(value: string | undefined): MemoryObservation['kind'] {
+  const allowed: MemoryObservation['kind'][] = [
+    'event',
+    'fact',
+    'person',
+    'emotion',
+    'state',
+    'question',
+    'decision',
+    'environment',
+  ];
+  return allowed.includes(value as MemoryObservation['kind']) ? (value as MemoryObservation['kind']) : 'fact';
+}
+
+function profileForEntity(entity: { label?: string; type?: string }, profiles: SubjectProfile[] = []) {
+  const normalizedLabel = normalizeForMatching(entity.label || '');
+  const normalizedRelationshipHint = normalizeForMatching((entity as { relationshipHint?: string; relationship?: string }).relationshipHint || (entity as { relationship?: string }).relationship || '');
+  if (!normalizedLabel) return null;
+  const ambiguousKinship = new Set(['anne', 'annem', 'baba', 'babam']);
+  for (const profile of profiles) {
+    const nameAliases = [profile.displayName].map(normalizeForMatching);
+    if (nameAliases.some((alias) => alias && alias === normalizedLabel)) {
+      return profile;
+    }
+    const relationAliases = [
+      relationshipLabel(profile),
+      ownerToProfileRelationship(profile),
+      profile.relationshipFreeform || '',
+    ].map(normalizeForMatching);
+    const hasRelationHint = normalizedRelationshipHint && relationAliases.some((alias) => alias && alias === normalizedRelationshipHint);
+    const canUseGenericKinship = !ambiguousKinship.has(normalizedLabel) || Boolean(hasRelationHint);
+    if (canUseGenericKinship && relationAliases.some((alias) => alias && alias === normalizedLabel)) return profile;
+    if (hasRelationHint) return profile;
+  }
+  return null;
+}
+
+function mergeCategoryCandidates(
+  current: MemoryCategoryCandidate[] = [],
+  incoming: Array<{ group?: string; subgroup?: string; reason?: string; confidence?: number }> = [],
+) {
+  const next = [...current];
+  const seen = new Set<string>();
+  for (const item of incoming) {
+    const group = (item.group || '').trim();
+    const subgroup = (item.subgroup || '').trim();
+    if (!group || !subgroup) continue;
+    const key = categoryCandidateKey(group, subgroup);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const existingIndex = next.findIndex((entry) => entry.key === key);
+    const prev = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      key,
+      group,
+      subgroup,
+      reason: (item.reason || prev?.reason || 'Mevcut taksonomiye tam oturmayan tekrar eden tema.').trim(),
+      count: (prev?.count || 0) + 1,
+      firstSeenAt: prev?.firstSeenAt || nowIso(),
+      lastSeenAt: nowIso(),
+      confidence: Math.min(0.98, Math.max(prev?.confidence || 0.45, Number(item.confidence || 0.62))),
+    });
+  }
+  return next
+    .sort((a, b) => b.count - a.count || b.lastSeenAt.localeCompare(a.lastSeenAt))
+    .slice(0, MAX_MEMORY_ITEMS);
+}
+
+function mergeObservationMemory(
+  current: MemoryObservation[] = [],
+  incoming: Array<Partial<MemoryObservation> & { key?: string; title?: string; summary?: string }> = [],
+  source: MemoryObservation['source'],
+  profiles: SubjectProfile[] = [],
+) {
+  const next = [...current];
+  for (const item of incoming) {
+    const title = (item.title || '').trim();
+    const summary = (item.summary || '').trim();
+    if (!title || !summary) continue;
+    const key = (item.key || normalizeForMatching(`${title} ${summary}`) || makeId('observation')).trim();
+    const fallback = topicGroupFor(key, `${title} ${summary}`);
+    const existingIndex = next.findIndex((entry) => entry.key === key);
+    const prev = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    const suggestedCategory = item.suggestedCategory?.group && item.suggestedCategory?.subgroup
+      ? {
+          group: item.suggestedCategory.group.trim(),
+          subgroup: item.suggestedCategory.subgroup.trim(),
+          reason: item.suggestedCategory.reason?.trim(),
+        }
+      : undefined;
+    next.push({
+      id: prev?.id || makeId('obs'),
+      key,
+      source,
+      category: ((item as { category?: string }).category || item.group || prev?.category || prev?.group || fallback.group).trim(),
+      group: ((item as { category?: string }).category || item.group || prev?.group || fallback.group).trim(),
+      subgroup: (item.subgroup || prev?.subgroup || fallback.subgroup).trim(),
+      detailGroup: (item.detailGroup || prev?.detailGroup || fallback.detailGroup)?.trim(),
+      suggestedCategory,
+      kind: normalizeObservationKind(item.kind),
+      title,
+      summary,
+      entities: Array.isArray(item.entities)
+        ? item.entities
+            .filter((entity) => entity?.label)
+            .slice(0, 6)
+            .map((entity) => {
+              const profileHit = profileForEntity(entity, profiles);
+              return {
+                label: profileHit ? profileHit.displayName : String(entity.label).trim(),
+                type: entity.type || 'other',
+                relationshipHint: entity.relationshipHint,
+                profileId: profileHit?.profileId,
+                relationship: profileHit ? ownerToProfileRelationship(profileHit) : entity.relationship,
+                gender: profileHit?.gender ?? entity.gender,
+              };
+            })
+        : [],
+      entityRelations: Array.isArray(item.entityRelations)
+        ? item.entityRelations
+            .filter((relation) => relation?.from && relation?.to && relation?.summary)
+            .slice(0, 6)
+            .map((relation) => ({
+              from: String(relation.from).trim(),
+              to: String(relation.to).trim(),
+              type: relation.type || 'relates_to',
+              summary: String(relation.summary).trim(),
+              confidence: Math.min(0.98, Math.max(0.35, Number(relation.confidence || 0.62))),
+            }))
+        : [],
+      emotions: Array.isArray(item.emotions) ? item.emotions.filter(Boolean).map(String).slice(0, 6) : [],
+      timeText: item.timeText || null,
+      placeText: item.placeText || null,
+      mentionedAt: prev?.mentionedAt || item.mentionedAt || nowIso(),
+      lastSeenAt: nowIso(),
+      confidence: Math.min(0.98, Math.max(prev?.confidence || 0.45, Number(item.confidence || 0.68))),
+    });
+  }
+  return next
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+    .slice(0, MAX_MEMORY_ITEMS);
 }
 export async function loadAccountState(): Promise<AccountState> {
   await ensureBaseDirs();
@@ -977,7 +1144,7 @@ export async function loadProfileMemoryBundle(
     ),
   ]);
 
-  return { userStated, readingDerived };
+  return { userStated: withMemoryDefaults(userStated), readingDerived: withMemoryDefaults(readingDerived) };
 }
 
 export async function loadProfileMemorySnippet(
@@ -996,6 +1163,15 @@ export async function loadProfileMemorySnippet(
     state.profiles,
   ).slice(0, 5);
   const birth = profile.birth;
+  const userObservations = bundle.userStated.observations.slice(0, MAX_MEMORY_ITEMS);
+  const readingObservations = bundle.readingDerived.observations.slice(0, MAX_MEMORY_ITEMS);
+  const relevantObservations = [...userObservations, ...readingObservations]
+    .sort((a, b) => {
+      const confidenceDiff = b.confidence - a.confidence;
+      if (Math.abs(confidenceDiff) > 0.08) return confidenceDiff;
+      return b.lastSeenAt.localeCompare(a.lastSeenAt);
+    })
+    .slice(0, 8);
 
   return {
     profileName: profile.displayName,
@@ -1048,6 +1224,8 @@ export async function loadProfileMemorySnippet(
       })),
     userStatedPeople: userPeople.map((item) => item.label).slice(0, 3),
     userStatedPatterns: bundle.userStated.emotionalPatterns.map((item) => item.label).slice(0, 3),
+    userObservations,
+    userCategoryCandidates: bundle.userStated.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
     readingTopics: bundle.readingDerived.recurringTopics.map((item) => item.label).slice(0, 3),
     readingTopicGroups: bundle.readingDerived.recurringTopics
       .slice(-10)
@@ -1064,6 +1242,9 @@ export async function loadProfileMemorySnippet(
       }),
     readingPeople: readingPeople.map((item) => item.label).slice(0, 3),
     readingPatterns: bundle.readingDerived.emotionalPatterns.map((item) => item.label).slice(0, 3),
+    readingObservations,
+    readingCategoryCandidates: bundle.readingDerived.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
+    relevantObservations,
   };
 }
 
@@ -1096,32 +1277,54 @@ export async function applyMemoryAnalysisResult(
     readingMemoryFile(profileId),
     emptyReadingDerivedMemory(profileId, state.accountId),
   );
+  const safeUserMemory = withMemoryDefaults(currentUserMemory);
+  const safeReadingMemory = withMemoryDefaults(currentReadingMemory);
 
   const nextUserMemory: UserStatedMemoryFile = {
-    ...currentUserMemory,
-    recurringTopics: mergeTopicMemory(currentUserMemory.recurringTopics, result.userStated.recurringTopics || []),
-    importantPeople: mergePeopleMemory(currentUserMemory.importantPeople, result.userStated.importantPeople || [], state.profiles),
+    ...safeUserMemory,
+    recurringTopics: mergeTopicMemory(safeUserMemory.recurringTopics, result.userStated.recurringTopics || []),
+    importantPeople: mergePeopleMemory(safeUserMemory.importantPeople, result.userStated.importantPeople || [], state.profiles),
     emotionalPatterns: mergePatternMemory(
-      currentUserMemory.emotionalPatterns,
+      safeUserMemory.emotionalPatterns,
       result.userStated.emotionalPatterns || [],
+    ),
+    observations: mergeObservationMemory(
+      safeUserMemory.observations,
+      result.userStated.observations || [],
+      'user-stated',
+      state.profiles,
+    ),
+    categoryCandidates: mergeCategoryCandidates(
+      safeUserMemory.categoryCandidates,
+      result.userStated.categoryCandidates || [],
     ),
     updatedAt: nowIso(),
   };
 
   const nextReadingMemory: ReadingDerivedMemoryFile = {
-    ...currentReadingMemory,
+    ...safeReadingMemory,
     recurringTopics: mergeTopicMemory(
-      currentReadingMemory.recurringTopics,
+      safeReadingMemory.recurringTopics,
       result.readingDerived.recurringTopics || [],
     ),
     importantPeople: mergePeopleMemory(
-      currentReadingMemory.importantPeople,
+      safeReadingMemory.importantPeople,
       result.readingDerived.importantPeople || [],
       state.profiles,
     ),
     emotionalPatterns: mergePatternMemory(
-      currentReadingMemory.emotionalPatterns,
+      safeReadingMemory.emotionalPatterns,
       result.readingDerived.emotionalPatterns || [],
+    ),
+    observations: mergeObservationMemory(
+      safeReadingMemory.observations,
+      result.readingDerived.observations || [],
+      'reading-derived',
+      state.profiles,
+    ),
+    categoryCandidates: mergeCategoryCandidates(
+      safeReadingMemory.categoryCandidates,
+      result.readingDerived.categoryCandidates || [],
     ),
     updatedAt: nowIso(),
   };

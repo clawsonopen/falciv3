@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
@@ -228,6 +228,11 @@ export function PersonalAstroReadingScreen({ route }: Props) {
 
   const handleQuestionRecordStart = useCallback(async () => {
     if (isRecordingQuestion || !text) return;
+    if (speechMode === 'playing') {
+      speechRunRef.current += 1;
+      stopAssistantSpeech();
+      setSpeechMode('paused');
+    }
     questionBaseRef.current = questionText.replace(/\s+/g, ' ').trim();
     resetNativeTranscript();
     setIsRecordingQuestion(true);
@@ -245,7 +250,7 @@ export function PersonalAstroReadingScreen({ route }: Props) {
         message: err?.message || 'Sesli yazma başlatılamadı.',
       });
     }
-  }, [isRecordingQuestion, mergeQuestionTranscript, questionText, text]);
+  }, [isRecordingQuestion, mergeQuestionTranscript, questionText, speechMode, text]);
 
   const handleQuestionRecordStop = useCallback(async () => {
     if (!isRecordingQuestion) return;
@@ -256,6 +261,11 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   }, [isRecordingQuestion, mergeQuestionTranscript]);
 
   return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+    >
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
         <View style={styles.panel}>
@@ -311,6 +321,14 @@ export function PersonalAstroReadingScreen({ route }: Props) {
                 <Text style={styles.chatText}>{message.text}</Text>
               </View>
             ))}
+            <View style={styles.quickActions}>
+              <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
+                <Text style={styles.secondaryActionText}>{speechMode === 'playing' ? 'Duraklat' : 'Telefon Okusun'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.secondaryAction, styles.disabledAction]} disabled>
+                <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
+              </TouchableOpacity>
+            </View>
             <TextInput
               style={styles.questionInput}
               value={questionText}
@@ -335,14 +353,6 @@ export function PersonalAstroReadingScreen({ route }: Props) {
                 <Text style={styles.primaryActionText}>{isSendingQuestion ? 'Soruluyor...' : 'Sor'}</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.quickActions}>
-              <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
-                <Text style={styles.secondaryActionText}>{speechMode === 'playing' ? 'Duraklat' : 'Telefon Okusun'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.secondaryAction, styles.disabledAction]} disabled>
-                <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         ) : null}
       </ScrollView>
@@ -357,6 +367,7 @@ export function PersonalAstroReadingScreen({ route }: Props) {
         onCancel={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
       />
     </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -404,6 +415,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     padding: 12,
+    marginTop: 10,
     textAlignVertical: 'top',
   },
   quickActions: { flexDirection: 'row', gap: 10, marginTop: 10 },

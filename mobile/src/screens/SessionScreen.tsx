@@ -203,25 +203,19 @@ export function SessionScreen({ route, navigation }: Props) {
   }, [state.messages]);
 
   const isTurnLocked =
-    state.isAiSpeaking || isAssistantSpeaking() || isReading || Boolean(pendingTurnMessageId);
-  const hasPausedUnreadTurn = Boolean(pendingTurnMessageId) && isReadPaused;
-  const isHoldToTalkDisabled =
-    state.isAiSpeaking ||
-    isAssistantSpeaking() ||
-    isReading ||
-    (Boolean(pendingTurnMessageId) && !holdToTalkUnlocked && !hasPausedUnreadTurn);
+    state.isAiSpeaking || isAssistantSpeaking() || isReading;
+  const isHoldToTalkDisabled = state.isAiSpeaking;
 
   const handleStartRecording = async () => {
-    if (!holdToTalkUnlocked && hasPausedUnreadTurn && !isRecording) {
-      setPauseWarningVisible(true);
+    if (state.isAiSpeaking && !isRecording) {
+      Alert.alert('Sıralı Akış', 'Yanıt hazırlanırken konuşma başlatılamaz. Birazdan tekrar dene.');
       return;
     }
-    if (
-      (state.isAiSpeaking || isAssistantSpeaking() || isReading || (Boolean(pendingTurnMessageId) && !holdToTalkUnlocked)) &&
-      !isRecording
-    ) {
-      Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan konuşma başlatılamaz. Önce mesajı oku veya Okudum de.');
-      return;
+    if ((isAssistantSpeaking() || isReading) && !isRecording) {
+      stopAssistantSpeech();
+      setIsReading(false);
+      setIsReadPaused(true);
+      setHoldToTalkUnlocked(true);
     }
     try {
       setSttHint('');
@@ -588,19 +582,6 @@ export function SessionScreen({ route, navigation }: Props) {
           ))}
         </ScrollView>
 
-        <View style={styles.turnAckRow}>
-          <TouchableOpacity
-            style={[
-              styles.squareButton,
-              styles.turnAckButton,
-              !pendingTurnMessageId && styles.squareButtonDisabled,
-            ]}
-            onPress={handleMarkTurnRead}
-            disabled={!pendingTurnMessageId}
-          >
-            <Text style={styles.squareButtonText}>Okundu, Tamam</Text>
-          </TouchableOpacity>
-        </View>
         <View style={styles.holdCountdownRow}>
           <Text style={styles.holdCountdownText}>
             Basılı tut konuş süresi: {remainingSeconds} sn
@@ -609,6 +590,21 @@ export function SessionScreen({ route, navigation }: Props) {
 
         <View style={styles.footer}>
           <Text style={styles.footerTitle}>Sorunu Sor</Text>
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={[
+                styles.secondaryAction,
+                (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
+              ]}
+              onPress={handleToggleRead}
+              disabled={!pendingTurnMessageId || state.isAiSpeaking}
+            >
+              <Text style={styles.secondaryActionText}>{readButtonLabel}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.secondaryAction, styles.readControlDisabled]} disabled>
+              <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
             style={styles.questionInput}
             activeOpacity={0.88}
@@ -646,21 +642,6 @@ export function SessionScreen({ route, navigation }: Props) {
               <Text style={styles.primaryActionText}>Sor</Text>
             </TouchableOpacity>
           </View>
-          <View style={styles.quickActions}>
-            <TouchableOpacity
-              style={[
-                styles.secondaryAction,
-                (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
-              ]}
-              onPress={handleToggleRead}
-              disabled={!pendingTurnMessageId || state.isAiSpeaking}
-            >
-              <Text style={styles.secondaryActionText}>{readButtonLabel}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.secondaryAction, styles.readControlDisabled]} disabled>
-              <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
-            </TouchableOpacity>
-          </View>
           <Text style={styles.limitInfoText}>Bu tur için ses limitin: {MAX_HOLD_TO_TALK_SECONDS} sn</Text>
           {!!sttHint ? <Text style={styles.sttHint}>{sttHint}</Text> : null}
           <TouchableOpacity style={styles.endButton} onPress={() => void persistReadingAndEnd()}>
@@ -696,7 +677,11 @@ export function SessionScreen({ route, navigation }: Props) {
           statusBarTranslucent
           onRequestClose={() => setEditorVisible(false)}
         >
-          <KeyboardAvoidingView style={styles.editorOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <KeyboardAvoidingView
+            style={styles.editorOverlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+          >
             <View style={styles.editorCard}>
               <Text style={styles.editorTitle}>Sorunu Düzenle</Text>
               <TextInput
@@ -1057,9 +1042,10 @@ const styles = StyleSheet.create({
   },
   editorOverlay: {
     flex: 1,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingTop: 52,
+    paddingTop: 20,
+    paddingBottom: 20,
     paddingHorizontal: 10,
   },
   editorCard: {
@@ -1068,7 +1054,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(212,165,116,0.28)',
     padding: 14,
-    maxHeight: '58%',
+    maxHeight: '82%',
   },
   editorTitle: {
     color: '#E8C49A',

@@ -564,7 +564,7 @@ export function SessionScreen({ route, navigation }: Props) {
             <Text style={styles.readControlButtonText}>{readButtonLabel}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.readControlButton, styles.readControlDisabled]} disabled>
-            <Text style={styles.readControlButtonText}>[x] Okusun</Text>
+            <Text style={styles.readControlButtonText}>{assistantLabel} Okusun</Text>
           </TouchableOpacity>
         </View>
 

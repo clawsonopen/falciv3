@@ -69,8 +69,22 @@ export function PersonalProfileSelectScreen({ navigation, route }: Props) {
               );
             })}
           </ScrollView>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => setConfirmVisible(true)} disabled={!selectedProfile}>
-            <Text style={styles.primaryButtonText}>Evet - Devam</Text>
+          {!profiles.length ? (
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('ProfileSettings')}>
+              <Text style={styles.secondaryButtonText}>Profil Oluştur</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.primaryButton, !selectedProfile && styles.primaryButtonDisabled]}
+            onPress={() => {
+              if (!selectedProfile) {
+                navigation.navigate('ProfileSettings');
+                return;
+              }
+              setConfirmVisible(true);
+            }}
+          >
+            <Text style={styles.primaryButtonText}>{selectedProfile ? 'Evet - Devam' : 'Profil Ayarlarına Git'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -127,6 +141,15 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  primaryButtonDisabled: { opacity: 0.72 },
   primaryButtonText: { color: '#14141E', fontSize: 14, fontWeight: '800' },
+  secondaryButton: {
+    marginTop: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.45)',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  secondaryButtonText: { color: '#E8C49A', fontSize: 14, fontWeight: '800' },
 });
-

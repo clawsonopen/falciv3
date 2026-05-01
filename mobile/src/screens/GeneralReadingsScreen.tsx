@@ -27,7 +27,7 @@ import MagicSphereCard from '../components/MagicSphereCard';
 import InspirationCard from '../components/InspirationCard';
 import TarotReadingCard from '../components/TarotReadingCard';
 import IChingCard from '../components/IChingCard';
-import { APP_NAME } from '../config/constants';
+import { APP_NAME, DEFAULT_DEV_SETTINGS } from '../config/constants';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import type { AngelCard, AngelNumber } from '../data/divinationData';
 import GeneralAstroCard from '../components/GeneralAstroCard';
@@ -85,6 +85,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
     message: '',
     title: APP_NAME,
   });
+  const [infoAction, setInfoAction] = useState<'profile' | 'personalAstro' | null>(null);
   const [speechMode, setSpeechMode] = useState<'hidden' | 'idle' | 'playing' | 'paused'>('hidden');
   const [tarotReveal, setTarotReveal] = useState<{
     cardName: string;
@@ -134,8 +135,21 @@ export function GeneralReadingsScreen({ navigation }: Props) {
     setMagicBallReveal(null);
     setInspirationReveal(null);
     setAstroReveal(null);
+    setInfoAction(null);
     setInfoModal((prev) => ({ ...prev, visible: false, message: '', title: APP_NAME }));
   }, [stopSpeechAndReset]);
+
+  const handleInfoExtraAction = useCallback(() => {
+    const action = infoAction;
+    closeInfoModal();
+    if (action === 'profile') {
+      navigation.navigate('ProfileSettings');
+      return;
+    }
+    if (action === 'personalAstro') {
+      navigation.navigate('PersonalReadings', { devSettings: DEFAULT_DEV_SETTINGS });
+    }
+  }, [closeInfoModal, infoAction, navigation]);
 
   const loadProfiles = useCallback(async () => {
     const state = await loadAccountState();
@@ -267,10 +281,11 @@ export function GeneralReadingsScreen({ navigation }: Props) {
   const runGeneralReading = useCallback(
     async (item: GeneralReadingItem) => {
       if (!selectedProfile) {
+        setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Önce bir profil seçmelisin.',
+          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
         });
         setSpeechMode('hidden');
         return;
@@ -302,6 +317,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
             throw new Error('Genel astro şu an hazırlanamadı. Lütfen birazdan tekrar dene.');
           }
           setAstroReveal({ title: item.title, text: result.text });
+          setInfoAction('personalAstro');
           setTarotReveal(null);
           setRuneReveal(null);
           setIChingReveal(null);
@@ -313,6 +329,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
           setMagicBallReveal(null);
           setInspirationReveal(null);
         } else {
+          setInfoAction(null);
           setAstroReveal(null);
           const divinationType = item.id as GeneralDivinationType;
           result = await createDailyGeneralReading({
@@ -444,6 +461,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
           title: retryMessage?.title || APP_NAME,
           message: retryMessage?.message || err?.message || 'Şu an metin üretilemedi, lütfen tekrar dene.',
         });
+        setInfoAction(null);
         setSpeechMode('hidden');
       } finally {
         setIsGenerating(false);
@@ -455,10 +473,11 @@ export function GeneralReadingsScreen({ navigation }: Props) {
   const handleGeneralReadingPress = useCallback(
     (item: GeneralReadingItem) => {
       if (!selectedProfile) {
+        setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Önce bir profil seçmelisin.',
+          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
         });
         setSpeechMode('hidden');
         return;
@@ -575,6 +594,14 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         hideMessageText={!!tarotReveal || !!angelReveal || !!angelNumberReveal || !!affirmationReveal || !!numerologyReveal || !!runeReveal || !!fortuneCookieReveal || !!magicBallReveal || !!iChingReveal || !!inspirationReveal || !!astroReveal}
         confirmLabel="Tamam"
         cancelLabel={null}
+        extraActionLabel={
+          infoAction === 'profile'
+            ? 'Profil Ayarları'
+            : infoAction === 'personalAstro'
+              ? 'Kişiye Özel'
+              : null
+        }
+        onExtraAction={infoAction ? handleInfoExtraAction : undefined}
         speechMode={speechMode}
         onSpeechStart={() => {
           const progress = getAssistantSpeechProgress();

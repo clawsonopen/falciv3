@@ -54,6 +54,17 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
     message: '',
     title: APP_NAME,
   });
+  const [infoAction, setInfoAction] = useState<'profile' | null>(null);
+
+  const closeInfoModal = useCallback(() => {
+    setInfoAction(null);
+    setInfoModal({ visible: false, message: '', title: APP_NAME });
+  }, []);
+
+  const handleInfoExtraAction = useCallback(() => {
+    closeInfoModal();
+    navigation.navigate('ProfileSettings');
+  }, [closeInfoModal, navigation]);
 
   const loadProfiles = useCallback(async () => {
     const state = await loadAccountState();
@@ -136,15 +147,17 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
   const handleTypePress = useCallback(
     (item: ReadingTypeItem) => {
       if (!selectedProfile) {
+        setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Önce bir profil seçmelisin.',
+          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
         });
         return;
       }
 
       if (!item.currentlyAvailable) {
+        setInfoAction(null);
         setInfoModal({
           visible: true,
           title: 'Yakında',
@@ -155,6 +168,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
 
       if (item.id === 'birth-chart') {
         if (!hasRequiredAstroBirthInputs(selectedProfile)) {
+          setInfoAction('profile');
           setInfoModal({
             visible: true,
             title: 'Profil Bilgisi Gerekli',
@@ -170,6 +184,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
       }
 
       if (item.id === 'astro-personal' && !hasRequiredAstroBirthInputs(selectedProfile)) {
+        setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: 'Profil Bilgisi Gerekli',
@@ -180,6 +195,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
       }
 
       if (item.id === 'numerology-personal' && !hasRequiredNumerologyInputs(selectedProfile)) {
+        setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: 'Profil Bilgisi Gerekli',
@@ -191,7 +207,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
       setPendingType(item);
       setConfirmVisible(true);
     },
-    [selectedProfile],
+    [navigation, selectedProfile],
   );
 
   return (
@@ -275,8 +291,10 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         message={infoModal.message}
         confirmLabel="Tamam"
         cancelLabel="Kapat"
-        onConfirm={() => setInfoModal({ visible: false, message: '', title: APP_NAME })}
-        onCancel={() => setInfoModal({ visible: false, message: '', title: APP_NAME })}
+        extraActionLabel={infoAction === 'profile' ? 'Profil Ayarları' : null}
+        onExtraAction={infoAction === 'profile' ? handleInfoExtraAction : undefined}
+        onConfirm={closeInfoModal}
+        onCancel={closeInfoModal}
       />
     </SafeAreaView>
   );

@@ -767,6 +767,39 @@ export async function createPersonalAstroReading(params: {
   }
 }
 
+export async function createPersonalAstroFollowUp(params: {
+  profileName: string;
+  assistantId: string;
+  assistantLabel: string;
+  period: AstroPeriod;
+  readingText: string;
+  question: string;
+}): Promise<string> {
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı falcısın.`,
+    'Türkçe, sıcak, net ve kişiye özel konuş.',
+    'Cevabı yalnızca daha önce üretilmiş kişisel astroloji yorumu ve kullanıcının sorusu üzerinden ver.',
+    'Yeni uzun doğum haritası üretme; tekrar eden cümleler kurma.',
+  ].join(' ');
+  const userText = [
+    `Profil: ${params.profileName}`,
+    `Dönem: ${params.period}`,
+    `Falcı kimliği: ${params.assistantId}`,
+    `Önceki kişisel astroloji yorumu:\n${params.readingText}`,
+    `Kullanıcının sorusu:\n${params.question}`,
+    'Yanıtı 2-4 kısa paragrafla ver. Her paragraf yeni bilgi taşısın.',
+  ].join('\n\n');
+  const data = await generateGeminiTextDirect({
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.68,
+      maxOutputTokens: 520,
+    },
+  });
+  return repairMojibakeTurkish(data.text);
+}
+
 export async function createGeneralAstroReading(params: {
   period: Exclude<AstroPeriod, 'yearly'>;
   profile: SubjectProfile;

@@ -16,6 +16,8 @@ type Props = {
   onSpeechResume?: () => void;
   topContent?: React.ReactNode;
   hideMessageText?: boolean;
+  extraActionLabel?: string | null;
+  onExtraAction?: () => void;
 };
 
 export function BrandedConfirmModal({
@@ -32,6 +34,8 @@ export function BrandedConfirmModal({
   onSpeechResume,
   topContent,
   hideMessageText = false,
+  extraActionLabel = null,
+  onExtraAction,
 }: Props) {
   const insets = useSafeAreaInsets();
 
@@ -71,6 +75,11 @@ export function BrandedConfirmModal({
             {cancelLabel ? (
               <TouchableOpacity style={styles.secondaryButton} onPress={onCancel}>
                 <Text style={styles.secondaryButtonText}>{cancelLabel}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {extraActionLabel && onExtraAction ? (
+              <TouchableOpacity style={styles.secondaryButton} onPress={onExtraAction}>
+                <Text style={styles.secondaryButtonText}>{extraActionLabel}</Text>
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity style={styles.primaryButton} onPress={onConfirm}>
@@ -142,6 +151,7 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
   },
   secondaryButton: {

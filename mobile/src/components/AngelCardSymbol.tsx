@@ -16,7 +16,7 @@ import Svg, {
 } from 'react-native-svg';
 import { AngelCard } from '../data/divinationData';
 
-const AnimatedG = Animated.createAnimatedComponent(G);
+const AnimatedG = Animated.createAnimatedComponent(G) as any;
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
 interface AngelCardSymbolProps {

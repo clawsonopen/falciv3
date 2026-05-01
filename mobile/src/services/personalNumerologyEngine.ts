@@ -624,3 +624,36 @@ export async function createPersonalNumerologyReading(params: {
   }
   return fallback;
 }
+
+export async function createPersonalNumerologyFollowUp(params: {
+  profileName: string;
+  assistantId: string;
+  assistantLabel: string;
+  mode: PersonalNumerologyMode;
+  readingText: string;
+  question: string;
+}): Promise<string> {
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı falcısın.`,
+    'Türkçe, sıcak, net ve kişiye özel konuş.',
+    'Cevabı yalnızca daha önce üretilmiş kişisel numeroloji yorumu ve kullanıcının sorusu üzerinden ver.',
+    'Yeni tam numeroloji haritası üretme; tekrar eden cümleler kurma.',
+  ].join(' ');
+  const userText = [
+    `Profil: ${params.profileName}`,
+    `Bölüm: ${params.mode}`,
+    `Falcı kimliği: ${params.assistantId}`,
+    `Önceki kişisel numeroloji yorumu:\n${params.readingText}`,
+    `Kullanıcının sorusu:\n${params.question}`,
+    'Yanıtı 2-4 kısa paragrafla ver. Her paragraf yeni bilgi taşısın.',
+  ].join('\n\n');
+  const payload = await generateGeminiTextDirect({
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.68,
+      maxOutputTokens: 520,
+    },
+  });
+  return payload.text;
+}

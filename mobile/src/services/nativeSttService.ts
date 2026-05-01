@@ -36,11 +36,37 @@ function buildCombinedTranscript(): string {
   return normalize(parts.join(' '));
 }
 
+function finalizedText(): string {
+  return normalize(finalizedSegments.join(' '));
+}
+
+function liveTextFromRecognizer(text: string): string {
+  const normalized = normalize(text);
+  const finalized = finalizedText();
+  if (!finalized) return normalized;
+  if (normalized === finalized || finalized.endsWith(normalized)) return '';
+  if (normalized.startsWith(finalized)) return normalize(normalized.slice(finalized.length));
+  return normalized;
+}
+
 function pushFinalizedSegment(text: string): void {
   const normalized = normalize(text);
   if (!normalized) return;
+  const finalized = finalizedText();
+  if (finalized) {
+    if (normalized === finalized || finalized.endsWith(normalized)) return;
+    if (normalized.startsWith(finalized)) {
+      const rest = normalize(normalized.slice(finalized.length));
+      if (rest) finalizedSegments.push(rest);
+      return;
+    }
+  }
   const lastFinal = finalizedSegments[finalizedSegments.length - 1];
   if (normalized === lastFinal) return;
+  if (lastFinal && normalized.startsWith(lastFinal)) {
+    finalizedSegments[finalizedSegments.length - 1] = normalized;
+    return;
+  }
   finalizedSegments.push(normalized);
 }
 
@@ -78,18 +104,14 @@ export async function startNativeRecording(
     }
 
     subscriptions.push(
-      ExpoSpeechRecognitionModule.addListener('result', (event) => {
+      ExpoSpeechRecognitionModule.addListener('result', (event: any) => {
         const text = normalize(event.results?.[0]?.transcript ?? '');
         if (!text || /^\[.*\]$/.test(text)) return;
         if (event.isFinal) {
           pushFinalizedSegment(text);
           liveSegment = '';
         } else {
-          if (liveSegment && text !== liveSegment) {
-            const growsForward = text.startsWith(liveSegment);
-            if (!growsForward) pushFinalizedSegment(liveSegment);
-          }
-          liveSegment = text;
+          liveSegment = liveTextFromRecognizer(text);
         }
         latestTranscript = buildCombinedTranscript();
         onTranscribe(latestTranscript);
@@ -97,7 +119,7 @@ export async function startNativeRecording(
     );
 
     subscriptions.push(
-      ExpoSpeechRecognitionModule.addListener('error', (event) => {
+      ExpoSpeechRecognitionModule.addListener('error', (event: any) => {
         console.warn('Native STT hatası:', event.error, event.message);
         if (event.error === 'no-speech' && liveSegment) {
           pushFinalizedSegment(liveSegment);
@@ -149,4 +171,3 @@ export async function stopNativeRecording(): Promise<void> {
   finalizedSegments = [];
   liveSegment = '';
 }
-

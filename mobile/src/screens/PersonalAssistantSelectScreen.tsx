@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -12,9 +12,14 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   const defaultAssistantId = useMemo(() => {
     if (readingType === 'astro-personal') return 'bahar-hanim';
     if (readingType === 'numerology-personal') return 'mert-bey';
+    if (readingType === 'palm') return 'hikmet-bey';
     return AVAILABLE_ASSISTANTS[0].id;
   }, [readingType]);
   const [selectedAssistantId, setSelectedAssistantId] = useState<string>(defaultAssistantId);
+
+  useEffect(() => {
+    setSelectedAssistantId(defaultAssistantId);
+  }, [defaultAssistantId]);
 
   const selectedReadingLabel = useMemo(() => {
     if (readingType === 'coffee') return 'Kahve Falı';

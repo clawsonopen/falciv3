@@ -36,6 +36,7 @@ import {
 import { getAssistantLabel } from '../config/constants';
 import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
 import { applyMemoryAnalysisResult, appendReadingSummary } from '../services/profileMemoryService';
+import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import {
   failMemoryAnalysisEstimate,
   settleMemoryAnalysisUsage,
@@ -56,6 +57,10 @@ function visibleStartupError(raw?: string | null) {
   )
     ? PHOTO_RETRY_MESSAGE
     : text;
+}
+
+function retryKindForSession(config: Props['route']['params']['config']) {
+  return config.readingType === 'palm' ? 'palm' : 'coffee';
 }
 
 export function SessionScreen({ route, navigation }: Props) {
@@ -95,7 +100,7 @@ export function SessionScreen({ route, navigation }: Props) {
     visible: false,
     message: '',
   });
-  const [startupError, setStartupError] = useState<string | null>(null);
+  const [startupError, setStartupError] = useState<{ title: string; message: string; isRetry?: boolean } | null>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -121,7 +126,12 @@ export function SessionScreen({ route, navigation }: Props) {
       })
       .catch((err) => {
         if (isCancelled) return;
-        setStartupError(visibleStartupError(err?.message));
+        const retryMessage = isRetryableLlmError(err) ? getRetryLaterMessage(retryKindForSession(config), config.profileId) : null;
+        setStartupError({
+          title: retryMessage?.title || 'Fotoğrafı bir daha seçelim',
+          message: retryMessage?.message || visibleStartupError(err?.message),
+          isRetry: Boolean(retryMessage),
+        });
       });
 
     return () => {
@@ -278,9 +288,12 @@ export function SessionScreen({ route, navigation }: Props) {
       (err) => ({ ok: false as const, err }),
     );
     if (!sendResult.ok) {
+      const retryMessage = isRetryableLlmError(sendResult.err)
+        ? getRetryLaterMessage(retryKindForSession(config), `${config.profileId}-${Date.now()}`)
+        : null;
       setSendErrorModal({
         visible: true,
-        message: sendResult.err?.message || 'Mesaj gönderilemedi canım, bir daha deneyelim.',
+        message: retryMessage?.message || sendResult.err?.message || 'Mesaj gönderilemedi canım, bir daha deneyelim.',
       });
       return;
     }
@@ -419,12 +432,14 @@ export function SessionScreen({ route, navigation }: Props) {
       <SafeAreaView style={styles.errorSafeArea} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.errorCard}>
           <Text style={styles.errorBrand}>{APP_NAME}</Text>
-          <Text style={styles.errorTitle}>Fotoğrafı bir daha seçelim</Text>
-          <Text style={styles.errorText}>{startupError}</Text>
-          <Text style={styles.errorWarning}>
-            Her yanlış yüklenen görsel kredi hesabına dahil edilir. Bu denemeler bir sonraki falın açılışına da not
-            düşülür.
-          </Text>
+          <Text style={styles.errorTitle}>{startupError.title}</Text>
+          <Text style={styles.errorText}>{startupError.message}</Text>
+          {!startupError.isRetry ? (
+            <Text style={styles.errorWarning}>
+              Her yanlış yüklenen görsel kredi hesabına dahil edilir. Bu denemeler bir sonraki falın açılışına da not
+              düşülür.
+            </Text>
+          ) : null}
           <TouchableOpacity style={styles.errorButton} onPress={() => navigation.goBack()}>
             <Text style={styles.errorButtonText}>Geri Dön</Text>
           </TouchableOpacity>

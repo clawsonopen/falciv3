@@ -5,9 +5,11 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { getAssistantLabel } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
-import { loadAccountState } from '../services/profileMemoryService';
+import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
+import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import {
   createPersonalAstroReading,
+  formatTimezoneForDisplay,
   hasRequiredAstroBirthInputs,
   type AstroPeriod,
 } from '../services/astroEngine';
@@ -15,13 +17,29 @@ import { APP_NAME } from '../config/constants';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalAstroReading'>;
 
+const PERIOD_LABELS: Record<AstroPeriod, string> = {
+  daily: 'Günlük',
+  weekly: 'Haftalık',
+  monthly: 'Aylık',
+  yearly: 'Yıllık',
+};
+
+function compactSummary(text: string) {
+  return text.replace(/\s+/g, ' ').trim().slice(0, 420);
+}
+
+function themeFromReading(period: AstroPeriod, sign: string, risingSign?: string | null) {
+  const periodLabel = PERIOD_LABELS[period].toLocaleLowerCase('tr-TR');
+  return `${periodLabel} kişisel astro: ${sign}${risingSign ? `, yükselen ${risingSign}` : ''}`;
+}
+
 export function PersonalAstroReadingScreen({ route }: Props) {
   const { profileId, assistantId } = route.params;
   const insets = useSafeAreaInsets();
-  const [period, setPeriod] = useState<AstroPeriod>('daily');
-  const [isLoading, setIsLoading] = useState(true);
+  const [period, setPeriod] = useState<AstroPeriod | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [text, setText] = useState('');
-  const [meta, setMeta] = useState<{ sign: string; timezone: string } | null>(null);
+  const [meta, setMeta] = useState<{ sign: string; risingSign?: string | null; timezone: string; precisionNote?: string } | null>(null);
   const [infoModal, setInfoModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
     title: APP_NAME,
@@ -31,6 +49,11 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
 
   const loadReading = useCallback(async () => {
+    if (!period) {
+      setText('');
+      setMeta(null);
+      return;
+    }
     setIsLoading(true);
     try {
       const state = await loadAccountState();
@@ -63,12 +86,32 @@ export function PersonalAstroReadingScreen({ route }: Props) {
         assistantLabel,
       });
       setText(reading.text);
-      setMeta({ sign: reading.sign, timezone: reading.timezoneUsed });
+      setMeta({
+        sign: reading.sign,
+        risingSign: reading.risingSign,
+        timezone: reading.timezoneUsed,
+        precisionNote: reading.precisionNote,
+      });
+      if (!reading.cached) {
+        const theme = themeFromReading(period, reading.sign, reading.risingSign);
+        await appendReadingSummary({
+          profileId,
+          assistantId,
+          readingType: 'personal-astro',
+          period,
+          surfacesRead: [],
+          summary: compactSummary(reading.text),
+          transcript: [{ role: 'assistant', text: reading.text, timestamp: Date.now() }],
+        });
+        await appendReadingDerivedTheme(profileId, theme, `personal-astro-${period}-${reading.periodKey}`);
+      }
     } catch (err: any) {
+      const retryLater = isRetryableLlmError(err);
+      const retryMessage = retryLater ? getRetryLaterMessage('personal-astro', `${profileId}-${period}`) : null;
       setInfoModal({
         visible: true,
-        title: APP_NAME,
-        message: err?.message || 'Kişiye özel astro yorumu üretilemedi.',
+        title: retryMessage?.title || APP_NAME,
+        message: retryMessage?.message || err?.message || 'Kişiye özel astro yorumu üretilemedi.',
       });
       setText('');
     } finally {
@@ -77,8 +120,9 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   }, [assistantId, assistantLabel, period, profileId]);
 
   useEffect(() => {
-    void loadReading();
-  }, [loadReading]);
+    setText('');
+    setMeta(null);
+  }, [period]);
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
@@ -87,29 +131,41 @@ export function PersonalAstroReadingScreen({ route }: Props) {
           <Text style={styles.title}>Kişiye Özel Astroloji</Text>
           <Text style={styles.helper}>Falcı: {assistantLabel}</Text>
           <View style={styles.periodRow}>
-            {(['daily', 'weekly', 'monthly'] as AstroPeriod[]).map((item) => {
+            {(['daily', 'weekly', 'monthly', 'yearly'] as AstroPeriod[]).map((item) => {
               const selected = period === item;
-              const label = item === 'daily' ? 'Günlük' : item === 'weekly' ? 'Haftalık' : 'Aylık';
               return (
                 <TouchableOpacity
                   key={item}
                   style={[styles.periodButton, selected && styles.periodButtonSelected]}
                   onPress={() => setPeriod(item)}
                 >
-                  <Text style={[styles.periodButtonText, selected && styles.periodButtonTextSelected]}>{label}</Text>
+                  <Text style={[styles.periodButtonText, selected && styles.periodButtonTextSelected]}>
+                    {PERIOD_LABELS[item]}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
           </View>
           <TouchableOpacity style={styles.refreshButton} onPress={() => void loadReading()}>
-            <Text style={styles.refreshButtonText}>Yorumu Yenile</Text>
+            <Text style={styles.refreshButtonText}>{period ? 'Yorumu Hazırla' : 'Önce Dönem Seç'}</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Yorum</Text>
-          {isLoading ? <Text style={styles.loading}>Hazırlanıyor...</Text> : <Text style={styles.readingText}>{text}</Text>}
-          {meta ? <Text style={styles.meta}>Burç: {meta.sign} | Timezone: {meta.timezone}</Text> : null}
+          {isLoading ? (
+            <Text style={styles.loading}>Hazırlanıyor...</Text>
+          ) : text ? (
+            <Text style={styles.readingText}>{text}</Text>
+          ) : (
+            <Text style={styles.loading}>Günlük, haftalık, aylık veya yıllık dönem seçip yorumu hazırlayabilirsin.</Text>
+          )}
+          {meta ? (
+            <Text style={styles.meta}>
+              Güneş: {meta.sign} | Yükselen: {meta.risingSign || 'Doğum saati gerekli'} | Zaman dilimi: {formatTimezoneForDisplay(meta.timezone)}
+            </Text>
+          ) : null}
+          {meta?.precisionNote ? <Text style={styles.precisionNote}>{meta.precisionNote}</Text> : null}
         </View>
       </ScrollView>
 
@@ -143,9 +199,11 @@ const styles = StyleSheet.create({
   loading: { color: '#FFF5E8', fontSize: 14 },
   readingText: { color: '#FFF5E8', fontSize: 14, lineHeight: 22 },
   meta: { marginTop: 12, color: 'rgba(212,165,116,0.8)', fontSize: 12 },
-  periodRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  precisionNote: { marginTop: 8, color: 'rgba(255,255,255,0.58)', fontSize: 12, lineHeight: 18 },
+  periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   periodButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '22%',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.3)',

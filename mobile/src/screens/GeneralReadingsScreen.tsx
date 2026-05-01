@@ -24,9 +24,11 @@ import AffirmationCard from '../components/AffirmationCard';
 import RuneCard from '../components/RuneCard';
 import FortuneCookieCard from '../components/FortuneCookieCard';
 import MagicSphereCard from '../components/MagicSphereCard';
+import InspirationCard from '../components/InspirationCard';
 import TarotReadingCard from '../components/TarotReadingCard';
 import IChingCard from '../components/IChingCard';
 import { APP_NAME } from '../config/constants';
+import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import type { AngelCard, AngelNumber } from '../data/divinationData';
 import GeneralAstroCard from '../components/GeneralAstroCard';
 
@@ -276,6 +278,17 @@ export function GeneralReadingsScreen({ navigation }: Props) {
 
       if (isGenerating) return;
       setIsGenerating(true);
+      setTarotReveal(null);
+      setRuneReveal(null);
+      setIChingReveal(null);
+      setAngelReveal(null);
+      setAngelNumberReveal(null);
+      setAffirmationReveal(null);
+      setNumerologyReveal(null);
+      setFortuneCookieReveal(null);
+      setMagicBallReveal(null);
+      setInspirationReveal(null);
+      setAstroReveal(null);
       try {
         const isAstro = item.id === 'astro-daily' || item.id === 'astro-weekly' || item.id === 'astro-monthly';
         let result;
@@ -378,6 +391,18 @@ export function GeneralReadingsScreen({ navigation }: Props) {
             setTarotReveal(null);
             setRuneReveal(null);
             setIChingReveal(null);
+            setInspirationReveal(null);
+          } else if (divinationType === 'magic-ball' && result.meta?.magicBall) {
+            setMagicBallReveal(result.meta.magicBall);
+            setFortuneCookieReveal(null);
+            setNumerologyReveal(null);
+            setAffirmationReveal(null);
+            setAngelNumberReveal(null);
+            setAngelReveal(null);
+            setTarotReveal(null);
+            setRuneReveal(null);
+            setIChingReveal(null);
+            setInspirationReveal(null);
           } else if (divinationType === 'daily-quote') {
             setInspirationReveal(result.text);
             setMagicBallReveal(null);
@@ -413,10 +438,11 @@ export function GeneralReadingsScreen({ navigation }: Props) {
       } catch (err: any) {
         setTarotReveal(null);
         setAstroReveal(null);
+        const retryMessage = isRetryableLlmError(err) ? getRetryLaterMessage('general-astro', item.id) : null;
         setInfoModal({
           visible: true,
-          title: APP_NAME,
-          message: err?.message || 'Şu an metin üretilemedi, lütfen tekrar dene.',
+          title: retryMessage?.title || APP_NAME,
+          message: retryMessage?.message || err?.message || 'Şu an metin üretilemedi, lütfen tekrar dene.',
         });
         setSpeechMode('hidden');
       } finally {

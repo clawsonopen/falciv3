@@ -77,7 +77,7 @@ function todayIsoDate() {
 }
 
 export async function fetchGeneralAstroFromBackend(params: {
-  period: AstroPeriod;
+  period: Exclude<AstroPeriod, 'yearly'>;
   profile: SubjectProfile;
 }): Promise<AstroReadingResult | null> {
   const sign = deriveSign(params.profile);
@@ -95,14 +95,20 @@ export async function fetchGeneralAstroFromBackend(params: {
       signal: controller.signal,
     });
     const data = (await response.json().catch(() => ({}))) as GeneralAstroResponse;
-    if (!response.ok || !data?.text) return null;
+    if (!response.ok) {
+      const error = new Error(data.error || 'Genel astro hazırlanamadı.') as Error & { status?: number };
+      error.status = response.status;
+      throw error;
+    }
+    if (!data?.text) return null;
     return {
       text: data.text,
       sign: SIGN_TR[sign],
       timezoneUsed: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Istanbul',
       periodKey: data.periodKey || todayIsoDate(),
     };
-  } catch {
+  } catch (err: any) {
+    if (err?.status) throw err;
     return null;
   } finally {
     clearTimeout(timeout);

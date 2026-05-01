@@ -7,6 +7,7 @@ import { APP_NAME, DEFAULT_DEV_SETTINGS } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
 import { hasRequiredAstroBirthInputs } from '../services/astroEngine';
+import { hasRequiredNumerologyInputs } from '../services/personalNumerologyEngine';
 import type { SubjectProfile } from '../types/memory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalReadings'>;
@@ -114,7 +115,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         id: 'numerology-personal',
         title: 'Kişiye Özel Numeroloji',
         shortTitle: 'Numeroloji',
-        currentlyAvailable: false,
+        currentlyAvailable: true,
       },
       {
         id: 'angel-personal',
@@ -174,6 +175,15 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
           title: 'Profil Bilgisi Gerekli',
           message:
             'Kişiye özel astro için bu profilde doğum tarihi + doğum ülkesi + doğum şehri olmalı. Profil Ayarları ekranından tamamlayabilirsin.',
+        });
+        return;
+      }
+
+      if (item.id === 'numerology-personal' && !hasRequiredNumerologyInputs(selectedProfile)) {
+        setInfoModal({
+          visible: true,
+          title: 'Profil Bilgisi Gerekli',
+          message: 'Kişisel numeroloji için profil adı ve doğum tarihi olmalı. Profil Ayarları ekranından tamamlayabilirsin.',
         });
         return;
       }

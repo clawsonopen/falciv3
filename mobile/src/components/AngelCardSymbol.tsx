@@ -52,7 +52,7 @@ const AngelCardSymbol: React.FC<AngelCardSymbolProps> = ({
   return (
     <View style={[styles.container, { width, height }]}>
       <ImageBackground 
-        source={require('../../assets/angel_bg.png')} 
+        source={require('../../assets/angel_bg.jpg')} 
         style={styles.backgroundImage}
         imageStyle={{ borderRadius: 20 }}
       >

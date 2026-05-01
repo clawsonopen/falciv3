@@ -72,7 +72,7 @@ const GeneralAstroCard: React.FC<GeneralAstroCardProps> = ({
   return (
     <View style={[styles.container, { width, height }]}>
       <ImageBackground 
-        source={require('../../assets/cosmic_astrology_bg.png')} 
+        source={require('../../assets/cosmic_astrology_bg.jpg')} 
         style={styles.backgroundImage}
         imageStyle={{ borderRadius: 10 }}
       >

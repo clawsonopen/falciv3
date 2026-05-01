@@ -22,7 +22,7 @@ const RuneCard: React.FC<RuneCardProps> = ({
   return (
     <View style={[styles.container, { width, height }]}>
       <ImageBackground 
-        source={require('../../assets/stone_bg.png')} 
+        source={require('../../assets/stone_bg.jpg')} 
         style={styles.backgroundImage}
         imageStyle={{ borderRadius: 20 }}
       >

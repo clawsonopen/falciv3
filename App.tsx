@@ -19,6 +19,9 @@ import { PersonalProfileSelectScreen } from './src/screens/PersonalProfileSelect
 import { PersonalReadingTypeSelectScreen } from './src/screens/PersonalReadingTypeSelectScreen';
 import { PersonalAssistantSelectScreen } from './src/screens/PersonalAssistantSelectScreen';
 import { PersonalReadingSetupScreen } from './src/screens/PersonalReadingSetupScreen';
+import { PersonalAstroReadingScreen } from './src/screens/PersonalAstroReadingScreen';
+import { PersonalBirthChartScreen } from './src/screens/PersonalBirthChartScreen';
+import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerologyReadingScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
 import type { ReadingSummary } from './src/types/memory';
@@ -51,6 +54,9 @@ export type RootStackParamList = {
         preselectedDevSettings?: DevSettings;
       }
     | undefined;
+  PersonalAstroReading: { profileId: string; assistantId: string };
+  PersonalBirthChart: { profileId: string };
+  PersonalNumerologyReading: { profileId: string; assistantId: string };
   Session: { config: SessionConfig };
   History: { profileId: string; profileName: string };
   MemoryDebug: { profileId: string; profileName: string };
@@ -96,6 +102,21 @@ export default function App() {
             options={{ title: 'Profil Ayarları ve Fal Akışı' }}
           />
           <Stack.Screen
+            name="PersonalAstroReading"
+            component={PersonalAstroReadingScreen}
+            options={{ title: 'Kişiye Özel Astroloji' }}
+          />
+          <Stack.Screen
+            name="PersonalBirthChart"
+            component={PersonalBirthChartScreen}
+            options={{ title: 'Doğum Haritası' }}
+          />
+          <Stack.Screen
+            name="PersonalNumerologyReading"
+            component={PersonalNumerologyReadingScreen}
+            options={{ title: 'Kişiye Özel Numeroloji' }}
+          />
+          <Stack.Screen
             name="Session"
             component={SessionScreen}
             options={{ title: APP_NAME, headerBackVisible: false }}
@@ -108,4 +129,3 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
-

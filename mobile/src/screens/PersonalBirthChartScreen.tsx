@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
-import { createBirthChartSnapshot, hasRequiredAstroBirthInputs } from '../services/astroEngine';
-import { loadAccountState } from '../services/profileMemoryService';
+import { createBirthChartSnapshot, formatTimezoneForDisplay, hasRequiredAstroBirthInputs, type BirthChartSnapshot } from '../services/astroEngine';
+import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalBirthChart'>;
@@ -16,11 +17,13 @@ export function PersonalBirthChartScreen({ route }: Props) {
     loading: boolean;
     title: string;
     lines: string[];
+    chart: BirthChartSnapshot | null;
     modal: { visible: boolean; title: string; message: string };
   }>({
     loading: true,
     title: '',
     lines: [],
+    chart: null,
     modal: { visible: false, title: '', message: '' },
   });
 
@@ -56,18 +59,42 @@ export function PersonalBirthChartScreen({ route }: Props) {
           return;
         }
 
-        const chart = createBirthChartSnapshot(profile);
+        const chart = await createBirthChartSnapshot(profile);
         const lines = [
           `Güneş Burcu: ${chart.sign}`,
-          `Yükselen: ${chart.ascendant}`,
-          `Baskın Ev: ${chart.dominantHouse}. ev`,
+          `Yükselen: ${chart.ascendant || 'Doğum saati gerekli'}`,
+          chart.dominantHouse ? `Baskın Ev: ${chart.dominantHouse}. ev` : 'Baskın Ev: Doğum saati gerekli',
+          `Zaman dilimi: ${formatTimezoneForDisplay(chart.timezoneUsed)}`,
           '',
           'Gezegen Konumları:',
-          ...chart.planets.map((p) => `${p.name}: ${p.sign} ${p.degree}°${p.retrograde ? ' (R)' : ''}`),
+          ...chart.planets.map((p) => {
+            const houseText = p.house ? `, ${p.house}. ev` : ', ev için doğum saati gerekli';
+            return `${p.name}: ${p.sign} ${p.degree.toFixed(1)}°${houseText}${p.retrograde ? ' (R)' : ''}`;
+          }),
+          '',
+          'Ana Açılar:',
+          ...(chart.aspects.length
+            ? chart.aspects.map((a) => `${a.planetA} - ${a.planetB}: ${a.type} (${a.orb.toFixed(1)}° orb)`)
+            : ['Belirgin ana açı bulunamadı.']),
           '',
           'Transit ve Gökyüzü Notları:',
           ...chart.transitNotes.map((note) => `- ${note}`),
         ];
+        if (!chart.cached) {
+          await appendReadingSummary({
+            profileId,
+            assistantId: 'bahar-hanim',
+            readingType: 'birth-chart',
+            surfacesRead: [],
+            summary: lines.filter(Boolean).slice(0, 14).join('\n'),
+            transcript: [{ role: 'assistant', text: lines.filter(Boolean).join('\n'), timestamp: Date.now() }],
+          });
+          await appendReadingDerivedTheme(
+            profileId,
+            `doğum haritası: ${chart.sign}${chart.ascendant ? `, yükselen ${chart.ascendant}` : ''}`,
+            `birth-chart-${profileId}`,
+          );
+        }
 
         if (!cancelled) {
           setState((prev) => ({
@@ -75,6 +102,7 @@ export function PersonalBirthChartScreen({ route }: Props) {
             loading: false,
             title: `${profile.displayName} - Doğum Haritası`,
             lines,
+            chart,
           }));
         }
       } catch (err: any) {
@@ -92,35 +120,12 @@ export function PersonalBirthChartScreen({ route }: Props) {
     };
   }, [profileId]);
 
-  const wheelLabels = useMemo(
-    () => ['Koç', 'Boğa', 'İkizler', 'Yengeç', 'Aslan', 'Başak', 'Terazi', 'Akrep', 'Yay', 'Oğlak', 'Kova', 'Balık'],
-    [],
-  );
-
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
         <View style={styles.panel}>
           <Text style={styles.title}>{state.title || 'Doğum Haritası'}</Text>
-          <View style={styles.wheel}>
-            {wheelLabels.map((label, index) => (
-              <Text
-                key={label}
-                style={[
-                  styles.wheelLabel,
-                  {
-                    transform: [
-                      { rotate: `${index * 30}deg` },
-                      { translateY: -98 },
-                      { rotate: `${-index * 30}deg` },
-                    ],
-                  },
-                ]}
-              >
-                {label}
-              </Text>
-            ))}
-          </View>
+          <BirthChartWheel chart={state.chart} />
         </View>
 
         <View style={styles.panel}>
@@ -149,6 +154,80 @@ export function PersonalBirthChartScreen({ route }: Props) {
   );
 }
 
+const SIGN_LABELS = ['Koç', 'Boğa', 'İkizler', 'Yengeç', 'Aslan', 'Başak', 'Terazi', 'Akrep', 'Yay', 'Oğlak', 'Kova', 'Balık'];
+const PLANET_SYMBOLS: Record<string, string> = {
+  Güneş: '☉',
+  Ay: '☽',
+  Merkür: '☿',
+  Venüs: '♀',
+  Mars: '♂',
+  Jüpiter: '♃',
+  Satürn: '♄',
+  Uranüs: '♅',
+  Neptün: '♆',
+  Plüton: '♇',
+};
+
+function point(cx: number, cy: number, radius: number, longitude: number) {
+  const angle = ((longitude - 90) * Math.PI) / 180;
+  return { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) };
+}
+
+function BirthChartWheel({ chart }: { chart: BirthChartSnapshot | null }) {
+  const size = 280;
+  const cx = size / 2;
+  const cy = size / 2;
+  const outer = 126;
+  const signRadius = 111;
+  const planetRadius = 82;
+
+  return (
+    <View style={styles.wheel}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle cx={cx} cy={cy} r={outer} stroke="rgba(212,165,116,0.58)" strokeWidth={1.4} fill="rgba(0,0,0,0.16)" />
+        <Circle cx={cx} cy={cy} r={96} stroke="rgba(255,255,255,0.16)" strokeWidth={1} fill="none" />
+        <Circle cx={cx} cy={cy} r={58} stroke="rgba(212,165,116,0.24)" strokeWidth={1} fill="none" />
+        {SIGN_LABELS.map((label, index) => {
+          const line = point(cx, cy, outer, index * 30);
+          const text = point(cx, cy, signRadius, index * 30 + 15);
+          return (
+            <G key={label}>
+              <Line x1={cx} y1={cy} x2={line.x} y2={line.y} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+              <SvgText x={text.x} y={text.y} fill="#E8C49A" fontSize="9" fontWeight="700" textAnchor="middle">
+                {label}
+              </SvgText>
+            </G>
+          );
+        })}
+        {chart?.planets.map((planet, index) => {
+          const offset = (index % 3) * 8;
+          const pos = point(cx, cy, planetRadius - offset, planet.longitude);
+          const lineStart = point(cx, cy, 60, planet.longitude);
+          const symbol = PLANET_SYMBOLS[planet.name] || planet.name.slice(0, 2);
+          return (
+            <G key={`${planet.name}-${index}`}>
+              <Line x1={lineStart.x} y1={lineStart.y} x2={pos.x} y2={pos.y} stroke="rgba(246,195,139,0.34)" strokeWidth={1} />
+              <Circle cx={pos.x} cy={pos.y} r={11} fill="rgba(20,20,30,0.94)" stroke="#D4A574" strokeWidth={1} />
+              <SvgText x={pos.x} y={pos.y + 4} fill="#FFF5E8" fontSize="12" fontWeight="700" textAnchor="middle">
+                {symbol}
+              </SvgText>
+            </G>
+          );
+        })}
+        {!chart?.ascendant ? (
+          <SvgText x={cx} y={cy + 4} fill="rgba(255,255,255,0.62)" fontSize="10" textAnchor="middle">
+            Evler için doğum saati gerekli
+          </SvgText>
+        ) : (
+          <SvgText x={cx} y={cy + 4} fill="#F6C38B" fontSize="11" fontWeight="700" textAnchor="middle">
+            ASC {chart.ascendant}
+          </SvgText>
+        )}
+      </Svg>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#14141E' },
   content: { padding: 16 },
@@ -164,19 +243,8 @@ const styles = StyleSheet.create({
   text: { color: '#FFF5E8', fontSize: 13, lineHeight: 20, marginBottom: 2 },
   bullet: { color: '#F6C38B', fontSize: 13, lineHeight: 20, marginBottom: 2 },
   wheel: {
-    height: 240,
+    height: 300,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 120,
-    borderWidth: 1,
-    borderColor: 'rgba(212,165,116,0.4)',
-    backgroundColor: 'rgba(0,0,0,0.18)',
-    overflow: 'hidden',
-  },
-  wheelLabel: {
-    position: 'absolute',
-    color: '#E8C49A',
-    fontSize: 11,
-    fontWeight: '700',
   },
 });

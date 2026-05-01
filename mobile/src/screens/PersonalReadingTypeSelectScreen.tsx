@@ -37,7 +37,7 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
         id: 'astro-personal',
         title: 'Astroloji',
         description: 'Doğum haritası ve profil bazlı periyodik astro yorumları.',
-        currentlyAvailable: false,
+        currentlyAvailable: true,
       },
       {
         id: 'tarot-personal',
@@ -48,8 +48,8 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
       {
         id: 'numerology-personal',
         title: 'Kişiye Özel Numeroloji',
-        description: 'Doğum tarihi/saati bazlı numeroloji yorumu.',
-        currentlyAvailable: false,
+        description: 'Doğum tarihi ve isim üzerinden kişisel sayı haritası.',
+        currentlyAvailable: true,
       },
       {
         id: 'angel-personal',
@@ -186,4 +186,3 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#14141E', fontSize: 14, fontWeight: '800' },
   blockedHint: { marginTop: 8, color: '#F6C38B', fontSize: 12 },
 });
-

@@ -274,9 +274,25 @@ export async function loadAccountState(): Promise<AccountState> {
       accountId: reading.accountId || parsed.accountId,
       profileId: reading.profileId || '',
       assistantId: reading.assistantId || 'durdane-hanim',
-      readingType: reading.readingType === 'palm' ? 'palm' : 'coffee',
+      readingType:
+        reading.readingType === 'palm' ||
+        reading.readingType === 'personal-astro' ||
+        reading.readingType === 'personal-numerology' ||
+        reading.readingType === 'birth-chart'
+          ? reading.readingType
+          : 'coffee',
+      period:
+        reading.period === 'daily' ||
+        reading.period === 'weekly' ||
+        reading.period === 'monthly' ||
+        reading.period === 'yearly'
+          ? reading.period
+          : undefined,
       coffeeMode:
-        reading.readingType === 'palm'
+        reading.readingType === 'palm' ||
+        reading.readingType === 'personal-astro' ||
+        reading.readingType === 'personal-numerology' ||
+        reading.readingType === 'birth-chart'
           ? undefined
           : reading.coffeeMode === 'ai-brew'
             ? 'ai-brew'
@@ -940,6 +956,33 @@ export async function applyMemoryAnalysisResult(
   await writeJsonFile(readingMemoryFile(profileId), nextReadingMemory);
 }
 
+export async function appendReadingDerivedTheme(
+  profileId: string,
+  label: string,
+  key = label,
+): Promise<void> {
+  const trimmed = label.trim();
+  if (!trimmed) return;
+  const state = await loadAccountState();
+  await ensureProfileMemoryFiles(profileId, state.accountId);
+  const currentReadingMemory = await readJsonFile<ReadingDerivedMemoryFile>(
+    readingMemoryFile(profileId),
+    emptyReadingDerivedMemory(profileId, state.accountId),
+  );
+  const nextReadingMemory: ReadingDerivedMemoryFile = {
+    ...currentReadingMemory,
+    recurringTopics: mergeTopicMemory(currentReadingMemory.recurringTopics, [
+      {
+        key: normalizeForMatching(key || trimmed) || trimmed.toLocaleLowerCase('tr-TR'),
+        label: trimmed,
+        salience: 0.72,
+      },
+    ]),
+    updatedAt: nowIso(),
+  };
+  await writeJsonFile(readingMemoryFile(profileId), nextReadingMemory);
+}
+
 export function getRecentReadingsForProfile(
   state: AccountState,
   profileId: string,
@@ -1037,6 +1080,23 @@ export async function resetAllProfilesAndData(): Promise<AccountState> {
 
 export function getReadingTypeLabel(reading: ReadingSummary): string {
   const surfaces = Array.isArray(reading.surfacesRead) ? reading.surfacesRead : [];
+  const periodLabel = reading.period
+    ? {
+        daily: 'Günlük',
+        weekly: 'Haftalık',
+        monthly: 'Aylık',
+        yearly: 'Yıllık',
+      }[reading.period]
+    : null;
+  if (reading.readingType === 'personal-astro') {
+    return periodLabel ? `Kişiye Özel Astroloji - ${periodLabel}` : 'Kişiye Özel Astroloji';
+  }
+  if (reading.readingType === 'personal-numerology') {
+    return 'Kişiye Özel Numeroloji';
+  }
+  if (reading.readingType === 'birth-chart') {
+    return 'Doğum Haritası';
+  }
   if (reading.readingType === 'palm') {
     return 'El Falı';
   }
@@ -1049,4 +1109,3 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
   }
   return 'Fal';
 }
-

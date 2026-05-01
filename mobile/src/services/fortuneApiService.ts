@@ -73,7 +73,9 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
     const error = new Error(friendlyApiMessage(data.userMessage || data.error)) as Error & {
       tokenUsage?: FortuneReplyResult['usage'];
       isImageValidation?: boolean;
+      status?: number;
     };
+    error.status = response.status;
     error.tokenUsage = {
       inputTokens: Number(data.usage?.inputTokens || 0),
       outputTokens: Number(data.usage?.outputTokens || 0),

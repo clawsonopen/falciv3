@@ -21,6 +21,7 @@ import { PersonalAssistantSelectScreen } from './src/screens/PersonalAssistantSe
 import { PersonalReadingSetupScreen } from './src/screens/PersonalReadingSetupScreen';
 import { PersonalAstroReadingScreen } from './src/screens/PersonalAstroReadingScreen';
 import { PersonalBirthChartScreen } from './src/screens/PersonalBirthChartScreen';
+import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerologyReadingScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
 import type { ReadingSummary } from './src/types/memory';
@@ -59,6 +60,10 @@ export type RootStackParamList = {
   };
   PersonalBirthChart: {
     profileId: string;
+  };
+  PersonalNumerologyReading: {
+    profileId: string;
+    assistantId: string;
   };
   Session: { config: SessionConfig };
   History: { profileId: string; profileName: string };
@@ -115,6 +120,11 @@ export default function App() {
             options={{ title: 'Doğum Haritası' }}
           />
           <Stack.Screen
+            name="PersonalNumerologyReading"
+            component={PersonalNumerologyReadingScreen}
+            options={{ title: 'Kişiye Özel Numeroloji' }}
+          />
+          <Stack.Screen
             name="Session"
             component={SessionScreen}
             options={{ title: APP_NAME, headerBackVisible: false }}
@@ -127,4 +137,3 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
-

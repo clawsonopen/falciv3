@@ -43,7 +43,7 @@ const InspirationCard: React.FC<InspirationCardProps> = ({
   return (
     <View style={[styles.container, { width, height }]}>
       <ImageBackground 
-        source={require('../../assets/parchment_bg.png')} 
+        source={require('../../assets/parchment_bg.jpg')} 
         style={styles.backgroundImage}
         imageStyle={{ borderRadius: 10 }}
       >

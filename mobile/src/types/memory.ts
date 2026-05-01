@@ -115,7 +115,8 @@ export interface ReadingSummary {
   accountId: string;
   profileId: string;
   assistantId: string;
-  readingType: 'coffee' | 'palm';
+  readingType: 'coffee' | 'palm' | 'personal-astro' | 'personal-numerology' | 'birth-chart';
+  period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
   coffeeMode?: 'upload' | 'ai-brew';
   surfacesRead: ReadingSurface[];
   createdAt: string;

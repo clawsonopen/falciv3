@@ -15,6 +15,7 @@ import { Picker } from '@react-native-picker/picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { TURKEY_CITY_OPTIONS, TURKEY_DISTRICTS_BY_CITY } from '../data/turkeyLocations';
 import {
   createProfile,
   deleteProfile,
@@ -103,31 +104,25 @@ const EMPTY_BIRTH: BirthInfo = {
 };
 
 const YEAR_OPTIONS = Array.from({ length: 90 }, (_, index) => String(new Date().getFullYear() - index));
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'));
+const MONTH_OPTIONS = [
+  { value: '01', label: 'Ocak' },
+  { value: '02', label: 'Şubat' },
+  { value: '03', label: 'Mart' },
+  { value: '04', label: 'Nisan' },
+  { value: '05', label: 'Mayıs' },
+  { value: '06', label: 'Haziran' },
+  { value: '07', label: 'Temmuz' },
+  { value: '08', label: 'Ağustos' },
+  { value: '09', label: 'Eylül' },
+  { value: '10', label: 'Ekim' },
+  { value: '11', label: 'Kasım' },
+  { value: '12', label: 'Aralık' },
+];
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0'));
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
 const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, '0'));
 const COUNTRY_OPTIONS = ['Türkiye', 'Almanya', 'Fransa', 'Hollanda', 'Belçika', 'İngiltere', 'ABD', 'Kanada', 'Diğer'];
-const TURKEY_CITY_OPTIONS = [
-  'İstanbul',
-  'Ankara',
-  'İzmir',
-  'Bursa',
-  'Antalya',
-  'Adana',
-  'Konya',
-  'Gaziantep',
-  'Mersin',
-  'Kocaeli',
-  'Diyarbakır',
-  'Kayseri',
-  'Eskişehir',
-  'Samsun',
-  'Denizli',
-  'Sakarya',
-  'Muğla',
-  'Tekirdağ',
-];
+const DISTRICT_OTHER_VALUE = '__other__';
 
 function labelForRelationship(value: RelationshipPrimary) {
   switch (value) {
@@ -253,6 +248,7 @@ function buildBirthInfo(draft: ProfileDraft): BirthInfo {
       ? `${draft.birthYear}-${draft.birthMonth}-${draft.birthDay}`
       : null;
   const time = draft.birthHour && draft.birthMinute ? `${draft.birthHour}:${draft.birthMinute}` : null;
+  const district = draft.birthDistrict === DISTRICT_OTHER_VALUE ? null : draft.birthDistrict.trim() || null;
 
   return {
     ...EMPTY_BIRTH,
@@ -262,7 +258,7 @@ function buildBirthInfo(draft: ProfileDraft): BirthInfo {
     location: {
       country: draft.birthCountry.trim() || null,
       cityOrRegion: draft.birthCity.trim() || null,
-      district: draft.birthDistrict.trim() || null,
+      district,
       subdistrict: null,
       freeform: null,
     },
@@ -313,6 +309,15 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   const editingIsPrimary = profileDraft.profileId
     ? state?.profiles.find((profile) => profile.profileId === profileDraft.profileId)?.isPrimary || false
     : !primaryProfile;
+  const isTurkeyBirthCountry = isTurkeyCountry(profileDraft.birthCountry);
+  const turkeyCities = TURKEY_CITY_OPTIONS as readonly string[];
+  const selectedCityDistricts = isTurkeyBirthCountry ? TURKEY_DISTRICTS_BY_CITY[profileDraft.birthCity] || [] : [];
+  const districtIsKnown =
+    Boolean(profileDraft.birthDistrict) && selectedCityDistricts.includes(profileDraft.birthDistrict);
+  const showDistrictFreeform =
+    isTurkeyBirthCountry &&
+    Boolean(profileDraft.birthCity) &&
+    (profileDraft.birthDistrict === DISTRICT_OTHER_VALUE || (Boolean(profileDraft.birthDistrict) && !districtIsKnown));
 
   const loadState = useCallback(async () => {
     setIsLoading(true);
@@ -635,7 +640,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                       >
                         <Picker.Item label="Ay" value="sec" color="#000" />
                         {MONTH_OPTIONS.map((option) => (
-                          <Picker.Item key={option} label={option} value={option} color="#000" />
+                          <Picker.Item key={option.value} label={option.label} value={option.value} color="#000" />
                         ))}
                       </Picker>
                     </View>
@@ -695,7 +700,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                 <View style={styles.pickerShell}>
                   <Picker
                     selectedValue={pickerValue(profileDraft.birthCountry)}
-                    onValueChange={(value) => handleDraftChange('birthCountry', value === 'sec' ? '' : value)}
+                    onValueChange={(value) => {
+                      handleDraftChange('birthCountry', value === 'sec' ? '' : value);
+                      handleDraftChange('birthCity', '');
+                      handleDraftChange('birthDistrict', '');
+                    }}
                     style={styles.picker}
                   >
                     <Picker.Item label="Ülke seç" value="sec" color="#000" />
@@ -704,26 +713,18 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                     ))}
                   </Picker>
                 </View>
-                {isTurkeyCountry(profileDraft.birthCountry) ? (
+                {isTurkeyBirthCountry ? (
                   <View style={styles.pickerShell}>
                     <Picker
-                      selectedValue={
-                        profileDraft.birthCity
-                          ? TURKEY_CITY_OPTIONS.includes(profileDraft.birthCity)
-                            ? profileDraft.birthCity
-                            : '__manual__'
-                          : 'sec'
-                      }
+                      selectedValue={profileDraft.birthCity && turkeyCities.includes(profileDraft.birthCity) ? profileDraft.birthCity : 'sec'}
                       onValueChange={(value) => {
                         if (value === 'sec') {
                           handleDraftChange('birthCity', '');
-                          return;
-                        }
-                        if (value === '__manual__') {
-                          handleDraftChange('birthCity', '');
+                          handleDraftChange('birthDistrict', '');
                           return;
                         }
                         handleDraftChange('birthCity', value);
+                        handleDraftChange('birthDistrict', '');
                       }}
                       style={styles.picker}
                     >
@@ -731,7 +732,6 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                       {TURKEY_CITY_OPTIONS.map((option) => (
                         <Picker.Item key={option} label={option} value={option} color="#000" />
                       ))}
-                      <Picker.Item label="Diğer (elle yaz)" value="__manual__" color="#000" />
                     </Picker>
                   </View>
                 ) : (
@@ -744,25 +744,55 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                     selectionColor="#D4A574"
                   />
                 )}
-                {isTurkeyCountry(profileDraft.birthCountry) &&
-                (profileDraft.birthCity === '' || !TURKEY_CITY_OPTIONS.includes(profileDraft.birthCity)) ? (
+                {isTurkeyBirthCountry && profileDraft.birthCity && selectedCityDistricts.length ? (
+                  <View style={styles.pickerShell}>
+                    <Picker
+                      selectedValue={
+                        profileDraft.birthDistrict
+                          ? districtIsKnown
+                            ? profileDraft.birthDistrict
+                            : DISTRICT_OTHER_VALUE
+                          : 'sec'
+                      }
+                      onValueChange={(value) => {
+                        if (value === 'sec') {
+                          handleDraftChange('birthDistrict', '');
+                          return;
+                        }
+                        handleDraftChange('birthDistrict', value);
+                      }}
+                      style={styles.picker}
+                    >
+                      <Picker.Item label="İlçe seç" value="sec" color="#000" />
+                      {selectedCityDistricts.map((option) => (
+                        <Picker.Item key={option} label={option} value={option} color="#000" />
+                      ))}
+                      <Picker.Item label="Diğer" value={DISTRICT_OTHER_VALUE} color="#000" />
+                    </Picker>
+                  </View>
+                ) : null}
+                {showDistrictFreeform ? (
                   <TextInput
                     style={styles.textInput}
-                    placeholder="Şehir (elle yaz)"
+                    placeholder="İlçe, belde, bucak veya kaza"
                     placeholderTextColor="rgba(255,255,255,0.35)"
-                    value={profileDraft.birthCity}
-                    onChangeText={(value) => handleDraftChange('birthCity', value)}
+                    value={profileDraft.birthDistrict === DISTRICT_OTHER_VALUE ? '' : profileDraft.birthDistrict}
+                    onChangeText={(value) => handleDraftChange('birthDistrict', value)}
                     selectionColor="#D4A574"
+                    returnKeyType="done"
                   />
                 ) : null}
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="İlçe"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  value={profileDraft.birthDistrict}
-                  onChangeText={(value) => handleDraftChange('birthDistrict', value)}
-                  selectionColor="#D4A574"
-                />
+                {!isTurkeyBirthCountry ? (
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="İlçe"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    value={profileDraft.birthDistrict}
+                    onChangeText={(value) => handleDraftChange('birthDistrict', value)}
+                    selectionColor="#D4A574"
+                    returnKeyType="done"
+                  />
+                ) : null}
 
                 <TouchableOpacity style={styles.primaryButton} onPress={() => void handleSaveProfile()}>
                   <Text style={styles.primaryButtonText}>{editingExistingProfile ? 'Profili Güncelle' : 'Profili Kaydet'}</Text>
@@ -900,7 +930,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   modalSafeArea: { maxHeight: '100%' },
-  modalContent: { padding: 20, paddingBottom: 28 },
+  modalContent: { padding: 20, paddingBottom: Platform.OS === 'ios' ? 120 : 180 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   modalTitle: { color: '#FFF5E8', fontSize: 18, fontWeight: '700' },
   modalClose: { color: '#D4A574', fontSize: 14, fontWeight: '700' },
@@ -908,4 +938,3 @@ const styles = StyleSheet.create({
   wheelColumn: { flex: 1 },
   wheelLabel: { color: 'rgba(255,255,255,0.62)', fontSize: 12, marginBottom: 6 },
 });
-

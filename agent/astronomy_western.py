@@ -23,18 +23,18 @@ SIGNS = [
 ]
 
 SIGN_TR = {
-    "ARIES": "Koç",
-    "TAURUS": "Boğa",
-    "GEMINI": "İkizler",
-    "CANCER": "Yengeç",
+    "ARIES": "KoÃ§",
+    "TAURUS": "BoÄŸa",
+    "GEMINI": "Ä°kizler",
+    "CANCER": "YengeÃ§",
     "LEO": "Aslan",
-    "VIRGO": "Başak",
+    "VIRGO": "BaÅŸak",
     "LIBRA": "Terazi",
     "SCORPIO": "Akrep",
     "SAGITTARIUS": "Yay",
-    "CAPRICORN": "Oğlak",
+    "CAPRICORN": "OÄŸlak",
     "AQUARIUS": "Kova",
-    "PISCES": "Balık",
+    "PISCES": "BalÄ±k",
 }
 
 PLANETS = [
@@ -51,24 +51,24 @@ PLANETS = [
 ]
 
 PLANET_TR = {
-    "Sun": "Güneş",
+    "Sun": "GÃ¼neÅŸ",
     "Moon": "Ay",
-    "Mercury": "Merkür",
-    "Venus": "Venüs",
+    "Mercury": "MerkÃ¼r",
+    "Venus": "VenÃ¼s",
     "Mars": "Mars",
-    "Jupiter": "Jüpiter",
-    "Saturn": "Satürn",
-    "Uranus": "Uranüs",
-    "Neptune": "Neptün",
-    "Pluto": "Plüton",
+    "Jupiter": "JÃ¼piter",
+    "Saturn": "SatÃ¼rn",
+    "Uranus": "UranÃ¼s",
+    "Neptune": "NeptÃ¼n",
+    "Pluto": "PlÃ¼ton",
 }
 
 ASPECTS = [
-    ("kavuşum", 0.0, 8.0),
+    ("kavuÅŸum", 0.0, 8.0),
     ("sextile", 60.0, 4.0),
     ("kare", 90.0, 6.0),
-    ("üçgen", 120.0, 6.0),
-    ("karşıt", 180.0, 8.0),
+    ("Ã¼Ã§gen", 120.0, 6.0),
+    ("karÅŸÄ±t", 180.0, 8.0),
 ]
 
 
@@ -177,9 +177,9 @@ def _sun_moon_signs(positions: list[dict[str, Any]]) -> dict[str, str]:
     moon = next((p for p in positions if p["planet"] == "Moon"), None)
     return {
         "sunSign": sun["sign"] if sun else "PISCES",
-        "sunSignLabel": sun["signLabel"] if sun else "Balık",
+        "sunSignLabel": sun["signLabel"] if sun else "BalÄ±k",
         "moonSign": moon["sign"] if moon else "PISCES",
-        "moonSignLabel": moon["signLabel"] if moon else "Balık",
+        "moonSignLabel": moon["signLabel"] if moon else "BalÄ±k",
     }
 
 
@@ -198,31 +198,33 @@ def _ascendant_longitude(time_obj: astronomy.Time, latitude: float, longitude: f
     y = -math.cos(theta)
     x = (math.sin(theta) * math.cos(eps)) + (math.tan(phi) * math.sin(eps))
     lam = math.degrees(math.atan2(y, x))
-    return _norm_deg(lam)
+    # The formula above lands on the western horizon with this coordinate convention.
+    # Ascendant is the opposite intersection on the eastern horizon.
+    return _norm_deg(lam + 180.0)
 
 
 def _build_general_text(sign: str, positions: list[dict[str, Any]], aspects: list[dict[str, Any]], events: dict[str, Any]) -> str:
-    sign_label = SIGN_TR.get(sign, "Balık")
+    sign_label = SIGN_TR.get(sign, "BalÄ±k")
     sun = next((p for p in positions if p["planet"] == "Sun"), None)
     moon = next((p for p in positions if p["planet"] == "Moon"), None)
     mercury = next((p for p in positions if p["planet"] == "Mercury"), None)
     top_aspects = aspects[:3]
 
-    lines = [f"{sign_label} için astronomi tabanlı astro veri özeti:"]
+    lines = [f"{sign_label} iÃ§in astronomi tabanlÄ± astro veri Ã¶zeti:"]
     if sun and moon:
         lines.append(
-            f"Güneş {sun['signLabel']} {sun['degreeInSign']:.1f}° konumunda, Ay ise {moon['signLabel']} {moon['degreeInSign']:.1f}° düzleminde ilerliyor."
+            f"GÃ¼neÅŸ {sun['signLabel']} {sun['degreeInSign']:.1f}Â° konumunda, Ay ise {moon['signLabel']} {moon['degreeInSign']:.1f}Â° dÃ¼zleminde ilerliyor."
         )
     if mercury:
-        motion = "retro" if mercury["retrograde"] else "doğrudan"
-        lines.append(f"Merkür şu anda {motion} hareket içinde görünüyor ve hız değeri {mercury['speedDegPerDay']:.3f}°/gün.")
+        motion = "retro" if mercury["retrograde"] else "doÄŸrudan"
+        lines.append(f"MerkÃ¼r ÅŸu anda {motion} hareket iÃ§inde gÃ¶rÃ¼nÃ¼yor ve hÄ±z deÄŸeri {mercury['speedDegPerDay']:.3f}Â°/gÃ¼n.")
     if top_aspects:
         joined = "; ".join(
-            f"{a['planet1Label']}-{a['planet2Label']} {a['aspect']} (orb {a['orb']:.2f}°)" for a in top_aspects
+            f"{a['planet1Label']}-{a['planet2Label']} {a['aspect']} (orb {a['orb']:.2f}Â°)" for a in top_aspects
         )
-        lines.append(f"Öne çıkan açılar: {joined}.")
+        lines.append(f"Ã–ne Ã§Ä±kan aÃ§Ä±lar: {joined}.")
     if events.get("nextLunarEclipsePeakUtc"):
-        lines.append(f"Bir sonraki Ay tutulması tepe zamanı (UTC): {events['nextLunarEclipsePeakUtc']}.")
+        lines.append(f"Bir sonraki Ay tutulmasÄ± tepe zamanÄ± (UTC): {events['nextLunarEclipsePeakUtc']}.")
     return " ".join(lines)
 
 
@@ -258,6 +260,8 @@ def build_personal_payload(
     latitude: float,
     longitude: float,
     target_date: str,
+    time_known: bool = True,
+    location_precision: str = "city",
 ) -> dict[str, Any]:
     try:
         tz = ZoneInfo(timezone_name) if timezone_name else ZoneInfo("UTC")
@@ -279,8 +283,8 @@ def build_personal_payload(
     transit_aspects = _major_aspects(transit_positions)
     events = _moon_events(transit_t)
 
-    asc_lon = _ascendant_longitude(birth_t, latitude, longitude)
-    asc_sign = _sign_from_lon(asc_lon)
+    asc_lon = _ascendant_longitude(birth_t, latitude, longitude) if time_known else None
+    asc_sign = _sign_from_lon(asc_lon) if asc_lon is not None else None
     sunmoon = _sun_moon_signs(natal_positions)
 
     # Transit-to-natal major aspects (focused set)
@@ -313,7 +317,8 @@ def build_personal_payload(
 
     text = (
         f"Kişisel astro veri özeti: Güneş {sunmoon['sunSignLabel']}, Ay {sunmoon['moonSignLabel']}, "
-        f"Yükselen {SIGN_TR[asc_sign]}. Transitlerde {len(trans_natal)} önemli temas ve "
+        f"{'Yükselen ' + SIGN_TR[asc_sign] + '. ' if asc_sign else 'Doğum saati bilinmediği için yükselen hesaplanmadı. '}"
+        f"Transitlerde {len(trans_natal)} önemli temas ve "
         f"{sum(1 for p in transit_positions if p['retrograde'])} retro gezegen işareti görüldü."
     )
 
@@ -329,8 +334,10 @@ def build_personal_payload(
                 "moonSign": sunmoon["moonSign"],
                 "moonSignLabel": sunmoon["moonSignLabel"],
                 "risingSign": asc_sign,
-                "risingSignLabel": SIGN_TR[asc_sign],
-                "ascendantLongitude": round(asc_lon, 6),
+                "risingSignLabel": SIGN_TR[asc_sign] if asc_sign else None,
+                "ascendantLongitude": round(asc_lon, 6) if asc_lon is not None else None,
+                "timeKnown": bool(time_known),
+                "locationPrecision": location_precision,
                 "positions": natal_positions,
             },
             "transit": {
@@ -341,3 +348,4 @@ def build_personal_payload(
             },
         },
     }
+

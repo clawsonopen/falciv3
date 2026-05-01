@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 from astronomy_western import build_general_payload, build_personal_payload
 from persona_prompt_builder import append_persona_closing, build_memory_context, build_prompt
 
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 load_dotenv()
 
 app = Flask(__name__)
@@ -24,13 +26,20 @@ ASTRO_CACHE_LIMIT = 1200
 _astro_cache: dict[str, dict] = {}
 
 
+@app.get("/gemini-api-key")
+def gemini_api_key():
+    if not GEMINI_API_KEY:
+        return jsonify({"ok": False, "error": "Yorum anahtarı yok."}), 503
+    return jsonify({"ok": True, "apiKey": GEMINI_API_KEY, "model": GEMINI_MODEL})
+
+
 def _iso_today_utc() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
 def _normalize_period(value: str | None) -> str:
     text = (value or "daily").strip().lower()
-    if text in {"daily", "weekly", "monthly"}:
+    if text in {"daily", "weekly", "monthly", "yearly"}:
         return text
     return "daily"
 
@@ -97,7 +106,7 @@ def _astro_cache_set(key: str, payload: dict) -> None:
     _astro_cache.pop(first, None)
 
 
-GENERAL_ASTRO_STORE_FILE = Path(__file__).resolve().parent / "general_astro_llm_store.json"
+GENERAL_ASTRO_STORE_FILE = BASE_DIR / "general_astro_llm_store.json"
 GENERAL_ASTRO_HISTORY_LIMIT = 240
 GENERAL_ASTRO_SIMILARITY_LIMIT = 0.78
 
@@ -126,6 +135,8 @@ def _period_key(period: str, target_date_iso: str) -> str:
     day = datetime.fromisoformat(target_date_iso).date()
     if period == "daily":
         return day.isoformat()
+    if period == "yearly":
+        return f"{day.year:04d}"
     if period == "monthly":
         return f"{day.year:04d}-{day.month:02d}"
     monday = day - timedelta(days=day.weekday())
@@ -539,7 +550,8 @@ def _estimate_text_tokens(text: str) -> int:
 def _repair_mojibake_turkish(text: str) -> str:
     if not text:
         return text
-    if not any(marker in text for marker in ("Ã", "Å", "Ä", "â")):
+    mojibake_markers = ("Ã", "Å", "Ä", "â")
+    if not any(marker in text for marker in mojibake_markers):
         return text
     try:
         repaired = text.encode("latin-1", errors="ignore").decode("utf-8", errors="ignore")
@@ -547,7 +559,16 @@ def _repair_mojibake_turkish(text: str) -> str:
         return text
     if not repaired:
         return text
-    return repaired
+    turkish_chars = set("çğıİöşüÇĞÖŞÜ")
+    original_turkish_count = sum(1 for ch in text if ch in turkish_chars)
+    repaired_turkish_count = sum(1 for ch in repaired if ch in turkish_chars)
+    original_marker_count = sum(text.count(marker) for marker in mojibake_markers)
+    repaired_marker_count = sum(repaired.count(marker) for marker in mojibake_markers)
+    if repaired_marker_count < original_marker_count and repaired_turkish_count >= original_turkish_count:
+        return repaired
+    if original_turkish_count == 0 and repaired_turkish_count > 0:
+        return repaired
+    return text
 
 
 def _memory_merge_key(label: str) -> str:
@@ -700,19 +721,19 @@ def _analyze_memory_from_transcript(
 
     prompt = "\n".join(
         [
-            "Transcripti hafiza cikarmasi icin analiz et.",
-            "- userStated yalnizca kullanicinin kendi yazdigi/soyledigi seylerden uretilsin.",
+            "Transkripti hafıza çıkarması için analiz et.",
+            "- userStated yalnızca kullanıcının kendi yazdığı/söylediği şeylerden üretilsin.",
             "- userStated alanina sadece fal sonrasi kullanici sorularindan (soru niteliği tasiyan girdilerden) yaz.",
-            "- readingDerived yalnizca falcinin yazdigi fal yorumlari ve cevaplardan uretilsin.",
-            "- Iki kanali birbirine karistirma.",
-            "- Uydurma ekleme; acik delil yoksa bos dizi dondur.",
-            "- recurringTopics icin genel ve tekrar etmeye deger etiketler cikar.",
-            "- importantPeople icin isim verilmis veya iliski olarak acikca gecen kisileri cikar.",
-            "- Falcilarin adlarini importantPeople listesine asla ekleme.",
-            "- emotionalPatterns icin yalnizca net sinyal varsa cikartim yap.",
-            "- key alanlarini kisa ve slug gibi uret.",
-            "- Tum label ve relationship alanlari yalnizca Turkce olsun.",
-            "- English kelime kullanma (ornek: mother, father, partner yerine annesi, babasi, sevgilisi).",
+            "- readingDerived yalnızca falcının yazdığı fal yorumları ve cevaplardan üretilsin.",
+            "- İki kanalı birbirine karıştırma.",
+            "- Uydurma ekleme; açık delil yoksa boş dizi döndür.",
+            "- recurringTopics için genel ve tekrar etmeye değer etiketler çıkar.",
+            "- importantPeople için isim verilmiş veya ilişki olarak açıkça geçen kişileri çıkar.",
+            "- Falcıların adlarını importantPeople listesine asla ekleme.",
+            "- emotionalPatterns için yalnızca net sinyal varsa çıkartım yap.",
+            "- key alanlarını kısa ve slug gibi üret.",
+            "- Tüm label ve relationship alanları yalnızca Türkçe olsun.",
+            "- English kelime kullanma (örnek: mother, father, partner yerine annesi, babası, sevgilisi).",
             *subject_context,
             "## USER TRANSCRIPT",
             *user_lines[:40],
@@ -755,10 +776,10 @@ def _extract_text_from_gemini_response(data: dict) -> str:
 
 def _general_sentence_range(period: str) -> tuple[int, int]:
     if period == "daily":
-        return (2, 3)
+        return (1, 2)
     if period == "weekly":
-        return (3, 4)
-    return (4, 5)
+        return (2, 3)
+    return (3, 4)
 
 
 def _count_sentences(text: str) -> int:
@@ -786,6 +807,10 @@ def _validate_astro_text_shape(period: str, text: str) -> bool:
     for item in required:
         if item not in text:
             return False
+    if any(marker in text for marker in ("Ã", "Å", "Ä", "â")):
+        return False
+    if _has_generic_astro_boilerplate(text) or _has_repeated_sentences(text):
+        return False
 
     # Ensure each section has at least 1 sentence (but don't enforce max)
     for line in text.split("\n"):
@@ -794,6 +819,10 @@ def _validate_astro_text_shape(period: str, text: str) -> bool:
             if line.startswith(key):
                 content = line[len(key):].strip()
                 if _count_sentences(content) < 1:
+                    return False
+                if key == "\u0130li\u015fkiler:" and _count_sentences(content) < 2:
+                    return False
+                if key == "\u0130li\u015fkiler:" and _is_generic_relationship_section(content):
                     return False
 
     low = text.lower()
@@ -825,6 +854,90 @@ def _ensure_sentence(text: str) -> str:
     return _capitalize_sentences(t)
 
 
+def _sentence_count(text: str) -> int:
+    return len([part for part in re.split(r"[.!?]+", text or "") if part.strip()])
+
+
+GENERIC_ASTRO_MARKERS = [
+    "tutulma hattı görünmeyen bir konuyu beklenmedik biçimde öne taşıyabilir",
+    "duygusal tepkiden önce kısa bir değerlendirme yapmak daha doğru sonuç verebilir",
+    "öncelikleri sadeleştirmek karar kalitesini artırabilir",
+    "enerjiyi tek bir ana hedefte toplamak daha verimli olabilir",
+    "iletişimde açık ve sakin bir ton korumak denge sağlar",
+    "bu dönemde esnek kalmak beklenmedik fırsatları görünür kılabilir",
+    "kısa ve net adımlar süreci hızlandırabilir",
+    "ay terazi burcunun enerjisiyle duygusal dengeleri etkiliyor",
+    "ay akrep burcunun enerjisiyle duygusal dengeleri etkiliyor",
+]
+
+
+def _has_generic_astro_boilerplate(text: str) -> bool:
+    normalized = _norm_text(text)
+    return any(marker in normalized for marker in GENERIC_ASTRO_MARKERS)
+
+
+def _has_repeated_sentences(text: str) -> bool:
+    sentences = [
+        _norm_text(part)
+        for part in re.split(r"[.!?]+", text or "")
+        if len(_norm_text(part)) >= 24
+    ]
+    seen: set[str] = set()
+    for sentence in sentences:
+        if sentence in seen:
+            return True
+        seen.add(sentence)
+    return False
+
+
+def _is_generic_relationship_section(content: str) -> bool:
+    normalized = _norm_text(content)
+    relationship_markers = [
+        *GENERIC_ASTRO_MARKERS,
+        "ilişkilerde ihtiyaçları saklamak yerine sakin ve açık ifade etmek önem kazanıyor",
+        "yakın bağlarda alınganlığı büyütmeden, niyetleri netleştirmek daha iyi sonuç verir",
+    ]
+    return any(marker in normalized for marker in relationship_markers)
+
+
+def _relationship_fallback(period: str, moon: dict | None, venus: dict | None, mars: dict | None) -> str:
+    moon_sign = _repair_mojibake_turkish(str((moon or {}).get("signLabel") or "Ay"))
+    venus_sign = _repair_mojibake_turkish(str((venus or {}).get("signLabel") or "Venüs"))
+    mars_sign = _repair_mojibake_turkish(str((mars or {}).get("signLabel") or "Mars"))
+    if period == "daily":
+        return (
+            f"Ay {moon_sign} vurgusu bugün ilişkilerde saklanan duyguları daha görünür kılıyor; bir bakış, suskunluk ya da küçük bir söz büyüyebilir. "
+            "Yakın bağlarda hemen tepki vermek yerine niyeti netleştirmek, günü daha yumuşak kapatmanı sağlar."
+        )
+    if period == "weekly":
+        return (
+            f"Bu hafta Ay {moon_sign} teması ilişkilerde güven, paylaşım ve kırılganlık konularını öne çıkarıyor. "
+            f"Venüs {venus_sign} etkisi yakınlaşmayı desteklerken Mars {mars_sign} acele tepkiyi artırabilir; konuşmaları zamana yaymak bağları daha sağlam tutar."
+        )
+    return (
+        f"Bu ay ilişkiler alanında Ay {moon_sign} duygusal ihtiyaçları görünür kılarken Venüs {venus_sign} daha kalıcı ve gerçekçi bağ kurma isteğini büyütüyor. "
+        f"Mars {mars_sign} etkisi eski gerilimleri hızla alevlendirebilir; ay boyunca sınır, beklenti ve emek dengesini açık konuşmak en koruyucu yol olur."
+    )
+
+
+def _strengthen_relationship_section(content: str, period: str, fallback: str | None = None) -> str:
+    if _is_generic_relationship_section(content) and fallback:
+        return fallback
+    text = _ensure_sentence(content)
+    if _sentence_count(text) >= 2:
+        return text
+    if fallback:
+        return f"{text} {fallback}".strip()
+    extra = (
+        "Yakın ilişkilerde tek bir cümleyle geçiştirmek yerine niyeti, beklentiyi ve sınırı ayrı ayrı görmek gerekir. "
+        "Bugün bağ kurarken açık konuşmak, alınganlığı büyütmeden güveni onarmak ve karşı tarafın davranışını sözleriyle birlikte değerlendirmek daha sağlıklı olur."
+        if period == "daily"
+        else "Bu dönem ilişkilerde yalnızca uyum ya da gerilim değil, beklenti yönetimi ve güven meselesi de öne çıkıyor. "
+        "Yakın bağlarda açık konuşmak, sınırı sakin koymak ve eski kırgınlıkları bugünün kararına doğrudan taşımamak daha iyi sonuç verir."
+    )
+    return f"{text} {extra}".strip()
+
+
 def _build_general_astro_prompt(period: str, sign: str, astro_data: dict, recent_texts: list[str]) -> tuple[str, str]:
     sign_tr = {
         "ARIES": "Koç",
@@ -840,13 +953,14 @@ def _build_general_astro_prompt(period: str, sign: str, astro_data: dict, recent
         "AQUARIUS": "Kova",
         "PISCES": "Balık",
     }.get(sign, "Balık")
-    p_label = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık"}[period]
+    p_label = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık", "yearly": "Yıllık"}[period]
     min_s, max_s = _general_sentence_range(period)
     history_preview = "\n".join(f"- {h[:220]}" for h in recent_texts[-10:])
 
     system = (
         "You are a Turkish astrology writer. Use astronomy data only and do not invent technical claims. "
-        "Write natural, varied Turkish text and avoid repetitive templates."
+        "Keep sky mechanics brief. The user mainly wants what the period affects in life, how it may feel, "
+        "and what to do or avoid. Write natural, varied Turkish text and avoid repetitive templates."
     )
 
     user = (
@@ -857,7 +971,13 @@ def _build_general_astro_prompt(period: str, sign: str, astro_data: dict, recent
         "Gökyüzü:\nAna tema:\nİlişkiler:\nKariyer ve Finans:\nEnerji:\nÖneri:\n\n"
         f"Title line must be: {sign_tr} Burcu için {p_label} Astroloji Yorumu\n"
         "CRITICAL: Do NOT copy technical data from JSON verbatim. Interpret the movements as an astrologer. "
-        "Each section must contain ONLY relevant content (e.g., Sky section for planet positions, Advice section for actionable tips).\n"
+        "Gökyüzü must be the shortest section: only the key sky signal, and if any planet is retrograde mention it briefly.\n"
+        "İlişkiler must be emotionally specific, at least two sentences, and stronger than a generic harmony/conflict sentence.\n"
+        "Each section must contain a clear life effect plus at least one practical guidance sentence where natural.\n"
+        "Öneri must be the most actionable section: say what to do and what to avoid.\n"
+        "Every section must say something different; never reuse the same sentence or advice across sections.\n"
+        "Do not use generic filler such as 'öncelikleri sadeleştir', 'kısa ve net adımlar', 'iletişimde açık ve sakin ton' unless tied to a concrete sky signal.\n"
+        "Daily, weekly and monthly readings must feel different from each other in scope, wording and advice.\n"
         "Separate each section with a blank line for readability.\n"
         "Weekly must not contain 'bugün'. Monthly must not contain 'bugün' or 'bu hafta'.\n"
         "Use Turkish language only.\n\n"
@@ -883,7 +1003,7 @@ def _clean_generated_text(raw_text: str, sign: str, period: str) -> str:
         "AQUARIUS": "Kova",
         "PISCES": "Balık",
     }.get(sign, "Balık")
-    period_tr = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık"}[period]
+    period_tr = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık", "yearly": "Yıllık"}[period]
     title = f"{sign_tr} Burcu için {period_tr} Astroloji Yorumu"
 
     text = _strip_code_fences(raw_text or "")
@@ -922,7 +1042,7 @@ def _coerce_generated_general_text(period: str, sign: str, raw_text: str, astro_
         "AQUARIUS": "Kova",
         "PISCES": "Balık",
     }.get(sign, "Balık")
-    p_label = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık"}[period]
+    p_label = {"daily": "Günlük", "weekly": "Haftalık", "monthly": "Aylık", "yearly": "Yıllık"}[period]
     title = f"{sign_tr} Burcu için {p_label} Astroloji Yorumu"
 
     labels = ["Gökyüzü", "Ana tema", "İlişkiler", "Kariyer ve Finans", "Enerji", "Öneri"]
@@ -946,8 +1066,8 @@ def _coerce_generated_general_text(period: str, sign: str, raw_text: str, astro_
         "ilişkiler": "İlişkiler", "iliskiler": "İlişkiler",
         "kariyer ve finans": "Kariyer ve Finans",
         "enerji": "Enerji",
-        "gökyüzü": "Gökyüzü", "gokyuzu": "Gökyüzü",
-        "öneri": "Öneri", "oneri": "Öneri",
+        "gökyüzü": "Gökyüzü", "g" "okyuzu": "Gökyüzü",
+        "öneri": "Öneri", "o" "neri": "Öneri",
     }
 
     parsed: dict[str, str] = {}
@@ -975,30 +1095,51 @@ def _coerce_generated_general_text(period: str, sign: str, raw_text: str, astro_
         mercury = next((p for p in positions if p.get("planet") == "Mercury"), None)
         venus = next((p for p in positions if p.get("planet") == "Venus"), None)
         mars = next((p for p in positions if p.get("planet") == "Mars"), None)
+        retro_planets = [p.get("planetLabel") or p.get("planet") for p in positions if p.get("retrograde")]
 
         if sun:
-            astro_fill["Ana tema"] = f"Güneş şu anda {sun.get('signLabel')} burcunda {sun.get('degreeInSign', 0):.0f}° konumunda ilerliyor."
+            sun_sign = _repair_mojibake_turkish(str(sun.get("signLabel") or ""))
+            astro_fill["Ana tema"] = f"Güneş şu anda {sun_sign} burcunda {sun.get('degreeInSign', 0):.0f}° konumunda ilerliyor."
         if moon:
-            astro_fill["İlişkiler"] = f"Ay {moon.get('signLabel')} burcunun enerjisiyle duygusal dengeleri etkiliyor."
+            astro_fill["İlişkiler"] = _relationship_fallback(period, moon, venus, mars)
         if venus:
-            astro_fill["Kariyer ve Finans"] = f"Venüs {venus.get('signLabel')} burcunda maddi ve estetik konulara yön veriyor."
+            venus_sign = _repair_mojibake_turkish(str(venus.get("signLabel") or ""))
+            astro_fill["Kariyer ve Finans"] = f"Venüs {venus_sign} burcunda maddi ve estetik konulara yön veriyor."
         if mars:
-            astro_fill["Enerji"] = f"Mars {mars.get('signLabel')} burcunda motivasyon ve eylem enerjisini şekillendiriyor."
+            mars_sign = _repair_mojibake_turkish(str(mars.get("signLabel") or ""))
+            astro_fill["Enerji"] = f"Mars {mars_sign} burcunda motivasyon ve eylem enerjisini şekillendiriyor."
         if aspects:
             a = aspects[0]
-            astro_fill["Gökyüzü"] = f"{a.get('planet1Label')} ile {a.get('planet2Label')} arasında {a.get('aspect')} açısı dikkat çekiyor."
+            planet1 = _repair_mojibake_turkish(str(a.get("planet1Label") or ""))
+            planet2 = _repair_mojibake_turkish(str(a.get("planet2Label") or ""))
+            aspect = _repair_mojibake_turkish(str(a.get("aspect") or ""))
+            astro_fill["Gökyüzü"] = f"{planet1} ile {planet2} arasında {aspect} açısı dikkat çekiyor."
+        if retro_planets:
+            retro_note = f" Retro hareket dikkat çekiyor: {', '.join(_repair_mojibake_turkish(str(p)) for p in retro_planets[:3])}."
+            astro_fill["Gökyüzü"] = (astro_fill.get("Gökyüzü") or "Gökyüzünde tempo yavaşlatan bir vurgu var.") + retro_note
         if mercury:
             motion = "retrograd" if mercury.get("retrograde") else "doğrudan"
-            astro_fill["Öneri"] = f"Merkür {motion} hareket halinde; iletişimde dikkatli ve net olmak faydalı olabilir."
+            if mercury.get("retrograde"):
+                astro_fill["Öneri"] = (
+                    "Merkür retrograd olduğu için mesaj, randevu ve kararları iki kez kontrol et; acele cevap vermekten kaçın. "
+                    "Eski konuları kapatmak yeni başlangıçtan daha verimli olabilir."
+                )
+            else:
+                astro_fill["Öneri"] = (
+                    f"Merkür {motion} hareket halinde; konuşmaları sadeleştir, net soru sor ve gereksiz varsayımlardan kaçın."
+                )
     except Exception:
         pass
 
     # If Gemini parsed successfully, use its sections and fill gaps from astronomy
     if len(parsed) >= 4:
         section_lines: list[str] = []
+        relationship_fallback = astro_fill.get("İlişkiler", "")
         for label in labels:
             content = parsed.get(label) or astro_fill.get(label, "")
             if content:
+                if label == "İlişkiler":
+                    content = _strengthen_relationship_section(content, period, relationship_fallback)
                 section_lines.append(f"{label}: {content}")
         generated = "\n\n".join([title, *section_lines])
         generated = _normalize_period_language(period, generated)
@@ -1008,9 +1149,12 @@ def _coerce_generated_general_text(period: str, sign: str, raw_text: str, astro_
     # Gemini failed entirely — build from astronomy data only
     if astro_fill:
         section_lines = []
+        relationship_fallback = astro_fill.get("İlişkiler", "")
         for label in labels:
             content = astro_fill.get(label, "")
             if content:
+                if label == "İlişkiler":
+                    content = _strengthen_relationship_section(content, period, relationship_fallback)
                 section_lines.append(f"{label}: {content}")
         generated = "\n\n".join([title, *section_lines])
     else:
@@ -1035,7 +1179,7 @@ def _gemini_generate_general_astro(period: str, sign: str, astro_payload: dict, 
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": {
                 "temperature": min(0.95, 0.68 + attempt * 0.08),
-                "maxOutputTokens": {"daily": 600, "weekly": 900, "monthly": 1400}[period],
+                "maxOutputTokens": {"daily": 500, "weekly": 800, "monthly": 1300, "yearly": 1600}[period],
             },
         }
 
@@ -1085,13 +1229,13 @@ def _classify_single_coffee_image(image_data: str) -> tuple[dict, dict]:
                 "parts": [
                     {
                         "text": (
-                            "Bu gorseli kahve fali yuzeyi olarak siniflandir. "
-                            "Su alanlari doldur: containsCup, containsSaucer, isCoffeeRelevant, reason. "
-                            "containsCup = fincan ici net gorunuyorsa true. "
-                            "containsSaucer = kahve tabagi veya tabak yuzeyi net gorunuyorsa true. "
-                            "Ayni gorselde ikisi birden varsa ikisini de true yap. "
-                            "isCoffeeRelevant = gorsel kahve faliyla alakaliysa true, cicek, kedi, selfie, manzara gibi alakasizsa false. "
-                            "suggestedReadingType = eger gorsel daha cok avuc ici gibi gorunuyorsa palm, kahveye uygunsa coffee, hicbiri degilse none."
+                            "Bu görseli kahve falı yüzeyi olarak sınıflandır. "
+                            "Şu alanları doldur: containsCup, containsSaucer, isCoffeeRelevant, reason. "
+                            "containsCup = fincan içi net görünüyorsa true. "
+                            "containsSaucer = kahve tabağı veya tabak yüzeyi net görünüyorsa true. "
+                            "Aynı görselde ikisi birden varsa ikisini de true yap. "
+                            "isCoffeeRelevant = görsel kahve falıyla alakalıysa true, çiçek, kedi, selfie, manzara gibi alakasızsa false. "
+                            "suggestedReadingType = eğer görsel daha çok avuç içi gibi görünüyorsa palm, kahveye uygunsa coffee, hiçbiri değilse none."
                         )
                     },
                     {"inline_data": {"mime_type": "image/jpeg", "data": image_data}},
@@ -1184,12 +1328,12 @@ def _classify_single_palm_image(image_data: str) -> tuple[dict, dict]:
                 "parts": [
                     {
                         "text": (
-                            "Bu gorselin el fali icin uygun olup olmadigini degerlendir. "
-                            "isPalmRelevant = gorsel insan eline aitse true. "
-                            "isInnerPalm = avuc ici yani elin ic yuzu gorunuyorsa true. "
-                            "handVisibleEnough = avuc ici ve cizgileri yorumlamaya yetecek kadar net ve yeterince gorunuyorsa true. "
-                            "suggestedReadingType = eger gorsel fincan/tabak telvesine daha cok benziyorsa coffee, ele uygunsa palm, hicbiri degilse none. "
-                            "Kedi, fincan, tabak, dis el sirti veya alakasiz nesnelerde uygun alanlari false don."
+                            "Bu görselin el falı için uygun olup olmadığını değerlendir. "
+                            "isPalmRelevant = görsel insan eline aitse true. "
+                            "isInnerPalm = avuç içi yani elin iç yüzü görünüyorsa true. "
+                            "handVisibleEnough = avuç içi ve çizgileri yorumlamaya yetecek kadar net ve yeterince görünüyorsa true. "
+                            "suggestedReadingType = eğer görsel fincan/tabak telvesine daha çok benziyorsa coffee, ele uygunsa palm, hiçbiri değilse none. "
+                            "Kedi, fincan, tabak, dış el sırtı veya alakasız nesnelerde uygun alanları false dön."
                         )
                     },
                     {"inline_data": {"mime_type": "image/jpeg", "data": image_data}},
@@ -1267,13 +1411,13 @@ def _gemini_generate(
             system_instruction += (
                 "\n\n## Surface Guard\n"
                 + (
-                    f"- Bu turda secili profil evcil hayvan; {pet_species} patisi gorseli dogrulandi.\n"
-                    "- Insan eli, fincan veya tabak gormus gibi konusma.\n"
-                    "- Yorumu pati sekli, parmak/ped yerlesimi, durus ve enerji uzerinden kur."
+                    f"- Bu turda seçili profil evcil hayvan; {pet_species} patisi görseli doğrulandı.\n"
+                    "- İnsan eli, fincan veya tabak görmüş gibi konuşma.\n"
+                    "- Yorumu pati şekli, parmak/ped yerleşimi, duruş ve enerji üzerinden kur."
                     if is_pet
-                    else "- Bu turda kullanici el fali icin insan eli/avuc ici gorseli dogrulandi.\n"
-                    "- Fincan veya tabak gormus gibi konusma.\n"
-                    "- Yorumu avuc ici cizgileri, parmak yerlesimi ve el formu uzerinden kur."
+                    else "- Bu turda kullanıcı el falı için insan eli/avuç içi görseli doğrulandı.\n"
+                    "- Fincan veya tabak görmüş gibi konuşma.\n"
+                    "- Yorumu avuç içi çizgileri, parmak yerleşimi ve el formu üzerinden kur."
                 )
             )
             if (memory_snippet or {}).get("profileGender") == "erkek":
@@ -1340,13 +1484,13 @@ def _gemini_generate(
         elif validated_surfaces == ["saucer"]:
             prompt_text = "Yalnizca kahve tabagi gorselini inceleyip fala devam et."
         else:
-            prompt_text = "Dogrulanmis fincan ve/veya tabak gorsellerini inceleyip fala devam et."
+            prompt_text = "Doğrulanmış fincan ve/veya tabak görsellerini inceleyip fala devam et."
         parts = [{"text": prompt_text}]
         if images.get("cup"):
-            parts.append({"text": "Birinci gorsel yuklendi. Gorselde fincan, tabak veya ikisi birden olabilir."})
+            parts.append({"text": "Birinci görsel yüklendi. Görselde fincan, tabak veya ikisi birden olabilir."})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": images["cup"]}})
         if images.get("saucer"):
-            parts.append({"text": "Ikinci gorsel yuklendi. Gorselde fincan, tabak veya ikisi birden olabilir."})
+            parts.append({"text": "İkinci görsel yüklendi. Görselde fincan, tabak veya ikisi birden olabilir."})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": images["saucer"]}})
         contents.insert(0, {"role": "user", "parts": parts})
 
@@ -1522,6 +1666,108 @@ def prewarm_general_astro():
     )
 
 
+def _personal_astro_token_limit(period: str) -> int:
+    return {"daily": 750, "weekly": 1050, "monthly": 1550, "yearly": 1800}.get(period, 750)
+
+
+def _assistant_style_hint(assistant_id: str, assistant_label: str) -> str:
+    styles = {
+        "bahar-hanim": "Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek, sıcak ama net bir astrolog.",
+        "mert-bey": "Mert Bey tonu: analitik, sade, dost gibi yakın ve toparlayıcı.",
+        "durdane-hanim": "Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu.",
+        "hikmet-bey": "Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan.",
+        "caner": "Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik.",
+    }
+    return styles.get(assistant_id or "", f"{assistant_label or 'Falcı'} tonu: sıcak, doğal ve persona içinde kalan.")
+
+
+def _personal_numerology_token_limit(mode: str, period: str) -> int:
+    if mode == "core":
+        return 750
+    return 900
+
+
+@app.post("/personal-numerology/generate")
+def generate_personal_numerology():
+    body = request.get_json(silent=True) or {}
+    mode = str(body.get("mode") or "period").strip().lower()
+    if mode not in {"core", "period"}:
+        mode = "period"
+    gemini_payload = body.get("geminiPayload")
+    if not isinstance(gemini_payload, dict):
+        return jsonify({"ok": False, "error": "geminiPayload zorunlu."}), 400
+    if not GEMINI_API_KEY:
+        return jsonify({"ok": False, "error": "Yorum anahtarı yok."}), 503
+
+    generation_config = gemini_payload.get("generationConfig")
+    if not isinstance(generation_config, dict):
+        generation_config = {}
+        gemini_payload["generationConfig"] = generation_config
+    try:
+        requested_max_tokens = int(generation_config.get("maxOutputTokens") or _personal_numerology_token_limit(mode, "monthly"))
+    except Exception:
+        requested_max_tokens = _personal_numerology_token_limit(mode, "monthly")
+    generation_config["maxOutputTokens"] = min(
+        requested_max_tokens,
+        _personal_numerology_token_limit(mode, "monthly"),
+    )
+    try:
+        generation_config["temperature"] = float(generation_config.get("temperature") or 0.72)
+    except Exception:
+        generation_config["temperature"] = 0.72
+
+    try:
+        data = _gemini_api_request(gemini_payload, timeout_seconds=40)
+        text = _strip_code_fences(_extract_text_from_gemini_response(data))
+        return jsonify(
+            {
+                "ok": True,
+                "source": "gemini-proxy-personal-numerology",
+                "text": text,
+            }
+        )
+    except Exception as exc:
+        app.logger.exception("personal numerology gemini proxy failed")
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+@app.post("/personal-astro/generate")
+def generate_personal_astro():
+    body = request.get_json(silent=True) or {}
+    period = _normalize_period(body.get("period"))
+    gemini_payload = body.get("geminiPayload")
+    if not isinstance(gemini_payload, dict):
+        return jsonify({"ok": False, "error": "geminiPayload zorunlu."}), 400
+    if not GEMINI_API_KEY:
+        return jsonify({"ok": False, "error": "Yorum anahtarı yok."}), 503
+    generation_config = gemini_payload.get("generationConfig")
+    if not isinstance(generation_config, dict):
+        generation_config = {}
+        gemini_payload["generationConfig"] = generation_config
+    try:
+        requested_max_tokens = int(generation_config.get("maxOutputTokens") or _personal_astro_token_limit(period))
+    except Exception:
+        requested_max_tokens = _personal_astro_token_limit(period)
+    generation_config["maxOutputTokens"] = min(requested_max_tokens, _personal_astro_token_limit(period))
+    try:
+        generation_config["temperature"] = float(generation_config.get("temperature") or 0.72)
+    except Exception:
+        generation_config["temperature"] = 0.72
+    try:
+        data = _gemini_api_request(gemini_payload, timeout_seconds=40)
+        text = _strip_code_fences(_extract_text_from_gemini_response(data))
+        return jsonify(
+            {
+                "ok": True,
+                "source": "gemini-proxy-personal-astro",
+                "text": text,
+            }
+        )
+    except Exception as exc:
+        app.logger.exception("personal astro gemini proxy failed")
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
 @app.post("/astronomy/general")
 def astronomy_general():
     body = request.get_json(silent=True) or {}
@@ -1550,8 +1796,10 @@ def astronomy_personal():
         return jsonify({"ok": False, "error": "birthDate zorunlu."}), 400
 
     birth_time = str(body.get("birthTime") or "").strip() or None
+    time_known = bool(body.get("timeKnown", True) and birth_time)
     timezone_name = str(body.get("timezone") or "UTC").strip() or "UTC"
     target_date = _normalize_target_date(body.get("targetDate"))
+    location_precision = str(body.get("locationPrecision") or "city").strip()
 
     try:
         latitude = float(body.get("latitude"))
@@ -1559,7 +1807,7 @@ def astronomy_personal():
     except Exception:
         return jsonify({"ok": False, "error": "latitude/longitude zorunlu."}), 400
 
-    cache_key = f"personal|{birth_date}|{birth_time or '12:00'}|{timezone_name}|{latitude:.6f}|{longitude:.6f}|{target_date}"
+    cache_key = f"personal|{birth_date}|{birth_time or '12:00'}|{time_known}|{timezone_name}|{latitude:.6f}|{longitude:.6f}|{location_precision}|{target_date}"
     cached = _astro_cache_get(cache_key)
     if cached:
         return jsonify(cached)
@@ -1572,6 +1820,8 @@ def astronomy_personal():
             latitude=latitude,
             longitude=longitude,
             target_date=target_date,
+            time_known=time_known,
+            location_precision=location_precision,
         )
         _astro_cache_set(cache_key, payload)
         return jsonify(payload)
@@ -1647,7 +1897,7 @@ def memory_analyze():
     if not profile_id:
         return jsonify({"userMessage": "Profil bilgisi eksik."}), 400
     if not isinstance(transcript, list) or not transcript:
-        return jsonify({"userMessage": "Analiz icin transcript gerekli."}), 400
+        return jsonify({"userMessage": "Analiz için transkript gerekli."}), 400
 
     try:
         result, usage = _analyze_memory_from_transcript(profile_name, reading_type, memory_snippet, transcript)

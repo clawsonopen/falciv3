@@ -244,7 +244,7 @@ async function loadStore(): Promise<DivinationStore> {
   await ensureDir(DATA_DIR);
   const info = await FileSystem.getInfoAsync(STORE_FILE);
   if (!info.exists) {
-    const initial: DivinationStore = { schemaVersion: 1, nextSequence: 1, usedTexts: [], dailyReadings: [] };
+    const initial: DivinationStore = { schemaVersion: 1, nextSequence: 1, usedFingerprints: [], dailyReadings: [] };
     await FileSystem.writeAsStringAsync(STORE_FILE, JSON.stringify(initial, null, 2));
     return initial;
   }
@@ -507,6 +507,7 @@ export async function createDailyGeneralReading(params: {
     const fallback = buildReading(params.type, sequence + fallbackSeed, now);
     selected = fallback.text;
     selectedMeta = fallback.meta;
+    selectedFingerprint = fallback.fingerprint;
     sequence = sequence + fallbackSeed;
   }
 

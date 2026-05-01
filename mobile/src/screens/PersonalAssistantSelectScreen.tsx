@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -9,7 +9,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PersonalAssistantSelect
 
 export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   const { devSettings, profileId, readingType } = route.params;
-  const [selectedAssistantId, setSelectedAssistantId] = useState<string>(AVAILABLE_ASSISTANTS[0].id);
+  const defaultAssistantId = useMemo(() => {
+    if (readingType === 'astro-personal') return 'bahar-hanim';
+    if (readingType === 'numerology-personal') return 'mert-bey';
+    return AVAILABLE_ASSISTANTS[0].id;
+  }, [readingType]);
+  const [selectedAssistantId, setSelectedAssistantId] = useState<string>(defaultAssistantId);
 
   const selectedReadingLabel = useMemo(() => {
     if (readingType === 'coffee') return 'Kahve Falı';
@@ -27,7 +32,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Falcı Seçimi</Text>
           <Text style={styles.helperText}>Seçilen fal tipi: {selectedReadingLabel}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.assistantList}>
             {AVAILABLE_ASSISTANTS.map((assistant) => {
               const selected = selectedAssistantId === assistant.id;
               return (
@@ -42,12 +47,20 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </View>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => {
               if (readingType === 'astro-personal') {
                 navigation.navigate('PersonalAstroReading', {
+                  profileId,
+                  assistantId: selectedAssistantId,
+                });
+                return;
+              }
+
+              if (readingType === 'numerology-personal') {
+                navigation.navigate('PersonalNumerologyReading', {
                   profileId,
                   assistantId: selectedAssistantId,
                 });
@@ -87,11 +100,14 @@ const styles = StyleSheet.create({
   },
   panelTitle: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 8 },
   helperText: { color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 20, marginBottom: 10 },
+  assistantList: {
+    gap: 10,
+  },
   assistantCard: {
-    width: 190,
+    width: '100%',
+    minHeight: 92,
     padding: 12,
     borderRadius: 14,
-    marginRight: 10,
     backgroundColor: 'rgba(0,0,0,0.18)',
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.18)',

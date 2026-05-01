@@ -151,38 +151,39 @@ def build_prompt(dev_settings: dict, messages: list[dict], images: dict, session
     override_prompt = (dev_settings.get("systemPrompt") or "").strip()
     image_hint = []
     if images.get("cup"):
-        image_hint.append("kullanici fincan gorseli gonderdi")
+        image_hint.append("kullanıcı fincan görseli gönderdi")
     if images.get("saucer"):
-        image_hint.append("kullanici tabak gorseli gonderdi")
+        image_hint.append("kullanıcı tabak görseli gönderdi")
     if images.get("palm"):
-        image_hint.append("kullanici avuc ici gorseli gonderdi")
-    image_context = ", ".join(image_hint) if image_hint else "bu turda gorsel gelmemis olabilir"
+        image_hint.append("kullanıcı avuç içi görseli gönderdi")
+    image_context = ", ".join(image_hint) if image_hint else "bu turda görsel gelmemiş olabilir"
 
     is_initial_reading = len(messages) <= 1
     runtime_rules = "\n".join(
         [
             "## Runtime Directives",
-            f"- Ana uzmanlik alanini oncele: {identity.primary_domain_label}.",
+            f"- Ana uzmanlık alanını öncele: {identity.primary_domain_label}.",
             f"- Bu turda {image_context}.",
-            "- Yanitini basliksiz, sohbet gibi akan duz yazi halinde ver.",
+            "- Yanıtını başlıksız, sohbet gibi akan düz yazı halinde ver.",
+            "- Persona içinde kal ama kendini tanıtma; 'ben Dürdane olarak', 'ben Mert olarak', 'ben falcı olarak' gibi kalıplar kullanma.",
             "- Giriş bölümünü 1-2 cümlede tut; esas ağırlığı fal yorumuna ver.",
-            "- Paragraflari TTS icin rahat okunacak kisa-orta uzunlukta tut.",
-            "- Her paragrafi veya ana dusunceyi tamamlanmis cumlelerle bitir.",
-            "- Falci gibi konusurken gecmis izlerini, bugunku olasiliklari ve yakin gelecek ihtimallerini birlikte dokumalisin; sadece mevcut durum analizi yapip kalma.",
-            "- Yorumda kesin kehanet degil, olasilik dili kullan: 'gorunen ihtimal', 'yakina dusen yol', 'bu enerji boyle giderse' gibi ifadelerle konus.",
-            "- Gecmis, simdi ve gelecek dengesini koru: once gorselden cikan gecmis izi, sonra bugunun olasiliklari, sonra yakin gelecek kapilari ve tavsiye gelsin.",
-            "- Bu oturum boyunca sadece secili profil icin fal bak. Kullanici mesaj icinde baska biri icin yorum isterse ayni gorseli o kisiye aitmis gibi yeniden yorumlama.",
-            "- Kullanici baska biri icin de yorum isterse nazikce bunun ayri bir profil ve ayri bir fal oturumu gerektirdigini soyle.",
+            "- Paragrafları TTS için rahat okunacak kısa-orta uzunlukta tut.",
+            "- Her paragrafı veya ana düşünceyi tamamlanmış cümlelerle bitir.",
+            "- Falcı gibi konuşurken geçmiş izlerini, bugünkü olasılıkları ve yakın gelecek ihtimallerini birlikte dokumalısın; sadece mevcut durum analizi yapıp kalma.",
+            "- Yorumda kesin kehanet değil, olasılık dili kullan: 'görünen ihtimal', 'yakına düşen yol', 'bu enerji böyle giderse' gibi ifadelerle konuş.",
+            "- Geçmiş, şimdi ve gelecek dengesini koru: önce görselden çıkan geçmiş izi, sonra bugünün olasılıkları, sonra yakın gelecek kapıları ve tavsiye gelsin.",
+            "- Bu oturum boyunca sadece seçili profil için fal bak. Kullanıcı mesaj içinde başka biri için yorum isterse aynı görseli o kişiye aitmiş gibi yeniden yorumlama.",
+            "- Kullanıcı başka biri için de yorum isterse nazikçe bunun ayrı bir profil ve ayrı bir fal oturumu gerektirdiğini söyle.",
             (
                 "- Bu ilk ana fal açılışı. Yorumu katmanlı kur; toplam uzunluk hedefi yaklaşık 700-800 token aralığı olsun."
                 if is_initial_reading
                 else "- Bu bir follow-up turu. Kullanıcı sorularına verilen yanıtı yaklaşık 300-400 token aralığında tut ve sert kesmeden toparlayarak bitir."
             ),
             "- Süre belirtirken aynı sayıyı sürekli tekrar etme. Özellikle 3 ve 6 ağırlıklı ama 1-9 arasında çeşitlendirilmiş ifade kullan.",
-            "- Son kisimda yeni bir imza kapanis cumlesi uretme; sistem persona kapanisini sonradan ekleyecek.",
-            "- Kullaniciya ses tanima hatalariyla gelmis mesajlarda niyeti anlayip dogal sekilde cevap ver.",
+            "- Son kısımda yeni bir imza kapanış cümlesi üretme; sistem persona kapanışını sonradan ekleyecek.",
+            "- Kullanıcıya ses tanıma hatalarıyla gelmiş mesajlarda niyeti anlayıp doğal şekilde cevap ver.",
             "- Türkçe karakterleri daima UTF-8 doğru yaz: ç, ğ, ı, İ, ö, ş, ü.",
-            "- Bozuk karakter dizileri kullanma: Ã, Å, Ä, â.",
+            "- Bozuk karakter dizileri kullanma.",
         ]
     )
 
@@ -205,7 +206,7 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
 
     lines = [
         "## Subject Context",
-        f"- Bu fal {profile_name or 'secili kisi'} icin bakiliyor.",
+        f"- Bu fal {profile_name or 'seçili kişi'} için bakılıyor.",
         f"- Fal turu: {reading_type}.",
         f"- Kahve modu: {coffee_mode}.",
     ]
@@ -233,11 +234,11 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
         if profile_gender:
             lines.append(f"- Profil cinsiyet bilgisi: {profile_gender}.")
         if profile_gender == "erkek":
-            lines.append("- Bu profile veya kullaniciya 'kizim' diye hitap etme; gerekirse 'evladim', 'oglum' veya ismiyle hitap et.")
+            lines.append("- Bu profile veya kullanıcıya 'kızım' diye hitap etme; gerekirse 'evladım', 'oğlum' veya ismiyle hitap et.")
         elif profile_gender == "kadin":
-            lines.append("- Bu profile veya kullaniciya 'oglum' diye hitap etme; gerekirse 'evladim', 'kizim' veya ismiyle hitap et.")
+            lines.append("- Bu profile veya kullanıcıya 'oğlum' diye hitap etme; gerekirse 'evladım', 'kızım' veya ismiyle hitap et.")
         elif profile_gender in ("hicbiri", "belirtmek_istemiyorum"):
-            lines.append("- Bu profil icin cinsiyetli hitap kullanma; 'kizim', 'oglum', 'guzel kizim', 'guzel oglum' yerine 'evladim', 'canim' veya ismiyle hitap et.")
+            lines.append("- Bu profil için cinsiyetli hitap kullanma; 'kızım', 'oğlum', 'güzel kızım', 'güzel oğlum' yerine 'evladım', 'canım' veya ismiyle hitap et.")
         if relationship_primary == "evcil_hayvan":
             lines.append(f"- Bu profil bir evcil hayvan profili. Tur bilgisi: {pet_species or relationship or 'evcil hayvan'}.")
             lines.append("- El fali secildiyse insan eli degil, bu hayvanin patisi/ayagi uzerinden yorum beklenir.")
@@ -248,10 +249,10 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
             )
         else:
             lines.append(
-                f"- Bu okuma hesap sahibinden farkli biri icin. Ana anlatimda gerekirse {profile_name} adini kullan; hesap sahibine sen diye degil, bu kisiye odaklan."
+                f"- Bu okuma hesap sahibinden farklı biri için. Ana anlatımda gerekirse {profile_name} adını kullan; hesap sahibine sen diye değil, bu kişiye odaklan."
             )
         lines.append(
-            f"- Secili profil sabit: bu oturum sadece {profile_name or 'bu profil'} icin. Sohbet icinde baska biri gecse bile gorseli o kisiye aitmis gibi yorumlama."
+            f"- Seçili profil sabit: bu oturum sadece {profile_name or 'bu profil'} için. Sohbet içinde başka biri geçse bile görseli o kişiye aitmiş gibi yorumlama."
         )
 
         user_stated_topics = memory_snippet.get("userStatedTopics") or []
@@ -290,8 +291,8 @@ def build_memory_context(profile_name: str, memory_snippet: dict | None, reading
 
         lines.extend(
             [
-                "- Bu hafizayi veri tabani gibi degil, dogal bir tanisiklik hissi vermek icin kullan.",
-                "- Sadece ilgiliyse hafizadan yararlan; ayni yanitta 1-2 dokunustan fazla yapma.",
+                "- Bu hafızayı veri tabanı gibi değil, doğal bir tanışıklık hissi vermek için kullan.",
+                "- Sadece ilgiliyse hafızadan yararlan; aynı yanıtta 1-2 dokunuştan fazla yapma.",
             ]
         )
 
@@ -309,4 +310,3 @@ def append_persona_closing(text: str, closing_sentence: str) -> str:
     if cleaned[-1] not in ".!?":
         cleaned += "."
     return f"{cleaned} {closing_sentence}"
-

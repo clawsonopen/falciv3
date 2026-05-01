@@ -1386,6 +1386,7 @@ def _gemini_generate(
     memory_snippet: dict | None,
     messages: list[dict],
     images: dict,
+    is_follow_up: bool = False,
     validated_surfaces: list[str] | None = None,
     palm_validation: dict | None = None,
 ) -> tuple[str, dict]:
@@ -1398,6 +1399,17 @@ def _gemini_generate(
     system_instruction = built_prompt.system_instruction
     if memory_context:
         system_instruction = f"{system_instruction}\n\n{memory_context}"
+    if is_follow_up:
+        system_instruction += (
+            "\n\n## Follow-up Yanıt Sözleşmesi\n"
+            "- Bu tur yeni bir fal açılışı değildir; önceki fal metnini yeniden yazma, özetleme veya kopyalama.\n"
+            "- Yalnızca kullanıcının son mesajındaki soruya doğrudan cevap ver.\n"
+            "- Önceki falı sadece bağlam olarak kullan; görseli veya ana falı baştan yorumlamaya çalışma.\n"
+            "- Yanıtı tek paragraf olarak ver; kısa geçiştirme yapma, soruya doyurucu biçimde cevap ver.\n"
+            "- Tek paragrafta önce net yanıtı, sonra fal bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver.\n"
+            "- Yaklaşık 120-170 token içinde tamamla.\n"
+            "- Kullanıcının son mesajında önceki okumanın transkripsiyonu yanlışlıkla varsa onu yok say ve gerçek soruya odaklan.\n"
+        )
     if validated_surfaces is not None:
         system_instruction += (
             "\n\n## Görsel Yorum Disiplini\n"
@@ -1461,7 +1473,7 @@ def _gemini_generate(
             continue
         contents.append({"role": role, "parts": [{"text": text}]})
 
-    if reading_type == "palm" and images.get("palm"):
+    if (not is_follow_up) and reading_type == "palm" and images.get("palm"):
         is_pet = (memory_snippet or {}).get("relationshipPrimary") == "evcil_hayvan"
         prompt_text = (
             "Bu evcil hayvan pati gorselini inceleyip pati falina devam et. Insan eli gibi yorumlama."
@@ -1478,7 +1490,7 @@ def _gemini_generate(
                 ],
             },
         )
-    elif images and (images.get("cup") or images.get("saucer")):
+    elif (not is_follow_up) and images and (images.get("cup") or images.get("saucer")):
         if validated_surfaces == ["cup"]:
             prompt_text = "Yalnizca fincan ici gorselini inceleyip fala devam et."
         elif validated_surfaces == ["saucer"]:
@@ -1499,7 +1511,7 @@ def _gemini_generate(
         "contents": contents,
         "generationConfig": {
             "temperature": temperature,
-            "maxOutputTokens": 820 if len(messages) <= 1 else 430,
+            "maxOutputTokens": 320 if is_follow_up else (820 if len(messages) <= 1 else 430),
         },
     }
 
@@ -1840,6 +1852,7 @@ def fortune():
     coffee_mode = str(body.get("coffeeMode") or "upload")
     memory_snippet = body.get("memorySnippet") or None
     messages = body.get("messages") or []
+    is_follow_up = bool(body.get("isFollowUp"))
     images = body.get("images") or {}
 
     if not isinstance(messages, list):
@@ -1868,6 +1881,7 @@ def fortune():
             memory_snippet,
             messages,
             images,
+            is_follow_up,
             validated_surfaces,
             palm_validation if reading_type == "palm" else None,
         )

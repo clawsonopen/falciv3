@@ -787,7 +787,7 @@ export async function createPersonalAstroFollowUp(params: {
     `Falcı kimliği: ${params.assistantId}`,
     `Önceki kişisel astroloji yorumu:\n${params.readingText}`,
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı 2-4 kısa paragrafla ver. Her paragraf yeni bilgi taşısın.',
+    'Yanıtı tek paragraf olarak ver. Kısa geçiştirme yapma; önce net yanıtı, sonra astroloji bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver. Yaklaşık 120-170 token içinde tamamla.',
   ].join('\n\n');
   const data = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },

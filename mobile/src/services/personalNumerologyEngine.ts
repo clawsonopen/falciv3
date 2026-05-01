@@ -645,7 +645,7 @@ export async function createPersonalNumerologyFollowUp(params: {
     `Falcı kimliği: ${params.assistantId}`,
     `Önceki kişisel numeroloji yorumu:\n${params.readingText}`,
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı 2-4 kısa paragrafla ver. Her paragraf yeni bilgi taşısın.',
+    'Yanıtı tek paragraf olarak ver. Kısa geçiştirme yapma; önce net yanıtı, sonra numeroloji bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver. Yaklaşık 120-170 token içinde tamamla.',
   ].join('\n\n');
   const payload = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },

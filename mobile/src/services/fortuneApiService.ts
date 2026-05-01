@@ -17,6 +17,7 @@ interface FortuneRequest {
   coffeeMode?: 'upload' | 'ai-brew';
   memorySnippet?: ProfileMemorySnippet | null;
   messages: FortuneMessage[];
+  isFollowUp?: boolean;
   images?: {
     cup?: string;
     saucer?: string;

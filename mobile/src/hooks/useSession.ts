@@ -17,6 +17,41 @@ function looksLikeQuestion(text: string): boolean {
   return /\b(ne|neden|nasil|nasıl|ne zaman|kim|hangi|mi|mı|mu|mü|olur mu|var mi|var mı)\b/.test(normalized);
 }
 
+function normalizedWords(text: string): string[] {
+  return text
+    .toLocaleLowerCase('tr-TR')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function stripAssistantEchoFromUserText(text: string, messages: ChatMessage[]): string {
+  const originalWords = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const userWords = normalizedWords(text);
+  if (userWords.length < 12) return text.trim();
+
+  const assistantJoined = messages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => normalizedWords(message.text).join(' '))
+    .filter((stream) => stream.length > 0);
+
+  let removablePrefixLength = 0;
+  const maxCheck = Math.min(userWords.length, 180);
+  for (const assistantText of assistantJoined) {
+    for (let length = maxCheck; length >= 12; length -= 1) {
+      const prefix = userWords.slice(0, length).join(' ');
+      if (assistantText.includes(prefix)) {
+        removablePrefixLength = Math.max(removablePrefixLength, length);
+        break;
+      }
+    }
+  }
+
+  if (removablePrefixLength < 12) return text.trim();
+  const cleaned = originalWords.slice(removablePrefixLength).join(' ').trim();
+  return cleaned || text.trim();
+}
+
 export function useSession() {
   const [state, setState] = useState<SessionState>({
     status: 'idle',
@@ -111,7 +146,7 @@ export function useSession() {
   }, []);
 
   const askAgent = useCallback(
-    async (nextMessages: ChatMessage[]) => {
+    async (nextMessages: ChatMessage[], options?: { isFollowUp?: boolean }) => {
       const config = configRef.current;
       if (!config) return;
 
@@ -127,6 +162,7 @@ export function useSession() {
           coffeeMode: config.coffeeMode,
           memorySnippet: config.memorySnippet,
           messages: toFortuneMessages(nextMessages),
+          isFollowUp: Boolean(options?.isFollowUp),
           images: imagesRef.current,
         });
         addMessage('assistant', text.text);
@@ -198,7 +234,7 @@ export function useSession() {
 
   const sendUserTranscript = useCallback(
     async (text: string) => {
-      const trimmed = text.trim();
+      const trimmed = stripAssistantEchoFromUserText(text, messagesRef.current);
       if (!trimmed || statusRef.current === 'ended') return;
       setUserSpeakingActive(true);
       const userMsg = addMessage('user', trimmed);
@@ -207,7 +243,7 @@ export function useSession() {
         if (looksLikeQuestion(trimmed)) {
           await appendUserConversationMemory(configRef.current?.profileId || '', trimmed).catch(() => {});
         }
-        await askAgent(next);
+        await askAgent(next, { isFollowUp: true });
       } finally {
         setUserSpeakingActive(false);
       }

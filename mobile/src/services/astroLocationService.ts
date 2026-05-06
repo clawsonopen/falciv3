@@ -151,11 +151,6 @@ export function resolveAstroLocation(location: BirthLocation): ResolvedAstroLoca
       };
     }
 
-    if (location.district?.trim()) {
-      warnings.push('İlçe koordinatı bulunamadı; şehir merkezi kullanıldı.');
-    } else {
-      warnings.push('İlçe girilmedi; şehir merkezi kullanıldı.');
-    }
     return {
       country,
       cityOrRegion: city,
@@ -170,11 +165,6 @@ export function resolveAstroLocation(location: BirthLocation): ResolvedAstroLoca
   }
 
   if (turkeyCityEntry) {
-    if (location.district?.trim()) {
-      warnings.push('İlçe için ayrı koordinat bulunamadı; şehir merkezi kullanıldı.');
-    } else {
-      warnings.push('İlçe girilmedi; şehir merkezi kullanıldı.');
-    }
     return {
       country,
       cityOrRegion: city,

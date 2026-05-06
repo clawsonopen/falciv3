@@ -21,6 +21,7 @@ import { PersonalAssistantSelectScreen } from './src/screens/PersonalAssistantSe
 import { PersonalReadingSetupScreen } from './src/screens/PersonalReadingSetupScreen';
 import { PersonalAstroReadingScreen } from './src/screens/PersonalAstroReadingScreen';
 import { PersonalBirthChartScreen } from './src/screens/PersonalBirthChartScreen';
+import { BirthChartInterpretationScreen } from './src/screens/BirthChartInterpretationScreen';
 import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerologyReadingScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
@@ -59,6 +60,9 @@ export type RootStackParamList = {
     assistantId: string;
   };
   PersonalBirthChart: {
+    profileId: string;
+  };
+  BirthChartInterpretation: {
     profileId: string;
   };
   PersonalNumerologyReading: {
@@ -118,6 +122,11 @@ export default function App() {
             name="PersonalBirthChart"
             component={PersonalBirthChartScreen}
             options={{ title: 'Doğum Haritası' }}
+          />
+          <Stack.Screen
+            name="BirthChartInterpretation"
+            component={BirthChartInterpretationScreen}
+            options={{ title: 'Doğum Haritası Yorumu' }}
           />
           <Stack.Screen
             name="PersonalNumerologyReading"

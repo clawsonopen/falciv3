@@ -345,6 +345,64 @@ function mergePatternMemory(
   return next.slice(-MAX_MEMORY_ITEMS);
 }
 
+function dampenReadingTopics(
+  incoming: Array<{ key?: string; label?: string; group?: string; subgroup?: string; detailGroup?: string; salience?: number }> = [],
+) {
+  return incoming.map((item) => ({
+    ...item,
+    salience: Math.min(0.42, Math.max(0.18, Number(item.salience || 0.5) * 0.45)),
+  }));
+}
+
+function dampenReadingPeople(
+  incoming: Array<{ key?: string; label?: string; relationship?: string; salience?: number }> = [],
+) {
+  return incoming.map((item) => ({
+    ...item,
+    salience: Math.min(0.38, Math.max(0.16, Number(item.salience || 0.5) * 0.42)),
+  }));
+}
+
+function dampenReadingPatterns(
+  incoming: Array<{ key?: string; label?: string; confidence?: number }> = [],
+) {
+  return incoming.map((item) => ({
+    ...item,
+    confidence: Math.min(0.42, Math.max(0.18, Number(item.confidence || 0.5) * 0.45)),
+  }));
+}
+
+function dampenReadingObservations(
+  incoming: Array<Partial<MemoryObservation> & { key?: string; title?: string; summary?: string }> = [],
+) {
+  return incoming.map((item) => ({
+    ...item,
+    confidence: Math.min(0.42, Math.max(0.18, Number(item.confidence || 0.5) * 0.45)),
+  }));
+}
+
+function dampenReadingDerivedMemory<T extends ReadingDerivedMemoryFile>(memory: T): T {
+  return {
+    ...memory,
+    recurringTopics: memory.recurringTopics.map((item) => ({
+      ...item,
+      salience: Math.min(item.salience, 0.34),
+    })),
+    emotionalPatterns: memory.emotionalPatterns.map((item) => ({
+      ...item,
+      confidence: Math.min(item.confidence, 0.38),
+    })),
+    importantPeople: memory.importantPeople.map((item) => ({
+      ...item,
+      salience: Math.min(item.salience, 0.35),
+    })),
+    observations: memory.observations.map((item) => ({
+      ...item,
+      confidence: Math.min(item.confidence, 0.38),
+    })),
+  };
+}
+
 function categoryCandidateKey(group: string, subgroup: string) {
   return normalizeForMatching(`${group}-${subgroup}`) || makeId('category');
 }
@@ -1043,7 +1101,8 @@ function observationSemanticScore(item: MemoryObservation, queryTokens: Set<stri
   const coverage = overlap / Math.max(1, queryTokens.size);
   const density = overlap / Math.max(4, observationTokens.size);
   const confidence = Math.min(1, Math.max(0.35, item.confidence || 0.5));
-  return coverage * 0.68 + density * 0.12 + confidence * 0.2;
+  const sourceWeight = item.source === 'user-stated' ? 1 : 0.42;
+  return (coverage * 0.68 + density * 0.12 + confidence * 0.2) * sourceWeight;
 }
 
 function slugifyPersonId(value: string): string {
@@ -1244,7 +1303,13 @@ export async function loadProfileMemorySnippet(
   const userObservations = bundle.userStated.observations.slice(0, MAX_MEMORY_ITEMS);
   const readingObservations = bundle.readingDerived.observations.slice(0, MAX_MEMORY_ITEMS);
   const relevantObservations = selectRelevantObservations(
-    [...userObservations, ...readingObservations],
+    [
+      ...userObservations,
+      ...readingObservations.map((item) => ({
+        ...item,
+        confidence: Math.min(item.confidence, 0.38),
+      })),
+    ],
     options?.semanticQuery,
   );
 
@@ -1328,6 +1393,7 @@ function selectRelevantObservations(observations: MemoryObservation[], semanticQ
   if (!queryTokens.size) {
     return observations
       .sort((a, b) => {
+        if (a.source !== b.source) return a.source === 'user-stated' ? -1 : 1;
         const confidenceDiff = b.confidence - a.confidence;
         if (Math.abs(confidenceDiff) > 0.08) return confidenceDiff;
         return b.lastSeenAt.localeCompare(a.lastSeenAt);
@@ -1402,20 +1468,20 @@ export async function applyMemoryAnalysisResult(
     ...safeReadingMemory,
     recurringTopics: mergeTopicMemory(
       safeReadingMemory.recurringTopics,
-      result.readingDerived.recurringTopics || [],
+      dampenReadingTopics(result.readingDerived.recurringTopics || []),
     ),
     importantPeople: mergePeopleMemory(
       safeReadingMemory.importantPeople,
-      result.readingDerived.importantPeople || [],
+      dampenReadingPeople(result.readingDerived.importantPeople || []),
       state.profiles,
     ),
     emotionalPatterns: mergePatternMemory(
       safeReadingMemory.emotionalPatterns,
-      result.readingDerived.emotionalPatterns || [],
+      dampenReadingPatterns(result.readingDerived.emotionalPatterns || []),
     ),
     observations: mergeObservationMemory(
       safeReadingMemory.observations,
-      result.readingDerived.observations || [],
+      dampenReadingObservations(result.readingDerived.observations || []),
       'reading-derived',
       state.profiles,
     ),
@@ -1449,7 +1515,7 @@ export async function appendReadingDerivedTheme(
       {
         key: normalizeForMatching(key || trimmed) || trimmed.toLocaleLowerCase('tr-TR'),
         label: trimmed,
-        salience: 0.72,
+        salience: 0.28,
       },
     ]),
     updatedAt: nowIso(),
@@ -1485,11 +1551,11 @@ export async function appendReadingSummary(
     readingMemoryFile(reading.profileId),
     emptyReadingDerivedMemory(reading.profileId, state.accountId),
   );
-  const nextReadingMemory = updateMemoryFromText(currentReadingMemory, reading.summary, {
+  const nextReadingMemory = dampenReadingDerivedMemory(updateMemoryFromText(currentReadingMemory, reading.summary, {
     includeTopics: true,
     includePatterns: true,
     includePeople: false,
-  });
+  }));
   await writeJsonFile(readingMemoryFile(reading.profileId), nextReadingMemory);
 
   const nextState: AccountState = {

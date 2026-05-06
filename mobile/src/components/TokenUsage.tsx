@@ -14,15 +14,18 @@ interface TokenUsageProps {
 }
 
 export function TokenUsage({ usage, inputPrice, outputPrice }: TokenUsageProps) {
-  const total = usage.inputTokens + usage.outputTokens;
+  const imageInputTokens = usage.imageInputTokens || 0;
+  const textInputTokens = usage.textInputTokens ?? Math.max(0, usage.inputTokens - imageInputTokens);
+  const total = imageInputTokens + textInputTokens + usage.outputTokens;
   const cost =
-    (usage.inputTokens / 1_000_000) * inputPrice +
+    ((imageInputTokens + textInputTokens) / 1_000_000) * inputPrice +
     (usage.outputTokens / 1_000_000) * outputPrice;
 
   return (
     <View style={styles.container}>
       <Text style={styles.rowText}>
-        Giriş: {usage.inputTokens.toLocaleString()}   Çıkış: {usage.outputTokens.toLocaleString()}   Toplam: {total.toLocaleString()}
+        Görsel: {imageInputTokens.toLocaleString()}   Metin: {textInputTokens.toLocaleString()}   Çıkış:{' '}
+        {usage.outputTokens.toLocaleString()}   Toplam: {total.toLocaleString()}
       </Text>
       <Text style={styles.costText}>Maliyet: ${cost.toFixed(6)}</Text>
     </View>
@@ -42,7 +45,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168, 130, 82, 0.2)',
   },
   rowText: {
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
     color: '#D4A574',
     fontVariant: ['tabular-nums'],

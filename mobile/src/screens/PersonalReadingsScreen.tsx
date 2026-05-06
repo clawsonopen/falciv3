@@ -289,7 +289,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         visible={infoModal.visible}
         title={infoModal.title}
         message={infoModal.message}
-        confirmLabel="Tamam"
+        confirmLabel={infoAction === 'profile' ? null : 'Tamam'}
         cancelLabel="Kapat"
         extraActionLabel={infoAction === 'profile' ? 'Profil Ayarları' : null}
         onExtraAction={infoAction === 'profile' ? handleInfoExtraAction : undefined}

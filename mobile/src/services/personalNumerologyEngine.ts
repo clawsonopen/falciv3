@@ -2,9 +2,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type { ProfileMemorySnippet, SubjectProfile } from '../types/memory';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { isRetryableLlmError } from './llmRetryMessages';
+import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
+import { completeWithPersonaClosing } from './personaClosingService';
 
 export type PersonalNumerologyMode = 'core' | 'period';
 export type PersonalNumerologyPeriod = 'monthly';
+const PERSONAL_NUMEROLOGY_PERSONA_PROMPT_VERSION = 6;
 
 function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
   const items = snippet?.relevantObservations || [];
@@ -61,6 +64,12 @@ export type PersonalNumerologyReading = {
   source: string;
   cached?: boolean;
   hasCoreReading?: boolean;
+  modelName?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 };
 
 type CoreCacheFile = {
@@ -91,7 +100,7 @@ const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const CORE_CACHE_FILE = `${DATA_DIR}personal-numerology-core-cache.json`;
 const PERIOD_CACHE_FILE = `${DATA_DIR}personal-numerology-period-cache.json`;
 const MAX_PERIOD_CACHE_ITEMS = 160;
-const NUMEROLOGY_CACHE_VERSION = 4;
+const NUMEROLOGY_CACHE_VERSION = 5;
 const ISTANBUL_TIME_ZONE = 'Europe/Istanbul';
 
 const LETTER_VALUES: Record<string, number> = {
@@ -425,20 +434,151 @@ async function savePeriodToCache(entry: PeriodCacheFile['entries'][number]) {
   await writeJsonFile(PERIOD_CACHE_FILE, { schemaVersion: 1, entries: nextEntries });
 }
 
+export async function getCachedPersonalNumerologyReading(params: {
+  profile: SubjectProfile;
+  assistantId: string;
+  mode: PersonalNumerologyMode;
+}): Promise<PersonalNumerologyReading | null> {
+  const context = buildContext();
+  const fingerprint = JSON.stringify({
+    profile: profileFingerprint(params.profile),
+    assistantId: params.assistantId,
+    personaPromptVersion: PERSONAL_NUMEROLOGY_PERSONA_PROMPT_VERSION,
+  });
+  const cachedCore = await loadCoreFromCache(params.profile.profileId, fingerprint);
+  if (params.mode === 'core') return cachedCore;
+  const selectedPeriodKey = periodKey(new Date(`${context.targetDateIso}T12:00:00.000Z`));
+  return loadPeriodFromCache({
+    assistantId: params.assistantId,
+    profileId: params.profile.profileId,
+    period: 'monthly',
+    periodKeyValue: selectedPeriodKey,
+    fingerprint,
+  });
+}
+
 function compactCoreSummary(coreReading: PersonalNumerologyReading | null) {
   if (!coreReading?.text) return null;
   return coreReading.text.replace(/\s+/g, ' ').trim().slice(0, 520);
 }
 
+function sanitizeAffectionateRepetition(text: string) {
+  return (text || '')
+    .replace(/\b(canım|tatlım|güzelim|evladım|yavrum)([\s,;:]+\1\b)+/giu, '$1')
+    .replace(/\b(canım|tatlım|güzelim|evladım|yavrum),?\s+([^.?!]{0,80}?)\b\1\b/giu, '$1, $2')
+    .replace(/\s+([,.!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function addressPolicyForProfile(profile: SubjectProfile, profileName: string) {
+  const isSelf = profile.isPrimary || profile.relationshipPrimary === 'kendi';
+  const genderHint = profile.gender
+    ? `Profil cinsiyeti: ${profile.gender}; cinsiyetli hitap seçerken buna uy.`
+    : 'Profil cinsiyeti bilinmiyor; cinsiyetli hitap kullanma.';
+  if (isSelf) {
+    return [
+      'Hitap modu: seçili profil hesap sahibinin kendisi.',
+      'Metin boyunca doğrudan ve tutarlı biçimde "sen" dili kullan; üçüncü tekil şahsa dönme.',
+      'Profil adını rapor gibi tekrar etme.',
+      genderHint,
+    ].join(' ');
+  }
+  return [
+    `Hitap modu: bu okuma hesap sahibinden farklı biri için; seçili profil ${profileName || 'bu kişi'}.`,
+    'Metin boyunca üçüncü tekil şahıs kullan; bu kişiye veya hesap sahibine sonradan "sen" diye dönme.',
+    'Gerekirse profil adını doğal biçimde kullan.',
+    genderHint,
+  ].join(' ');
+}
+
+function addressPolicyFromMemory(profileName: string, snippet?: ProfileMemorySnippet | null) {
+  if (!snippet) {
+    return 'Hitap modunu önceki kişisel numeroloji yorumuyla tutarlı sürdür; aynı cevap içinde üçüncü tekil şahıs ve sen dili arasında geçiş yapma.';
+  }
+  const genderHint = snippet.profileGender
+    ? `Profil cinsiyeti: ${snippet.profileGender}; cinsiyetli hitap seçerken buna uy.`
+    : 'Profil cinsiyeti bilinmiyor; cinsiyetli hitap kullanma.';
+  if (snippet.isSelf) {
+    return [
+      'Hitap modu: seçili profil hesap sahibinin kendisi.',
+      'Metin boyunca doğrudan ve tutarlı biçimde "sen" dili kullan; üçüncü tekil şahsa dönme.',
+      genderHint,
+    ].join(' ');
+  }
+  return [
+    `Hitap modu: bu okuma hesap sahibinden farklı biri için; seçili profil ${profileName || snippet.profileName || 'bu kişi'}.`,
+    'Metin boyunca üçüncü tekil şahıs kullan; bu kişiye veya hesap sahibine sonradan "sen" diye dönme.',
+    genderHint,
+  ].join(' ');
+}
+
 function assistantStyleHint(assistantId: string, assistantLabel: string) {
   const styles: Record<string, string> = {
-    'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek, sıcak ama net.',
-    'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın ve toparlayıcı.',
-    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu.',
-    'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan.',
-    caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik.',
+    'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek; sayıları psikolojik içgörüye dönüştürür.',
+    'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın; sayıları pratik karar ve plan diline çevirir.',
+    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul fal sıcaklığı vardır ama şefkat hitaplarını abartmaz.',
+    'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan; sayıları hayat dersi ve ölçülü öğüt gibi yorumlar.',
+    caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik; sayıları duygu ritmi ve iç ses olarak okur.',
   };
   return styles[assistantId] || `${assistantLabel || 'Falcı'} tonu: sıcak, doğal ve persona içinde kalan.`;
+}
+
+const NON_NUMEROLOGY_PERSONA_DOMAIN_TERMS =
+  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el falı|el fal|el çizg|çizgi|tarot|kart|melek kart|rune|i ching|hexagram/i;
+
+function domainNeutralPersonaSignature(assistantId: string) {
+  const signatures: Record<string, string> = {
+    'bahar-hanim': [
+      'Modern, rafine, sezgisi güçlü ama cümleleri temiz ve kontrollü bir yorumcu gibi konuşur.',
+      'Psikolojik farkındalık, iç düzen, ilişki dinamiği ve kişinin kendi seçim gücü öne çıkar.',
+      'Süslemeyi abartmaz; zarif, net, premium ve sakin bir içgörü dili kurar.',
+    ].join(' '),
+    'mert-bey': [
+      'Analitik, sade, arkadaş gibi yakın ve toparlayıcı konuşur.',
+      'Belirsizliği pratik adımlara çevirir; "şunu şöyle düşün" hissi veren net, güven veren bir ritmi vardır.',
+      'Duyguyu küçümsemeden, çözüm ve plan tarafını görünür kılar.',
+    ].join(' '),
+    'durdane-hanim': [
+      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir fal malzemesine yaslanmaz.',
+      'Hane, kalp, niyet, kısmet, yol, yakın çevre ve iç direnç gibi hayat alanlarını doğal ve çeşitli biçimde okuyabilir.',
+      'Şefkatli hitapları ölçülü kullanır; telaş, yük ve koşturma temasına takılı kalmaz.',
+    ].join(' '),
+    'hikmet-bey': [
+      'Babacan, sakin, felsefi ve psikolojik derinliği olan bir sesle konuşur.',
+      'Cümleleri ölçülü öğüt, hayat tecrübesi ve iç denge hissi taşır.',
+      'Keskin kehanet yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
+    ].join(' '),
+    caner: [
+      'Sezgisel, yumuşak, sanatsal ve hafif melankolik konuşur.',
+      'Duygu ritmi, iç ses, atmosfer, kırılgan umut ve estetik sezgi öne çıkar.',
+      'Cümleleri şiirsel olabilir ama anlaşılır kalır; fal malzemesi değil insanın iç dünyası üzerinden imge kurar.',
+    ].join(' '),
+  };
+  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili falcının kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
+}
+
+function numerologySafePersonaText(text?: string) {
+  return (text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !NON_NUMEROLOGY_PERSONA_DOMAIN_TERMS.test(line.toLocaleLowerCase('tr-TR')))
+    .join('\n');
+}
+
+function assistantPersonaContext(assistantId: string) {
+  const identity = FORTUNE_PERSONA_DATA[assistantId as keyof typeof FORTUNE_PERSONA_DATA];
+  if (!identity?.systemBody) return '';
+  const voice = numerologySafePersonaText(
+    identity.systemBody.match(/# Voice And Temperament\n\n([\s\S]*?)(?:\n\n# |$)/)?.[1]?.trim()
+  );
+  return [
+    `Persona adı: ${identity.displayName}`,
+    `İmza üslup:\n${domainNeutralPersonaSignature(assistantId)}`,
+    voice ? `Ses ve mizaç (yalnızca üslup için):\n${voice}` : '',
+    'Numeroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanılmaz.',
+  ].filter(Boolean).join('\n\n');
 }
 
 function coreBaseNumbers(core: PersonalNumerologyCore) {
@@ -467,6 +607,7 @@ function buildGeminiPayload(params: {
   profileName: string;
   assistantId: string;
   assistantLabel: string;
+  profile: SubjectProfile;
   mode: PersonalNumerologyMode;
   core: PersonalNumerologyCore;
   context: PersonalNumerologyContext;
@@ -474,13 +615,20 @@ function buildGeminiPayload(params: {
   hasCoreReading: boolean;
 }) {
   const styleHint = assistantStyleHint(params.assistantId, params.assistantLabel);
-  const systemText =
-    "You are a Turkish personal numerology reader. Use only the provided on-device numerology JSON. Do not mention general divination numerology cards. Stay inside the persona style, but never introduce yourself.";
+  const personaContext = assistantPersonaContext(params.assistantId);
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı falcısın; kişiye özel numerolojiyi bu falcının aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
+    'Use only the provided on-device numerology JSON. Do not mention general divination numerology cards.',
+    'Numeroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; sayılar, profil ve dönem akışı üzerinden konuş.',
+    'Persona sesi teknik numeroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili falcıya ait olmalı. Kendini tanıtma.',
+    'Use profile and prior reading data as silent background unless the user explicitly asks about the source. Keep the address mode consistent throughout the answer.',
+  ].join(' ');
   const numerologyJson = params.mode === 'core' ? coreBaseNumbers(params.core) : monthlyNumerologyContext(params.core, params.context);
   const taskPrompt =
     params.mode === 'core'
       ? [
           'Türkçe yaz. Başlık atma.',
+          'Metni anlam akışına göre 3-4 kısa paragrafta ver: ana sayı örüntüsü, iç motivasyon/kişilik, ilişki-iş dengesi ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
           'Yalnızca ve yalnızca temel numeroloji haritasını yorumla: Yaşam Yolu, Kader/İfade, Ruh Arzusu, Kişilik, Doğum Günü ve Olgunluk.',
           'Kişisel Yıl, Kişisel Ay, Kişisel Gün, aylık akış, haftalık akış, bugünkü enerji veya dönemsel yorum yazmak kesinlikle yasak.',
           'Bu okuma doğum haritası gibi ömürlük saklanacak; geçici tarih, bugün, bu hafta, bu ay veya bu yıl dili kullanma.',
@@ -488,8 +636,10 @@ function buildGeminiPayload(params: {
         ].join(' ')
       : [
           'Türkçe yaz. Başlık atma. Bu sadece aylık numeroloji yorumu.',
+          'Metni anlam akışına göre 4 kısa paragrafta ver: ayın ana zemini, ilk yarı, ikinci yarı ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
           'Günlük, haftalık veya yıllık okuma yazma. Gün gün yorumlama; tek tek günlere inme.',
           'Kişinin temel sayı haritasını arka planda dikkate al ama metinde Yaşam Yolu, Kader/İfade, Ruh Arzusu, Kişilik, Doğum Günü veya Olgunluk sayılarını tekrar etme.',
+          'Önceki temel yorum, profil veya hesap verisi gibi kaynakları metinde açıkça anma; yalnızca yorumu daha isabetli yapmak için arka planda kullan.',
           'Metinde Kişisel Yıl, Kişisel Ay veya Kişisel Gün sayılarını söyleme. Sayı raporu değil, yorum yaz.',
           'Ayın monthTotal ve personTotal değerlerini ana zemin olarak kullan.',
           'Her hafta için monthWeeks içindeki startTotal, endTotal ve weekTotal değerlerini karşılaştırarak ayrı bir yorum üret.',
@@ -512,8 +662,11 @@ function buildGeminiPayload(params: {
             text: [
               `Profile: ${params.profileName || 'Profil'}`,
               `Assistant style: ${styleHint}`,
+              personaContext ? `Assistant persona card:\n${personaContext}` : '',
+              `Address policy: ${addressPolicyForProfile(params.profile, params.profileName)}`,
               `Mode: ${params.mode}`,
               `Numerology JSON calculated on-device:\n${JSON.stringify(numerologyJson)}`,
+              'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme. Aynı şefkat hitabını bir yanıtta en fazla bir kez kullan; "canım canım", "tatlım tatlım", "güzelim güzelim" gibi ikilemeler yapma.',
               taskPrompt,
             ].join('\n\n'),
           },
@@ -539,7 +692,11 @@ export async function createPersonalNumerologyReading(params: {
 }): Promise<PersonalNumerologyReading> {
   const context = buildContext();
   const core = calculateCore(params.profile, context);
-  const fingerprint = profileFingerprint(params.profile);
+  const fingerprint = JSON.stringify({
+    profile: profileFingerprint(params.profile),
+    assistantId: params.assistantId,
+    personaPromptVersion: PERSONAL_NUMEROLOGY_PERSONA_PROMPT_VERSION,
+  });
   const cachedCore = await loadCoreFromCache(params.profile.profileId, fingerprint);
 
   if (params.mode === 'core' && cachedCore) {
@@ -567,6 +724,7 @@ export async function createPersonalNumerologyReading(params: {
       profileName: params.profile.displayName,
       assistantId: params.assistantId,
       assistantLabel: params.assistantLabel,
+      profile: params.profile,
       mode: params.mode,
       core,
       context,
@@ -575,8 +733,15 @@ export async function createPersonalNumerologyReading(params: {
     });
     const payload = await generateGeminiTextDirect(geminiPayload);
     if (payload.text) {
+      const text = completeWithPersonaClosing({
+        text: sanitizeAffectionateRepetition(payload.text),
+        assistantId: params.assistantId,
+        domain: 'numerology',
+        seed: `${params.profile.profileId}:${params.mode}:${selectedPeriodKey || 'core'}`,
+        forceClosing: payload.finishReason === 'MAX_TOKENS',
+      });
       const reading: PersonalNumerologyReading = {
-        text: payload.text,
+        text,
         core,
         context,
         mode: params.mode,
@@ -585,6 +750,8 @@ export async function createPersonalNumerologyReading(params: {
         source: 'gemini-direct-personal-numerology',
         cached: false,
         hasCoreReading,
+        modelName: payload.model,
+        usage: payload.usage,
       };
       if (params.mode === 'core') {
         await saveCoreToCache(params.profile.profileId, fingerprint, reading);
@@ -647,23 +814,39 @@ export async function createPersonalNumerologyFollowUp(params: {
   mode: PersonalNumerologyMode;
   readingText: string;
   question: string;
+  previousFollowUps?: Array<{ role: 'user' | 'assistant'; text: string }>;
   memorySnippet?: ProfileMemorySnippet | null;
-}): Promise<string> {
+}): Promise<{ text: string; modelName?: string; usage: { inputTokens: number; outputTokens: number; totalTokens: number } }> {
   const relevantMemory = formatRelevantMemory(params.memorySnippet);
+  const addressPolicy = addressPolicyFromMemory(params.profileName, params.memorySnippet);
+  const personaContext = assistantPersonaContext(params.assistantId);
+  const previousFollowUpText = (params.previousFollowUps || [])
+    .filter((message) => message.text.trim())
+    .slice(-8)
+    .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text.trim()}`)
+    .join('\n');
   const systemText = [
     `Sen ${params.assistantLabel} adlı falcısın.`,
     'Türkçe, sıcak, net ve kişiye özel konuş.',
-    'Cevabı yalnızca daha önce üretilmiş kişisel numeroloji yorumu ve kullanıcının sorusu üzerinden ver.',
+    'Persona sesini koru; kişiye özel numerolojide falcının aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
+    'Numeroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; sayılar ve soru bağlamı üzerinden konuş.',
+    'Cevabı daha önce üretilmiş kişisel numeroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
+    'Kullanıcı özellikle sormadıkça önceki yorum, profil, hafıza veya sayı haritası kaynağını açıkça anma.',
+    'Hitap modunu değiştirme; aynı yanıtta "canım", "tatlım", "güzelim" gibi şefkat hitaplarını tekrarlama.',
+    'Önceki follow-up cevaplarıyla çelişme; son soru önceki bir soruya gönderme yapıyorsa o bağı sürdür.',
     'Yeni tam numeroloji haritası üretme; tekrar eden cümleler kurma.',
   ].join(' ');
   const userText = [
     `Profil: ${params.profileName}`,
     `Bölüm: ${params.mode}`,
     `Falcı kimliği: ${params.assistantId}`,
+    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    `Hitap politikası: ${addressPolicy}`,
     relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Önceki kişisel numeroloji yorumu:\n${params.readingText}`,
+    previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı tek paragraf olarak ver. Kısa geçiştirme yapma; önce net yanıtı, sonra numeroloji bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver. Yaklaşık 120-170 token içinde tamamla.',
+    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta numeroloji bağlamından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Yaklaşık 120-170 token içinde tamamla.',
   ].filter(Boolean).join('\n\n');
   const payload = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
@@ -673,5 +856,12 @@ export async function createPersonalNumerologyFollowUp(params: {
       maxOutputTokens: 520,
     },
   });
-  return payload.text;
+  const text = completeWithPersonaClosing({
+    text: sanitizeAffectionateRepetition(payload.text),
+    assistantId: params.assistantId,
+    domain: 'numerology',
+    seed: `${params.profileName}:${params.mode}:${params.question}`,
+    forceClosing: payload.finishReason === 'MAX_TOKENS',
+  });
+  return { text, modelName: payload.model, usage: payload.usage };
 }

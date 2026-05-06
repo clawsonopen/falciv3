@@ -1,14 +1,6 @@
-import { AGENT_API_URL } from '../config/constants';
 import type { SubjectProfile } from '../types/memory';
 import type { AstroPeriod, AstroReadingResult } from './astroEngine';
-
-type GeneralAstroResponse = {
-  ok?: boolean;
-  text?: string;
-  periodKey?: string;
-  sign?: string;
-  error?: string;
-};
+import { generateGeminiTextDirect } from './geminiDirectService';
 
 const SIGN_ORDER = [
   'aries',
@@ -38,6 +30,12 @@ const SIGN_TR: Record<(typeof SIGN_ORDER)[number], string> = {
   capricorn: 'Oğlak',
   aquarius: 'Kova',
   pisces: 'Balık',
+};
+
+const PERIOD_TR: Record<Exclude<AstroPeriod, 'yearly'>, string> = {
+  daily: 'günlük',
+  weekly: 'haftalık',
+  monthly: 'aylık',
 };
 
 function hashSeed(input: string): number {
@@ -76,41 +74,64 @@ function todayIsoDate() {
   return `${year}-${month}-${day}`;
 }
 
-export async function fetchGeneralAstroFromBackend(params: {
+function buildGeneralAstroPayload(params: {
+  period: Exclude<AstroPeriod, 'yearly'>;
+  profile: SubjectProfile;
+  sign: (typeof SIGN_ORDER)[number];
+  targetDate: string;
+}) {
+  const signLabel = SIGN_TR[params.sign];
+  const periodLabel = PERIOD_TR[params.period];
+  const systemText =
+    'Sen Türkçe yazan bir genel astroloji yorumcususun. Yanıtı kısa, akıcı ve kullanıcıya dönük yaz; kesin kehanet, sağlık/finans garantisi ve korkutucu dil kullanma.';
+  const userText = [
+    `Profil adı: ${params.profile.displayName}`,
+    `Güneş burcu: ${signLabel}`,
+    `Dönem: ${periodLabel}`,
+    `Tarih anahtarı: ${params.targetDate}`,
+    [
+      'Yükselen veya kişiye özel doğum haritası bilgisi varmış gibi davranma.',
+      '3-4 ana konuya değin: duygu hali, ilişkiler, iş/para ve küçük bir öneri.',
+      'Başlık atma. Türkçe yaz. 110-170 kelime arasında doğal bir yorum ver.',
+    ].join('\n'),
+  ].join('\n\n');
+
+  return {
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.68,
+      maxOutputTokens: params.period === 'daily' ? 520 : params.period === 'weekly' ? 720 : 820,
+    },
+  };
+}
+
+export async function fetchGeneralAstroDirect(params: {
   period: Exclude<AstroPeriod, 'yearly'>;
   profile: SubjectProfile;
 }): Promise<AstroReadingResult | null> {
   const sign = deriveSign(params.profile);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const periodKey = todayIsoDate();
   try {
-    const response = await fetch(`${AGENT_API_URL}/general-astro/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const data = await generateGeminiTextDirect(
+      buildGeneralAstroPayload({
         period: params.period,
+        profile: params.profile,
         sign,
-        targetDate: todayIsoDate(),
+        targetDate: periodKey,
       }),
-      signal: controller.signal,
-    });
-    const data = (await response.json().catch(() => ({}))) as GeneralAstroResponse;
-    if (!response.ok) {
-      const error = new Error(data.error || 'Genel astro hazırlanamadı.') as Error & { status?: number };
-      error.status = response.status;
-      throw error;
-    }
-    if (!data?.text) return null;
+      45000,
+    );
     return {
       text: data.text,
       sign: SIGN_TR[sign],
       timezoneUsed: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Istanbul',
-      periodKey: data.periodKey || todayIsoDate(),
+      periodKey,
+      modelName: data.model,
+      usage: data.usage,
     };
   } catch (err: any) {
     if (err?.status) throw err;
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }

@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { getAssistantLabel } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { AssistantLoading } from '../components/AssistantLoading';
+import { TokenUsage } from '../components/TokenUsage';
+import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
@@ -12,10 +15,13 @@ import {
   createPersonalAstroReading,
   createPersonalAstroFollowUp,
   formatTimezoneForDisplay,
+  getCachedPersonalAstroReading,
   hasRequiredAstroBirthInputs,
   type AstroPeriod,
 } from '../services/astroEngine';
 import { APP_NAME } from '../config/constants';
+import { addPersonalTokenUsage, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M } from '../services/tokenLedgerService';
+import type { TokenUsageData } from '../types';
 import {
   getLatestNativeTranscript,
   resetNativeTranscript,
@@ -51,10 +57,10 @@ function compactSummary(text: string) {
 
 function themeFromReading(period: AstroPeriod, sign: string, risingSign?: string | null) {
   const periodLabel = PERIOD_LABELS[period].toLocaleLowerCase('tr-TR');
-  return `${periodLabel} kişisel astro: ${sign}${risingSign ? `, yükselen ${risingSign}` : ''}`;
+  return `${periodLabel} kişisel astro`;
 }
 
-export function PersonalAstroReadingScreen({ route }: Props) {
+export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const { profileId, assistantId } = route.params;
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<AstroPeriod | null>(null);
@@ -62,10 +68,13 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   const [profileName, setProfileName] = useState('');
   const [text, setText] = useState('');
   const [meta, setMeta] = useState<{ sign: string; risingSign?: string | null; timezone: string; precisionNote?: string } | null>(null);
+  const [readingTheme, setReadingTheme] = useState<{ label: string; key: string } | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData>({ inputTokens: 0, outputTokens: 0, textInputTokens: 0, imageInputTokens: 0 });
   const [questionText, setQuestionText] = useState('');
   const [followUps, setFollowUps] = useState<FollowUpMessage[]>([]);
   const [isSendingQuestion, setIsSendingQuestion] = useState(false);
   const [isRecordingQuestion, setIsRecordingQuestion] = useState(false);
+  const [editorVisible, setEditorVisible] = useState(false);
   const [speechMode, setSpeechMode] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [infoModal, setInfoModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
@@ -74,13 +83,74 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   });
   const speechRunRef = useRef(0);
   const questionBaseRef = useRef('');
+  const pageScrollRef = useRef<ScrollView>(null);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
+  const modeHeaderLabel = useMemo(() => (period ? PERIOD_LABELS[period] : 'Dönem seç'), [period]);
+  const isBusy = isLoading || isSendingQuestion;
+  const hasPreparedReading = Boolean(text && period);
+  const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerBackVisible: !isBusy,
+      gestureEnabled: !isBusy,
+    });
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (!isBusy) return;
+      event.preventDefault();
+    });
+    return unsubscribe;
+  }, [isBusy, navigation]);
+
+  const applyReadingToScreen = useCallback(
+    (reading: Awaited<ReturnType<typeof createPersonalAstroReading>>, selectedPeriod: AstroPeriod) => {
+      setText(reading.text);
+      setFollowUps([]);
+      setMeta({
+        sign: reading.sign,
+        risingSign: reading.risingSign,
+        timezone: reading.timezoneUsed,
+        precisionNote: reading.precisionNote,
+      });
+      setReadingTheme({
+        label: themeFromReading(selectedPeriod, reading.sign, reading.risingSign),
+        key: `personal-astro-${selectedPeriod}-${reading.periodKey}`,
+      });
+    },
+    [],
+  );
+
+  const handleSelectPeriod = useCallback(
+    async (nextPeriod: AstroPeriod) => {
+      if (isBusy) return;
+      setPeriod(nextPeriod);
+      setText('');
+      setMeta(null);
+      setReadingTheme(null);
+      setFollowUps([]);
+      setQuestionText('');
+      try {
+        const state = await loadAccountState();
+        const profile = state.profiles.find((item) => item.profileId === profileId) || null;
+        if (!profile) return;
+        setProfileName(profile.displayName);
+        if (!hasRequiredAstroBirthInputs(profile)) return;
+        const cached = await getCachedPersonalAstroReading({ profile, assistantId, period: nextPeriod });
+        if (cached) applyReadingToScreen(cached, nextPeriod);
+      } catch {
+        // Cache kontrolü sessiz kalmalı; üretim butonu normal akışı sürdürecek.
+      }
+    },
+    [applyReadingToScreen, assistantId, isBusy, profileId],
+  );
 
   const loadReading = useCallback(async () => {
+    if (isBusy || text) return;
     if (!period) {
       setText('');
       setMeta(null);
+      setReadingTheme(null);
       return;
     }
     setIsLoading(true);
@@ -109,33 +179,31 @@ export function PersonalAstroReadingScreen({ route }: Props) {
         return;
       }
 
+      const memorySnippet = await loadProfileMemorySnippet(state, profile.profileId).catch(() => null);
       const reading = await createPersonalAstroReading({
         period,
         profile,
         assistantId,
         assistantLabel,
+        memorySnippet,
       });
-      setText(reading.text);
-      setFollowUps([]);
-      setMeta({
-        sign: reading.sign,
-        risingSign: reading.risingSign,
-        timezone: reading.timezoneUsed,
-        precisionNote: reading.precisionNote,
-      });
-      if (!reading.cached) {
-        const theme = themeFromReading(period, reading.sign, reading.risingSign);
-        await appendReadingSummary({
-          profileId,
-          assistantId,
-          readingType: 'personal-astro',
-          period,
-          surfacesRead: [],
-          summary: compactSummary(reading.text),
-          transcript: [{ role: 'assistant', text: reading.text, timestamp: Date.now() }],
-        });
-        await appendReadingDerivedTheme(profileId, theme, `personal-astro-${period}-${reading.periodKey}`);
+      if (!reading.cached && reading.usage) {
+        const inputTokens = reading.usage.inputTokens || 0;
+        const outputTokens = reading.usage.outputTokens || 0;
+        setTokenUsage((current) => ({
+          inputTokens: current.inputTokens + inputTokens,
+          outputTokens: current.outputTokens + outputTokens,
+          textInputTokens: (current.textInputTokens || 0) + inputTokens,
+          imageInputTokens: current.imageInputTokens || 0,
+        }));
+        await addPersonalTokenUsage({
+          modelName: reading.modelName || 'gemini-2.5-flash-lite',
+          readingName: 'Kişisel Astro',
+          textInputTokens: inputTokens,
+          outputTokens,
+        }).catch(() => {});
       }
+      applyReadingToScreen(reading, period);
     } catch (err: any) {
       const retryLater = isRetryableLlmError(err);
       const retryMessage = retryLater ? getRetryLaterMessage('personal-astro', `${profileId}-${period}`) : null;
@@ -148,14 +216,7 @@ export function PersonalAstroReadingScreen({ route }: Props) {
     } finally {
       setIsLoading(false);
     }
-  }, [assistantId, assistantLabel, period, profileId]);
-
-  useEffect(() => {
-    setText('');
-    setMeta(null);
-    setFollowUps([]);
-    setQuestionText('');
-  }, [period]);
+  }, [applyReadingToScreen, assistantId, assistantLabel, isBusy, period, profileId, text]);
 
   useEffect(() => {
     return () => {
@@ -163,6 +224,16 @@ export function PersonalAstroReadingScreen({ route }: Props) {
       void stopNativeRecording();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSendingQuestion) return;
+    const t1 = setTimeout(() => pageScrollRef.current?.scrollToEnd({ animated: true }), 0);
+    const t2 = setTimeout(() => pageScrollRef.current?.scrollToEnd({ animated: true }), 80);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isSendingQuestion, followUps.length]);
 
   const latestReadableText = useMemo(() => {
     const lastAssistant = [...followUps].reverse().find((message) => message.role === 'assistant');
@@ -196,37 +267,42 @@ export function PersonalAstroReadingScreen({ route }: Props) {
     const question = questionText.replace(/\s+/g, ' ').trim();
     if (!question || !text || !period || isSendingQuestion) return;
     const userMessage: FollowUpMessage = { id: `u-${Date.now()}`, role: 'user', text: question };
+    const previousFollowUps = followUps.map(({ role, text }) => ({ role, text }));
     setFollowUps((current) => [...current, userMessage]);
     setQuestionText('');
+    setEditorVisible(false);
     setIsSendingQuestion(true);
     try {
       await appendUserConversationMemory(profileId, question).catch(() => {});
-      const semanticMemorySnippet = await loadAccountState()
-        .then((state) => loadProfileMemorySnippet(state, profileId, { semanticQuery: question }))
-        .catch(() => null);
+      const accountState = await loadAccountState();
+      const activeProfile = accountState.profiles.find((item) => item.profileId === profileId) || null;
+      const semanticMemorySnippet = await loadProfileMemorySnippet(accountState, profileId, { semanticQuery: question }).catch(() => null);
       const answer = await createPersonalAstroFollowUp({
         profileName: profileName || 'Profil',
         assistantId,
         assistantLabel,
         period,
+        profile: activeProfile,
         readingText: text,
         question,
+        previousFollowUps,
         memorySnippet: semanticMemorySnippet,
       });
-      setFollowUps((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', text: answer }]);
-      void analyzeMemoryTranscript({
-        profileId,
-        profileName: profileName || 'Profil',
-        readingType: 'personal-astro',
-        memorySnippet: semanticMemorySnippet,
-        transcript: [
-          { role: 'assistant', text, timestamp: Date.now() },
-          { role: 'user', text: question, timestamp: Date.now() },
-          { role: 'assistant', text: answer, timestamp: Date.now() },
-        ],
-      })
-        .then((result) => applyMemoryAnalysisResult(profileId, result))
-        .catch(() => {});
+      setFollowUps((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', text: answer.text }]);
+      const inputTokens = answer.usage.inputTokens || 0;
+      const outputTokens = answer.usage.outputTokens || 0;
+      setTokenUsage((current) => ({
+        inputTokens: current.inputTokens + inputTokens,
+        outputTokens: current.outputTokens + outputTokens,
+        textInputTokens: (current.textInputTokens || 0) + inputTokens,
+        imageInputTokens: current.imageInputTokens || 0,
+      }));
+      await addPersonalTokenUsage({
+        modelName: answer.modelName || 'gemini-2.5-flash-lite',
+        readingName: 'Kişisel Astro',
+        textInputTokens: inputTokens,
+        outputTokens,
+      }).catch(() => {});
       setSpeechMode('idle');
     } catch (err: any) {
       setInfoModal({
@@ -237,7 +313,48 @@ export function PersonalAstroReadingScreen({ route }: Props) {
     } finally {
       setIsSendingQuestion(false);
     }
-  }, [assistantId, assistantLabel, isSendingQuestion, period, profileName, questionText, text]);
+  }, [assistantId, assistantLabel, followUps, isSendingQuestion, period, profileName, questionText, text]);
+
+  const buildTranscript = useCallback(
+    () => [
+      { role: 'assistant' as const, text, timestamp: Date.now() },
+      ...followUps.map((message) => ({ role: message.role, text: message.text, timestamp: Date.now() })),
+    ],
+    [followUps, text],
+  );
+
+  const persistReadingAndEnd = useCallback(async () => {
+    if (!text || !period) return;
+    stopAssistantSpeech();
+    await stopNativeRecording().catch(() => {});
+    const transcript = buildTranscript();
+    await appendReadingSummary({
+      profileId,
+      assistantId,
+      readingType: 'personal-astro',
+      period,
+      surfacesRead: [],
+      summary: compactSummary(text),
+      transcript,
+    }).catch(() => {});
+    if (readingTheme) {
+      await appendReadingDerivedTheme(profileId, readingTheme.label, readingTheme.key).catch(() => {});
+    }
+    void loadAccountState()
+      .then((state) => loadProfileMemorySnippet(state, profileId))
+      .then((memorySnippet) =>
+        analyzeMemoryTranscript({
+          profileId,
+          profileName: profileName || 'Profil',
+          readingType: 'personal-astro',
+          memorySnippet,
+          transcript,
+        }),
+      )
+      .then((result) => applyMemoryAnalysisResult(profileId, result))
+      .catch(() => {});
+    navigation.goBack();
+  }, [assistantId, buildTranscript, navigation, period, profileId, profileName, readingTheme, text]);
 
   const mergeQuestionTranscript = useCallback((transcript: string) => {
     const cleaned = transcript.replace(/\s+/g, ' ').trim();
@@ -272,12 +389,11 @@ export function PersonalAstroReadingScreen({ route }: Props) {
   }, [isRecordingQuestion, mergeQuestionTranscript, questionText, speechMode, text]);
 
   const handleQuestionRecordStop = useCallback(async () => {
-    if (!isRecordingQuestion) return;
-    await stopNativeRecording();
+    await stopNativeRecording().catch(() => {});
     mergeQuestionTranscript(getLatestNativeTranscript());
     resetNativeTranscript();
     setIsRecordingQuestion(false);
-  }, [isRecordingQuestion, mergeQuestionTranscript]);
+  }, [mergeQuestionTranscript]);
 
   return (
     <KeyboardAvoidingView
@@ -286,18 +402,37 @@ export function PersonalAstroReadingScreen({ route }: Props) {
       keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
     >
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
+      <ScrollView
+        ref={pageScrollRef}
+        contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
+        onContentSizeChange={() => {
+          if (isSendingQuestion) {
+            pageScrollRef.current?.scrollToEnd({ animated: true });
+          }
+        }}
+      >
+        <View style={styles.tokenAckRow}>
+          <TokenUsage
+            usage={tokenUsage}
+            inputPrice={GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M}
+            outputPrice={GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M}
+          />
+        </View>
+        <View style={styles.sessionHeaderRow}>
+          <Text style={styles.sessionHeaderText}>{profileName || 'Profil'}</Text>
+          <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>{modeHeaderLabel}</Text>
+          <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
+        </View>
         <View style={styles.panel}>
-          <Text style={styles.title}>Kişiye Özel Astroloji</Text>
-          <Text style={styles.helper}>Falcı: {assistantLabel}</Text>
           <View style={styles.periodRow}>
             {(['daily', 'weekly', 'monthly', 'yearly'] as AstroPeriod[]).map((item) => {
               const selected = period === item;
               return (
                 <TouchableOpacity
                   key={item}
-                  style={[styles.periodButton, selected && styles.periodButtonSelected]}
-                  onPress={() => setPeriod(item)}
+                  style={[styles.periodButton, selected && styles.periodButtonSelected, isBusy && styles.disabledAction]}
+                  onPress={() => void handleSelectPeriod(item)}
+                  disabled={isBusy}
                 >
                   <Text style={[styles.periodButtonText, selected && styles.periodButtonTextSelected]}>
                     {PERIOD_LABELS[item]}
@@ -306,40 +441,34 @@ export function PersonalAstroReadingScreen({ route }: Props) {
               );
             })}
           </View>
-          <TouchableOpacity style={styles.refreshButton} onPress={() => void loadReading()}>
-            <Text style={styles.refreshButtonText}>{period ? 'Yorumu Hazırla' : 'Önce Dönem Seç'}</Text>
+          <TouchableOpacity
+            style={[styles.refreshButton, !canPrepareReading && styles.disabledAction]}
+            onPress={() => void loadReading()}
+            disabled={!canPrepareReading}
+          >
+            <Text style={styles.refreshButtonText}>
+              {hasPreparedReading ? 'Yorum Hazır' : period ? 'Yorumu Hazırla' : 'Önce Dönem Seç'}
+            </Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Yorum</Text>
-          {isLoading ? (
-            <Text style={styles.loading}>Hazırlanıyor...</Text>
-          ) : text ? (
-            <Text style={styles.readingText}>{text}</Text>
-          ) : (
-            <Text style={styles.loading}>Günlük, haftalık, aylık veya yıllık dönem seçip yorumu hazırlayabilirsin.</Text>
-          )}
-          {meta ? (
-            <Text style={styles.meta}>
-              Güneş: {meta.sign} | Yükselen: {meta.risingSign || 'Doğum saati gerekli'} | Zaman dilimi: {formatTimezoneForDisplay(meta.timezone)}
-            </Text>
-          ) : null}
-          {meta?.precisionNote ? <Text style={styles.precisionNote}>{meta.precisionNote}</Text> : null}
-        </View>
-
-        {text ? (
-          <View style={styles.panel}>
-            <Text style={styles.sectionTitle}>Sorunu Sor</Text>
-            {followUps.map((message) => (
-              <View
-                key={message.id}
-                style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}
-              >
-                <Text style={styles.chatRole}>{message.role === 'user' ? 'Sen' : assistantLabel}</Text>
-                <Text style={styles.chatText}>{message.text}</Text>
-              </View>
-            ))}
+          <ScrollView style={styles.readingScroll} contentContainerStyle={styles.readingScrollContent} nestedScrollEnabled>
+            {isLoading ? (
+              <AssistantLoading label="Yorum hazırlanıyor" detail="Lütfen bekleyiniz. Ekranı kapatmayınız." />
+            ) : text ? (
+              <SelectableFormattedText text={text} style={styles.readingText} />
+            ) : (
+              <Text style={styles.loading}>Günlük, haftalık, aylık veya yıllık dönem seçip yorumu hazırlayabilirsin.</Text>
+            )}
+            {meta ? (
+              <Text style={styles.meta}>
+                Güneş: {meta.sign} | Yükselen: {meta.risingSign || 'Doğum saati gerekli'} | Zaman dilimi: {formatTimezoneForDisplay(meta.timezone)}
+              </Text>
+            ) : null}
+          </ScrollView>
+          {text ? (
             <View style={styles.quickActions}>
               <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
                 <Text style={styles.secondaryActionText}>{speechMode === 'playing' ? 'Duraklat' : 'Telefon Okusun'}</Text>
@@ -348,14 +477,59 @@ export function PersonalAstroReadingScreen({ route }: Props) {
                 <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
               </TouchableOpacity>
             </View>
-            <TextInput
-              style={styles.questionInput}
-              value={questionText}
-              onChangeText={setQuestionText}
-              placeholder="Bu yorumla ilgili ne sormak istersin?"
-              placeholderTextColor="rgba(255,255,255,0.42)"
-              multiline
-            />
+          ) : null}
+        </View>
+
+        {text ? (
+          <View style={styles.panel}>
+            {followUps.map((message) => (
+              <View
+                key={message.id}
+                style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}
+              >
+                <Text style={styles.chatRole}>{message.role === 'user' ? 'Sen' : assistantLabel}</Text>
+                <SelectableFormattedText text={message.text} style={styles.chatText} />
+              </View>
+            ))}
+            {isSendingQuestion ? <AssistantLoading compact /> : null}
+            <TouchableOpacity style={styles.questionInput} activeOpacity={0.88} onPress={() => setEditorVisible(true)}>
+              <Text style={[styles.composePreviewText, !questionText.trim() && styles.composePreviewPlaceholder]}>
+                {questionText.trim() || 'Bu yorumla ilgili ne sormak istersin?'}
+              </Text>
+            </TouchableOpacity>
+            <Modal visible={editorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditorVisible(false)}>
+              <KeyboardAvoidingView
+                style={styles.editorOverlay}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+              >
+                <View style={styles.editorCard}>
+                  <Text style={styles.editorTitle}>Sorunu Düzenle</Text>
+                  <TextInput
+                    style={styles.editorInput}
+                    value={questionText}
+                    onChangeText={setQuestionText}
+                    placeholder="Sorunu buradan düzenleyebilirsin..."
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    multiline
+                    autoFocus
+                    scrollEnabled
+                  />
+                  <View style={styles.editorActions}>
+                    <TouchableOpacity style={styles.editorGhostBtn} onPress={() => setEditorVisible(false)}>
+                      <Text style={styles.editorGhostText}>Kapat</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editorSendBtn, (!questionText.trim() || isSendingQuestion) && styles.disabledAction]}
+                      onPress={() => void handleSendQuestion()}
+                      disabled={!questionText.trim() || isSendingQuestion}
+                    >
+                      <Text style={styles.editorSendText}>{isSendingQuestion ? 'Soruluyor...' : 'Sor'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            </Modal>
             <View style={styles.quickActions}>
               <TouchableOpacity
                 style={[styles.holdTalkAction, isRecordingQuestion && styles.holdTalkActionRecording]}
@@ -372,6 +546,13 @@ export function PersonalAstroReadingScreen({ route }: Props) {
                 <Text style={styles.primaryActionText}>{isSendingQuestion ? 'Soruluyor...' : 'Sor'}</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={[styles.endButton, isSendingQuestion && styles.disabledAction]}
+              onPress={() => void persistReadingAndEnd()}
+              disabled={isSendingQuestion}
+            >
+              <Text style={styles.endButtonText}>Falı Bitir</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
       </ScrollView>
@@ -393,6 +574,22 @@ export function PersonalAstroReadingScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#14141E' },
   content: { padding: 18, paddingBottom: 30 },
+  tokenAckRow: { marginBottom: 12 },
+  sessionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  sessionHeaderText: {
+    color: '#E8C49A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  modeHeaderText: {
+    fontStyle: 'italic',
+  },
   panel: {
     marginBottom: 14,
     padding: 16,
@@ -405,7 +602,9 @@ const styles = StyleSheet.create({
   helper: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 10 },
   sectionTitle: { color: '#E8C49A', fontSize: 15, fontWeight: '700', marginBottom: 8 },
   loading: { color: '#FFF5E8', fontSize: 14 },
-  readingText: { color: '#FFF5E8', fontSize: 14, lineHeight: 22 },
+  readingScroll: { maxHeight: 270 },
+  readingScrollContent: { paddingBottom: 2 },
+  readingText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   meta: { marginTop: 12, color: 'rgba(212,165,116,0.8)', fontSize: 12 },
   precisionNote: { marginTop: 8, color: 'rgba(255,255,255,0.58)', fontSize: 12, lineHeight: 18 },
   chatBubble: {
@@ -423,7 +622,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.16)',
   },
   chatRole: { color: '#D4A574', fontSize: 11, fontWeight: '800', marginBottom: 5 },
-  chatText: { color: '#FFF5E8', fontSize: 13, lineHeight: 20 },
+  chatText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   questionInput: {
     minHeight: 88,
     borderRadius: 12,
@@ -431,11 +630,86 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,130,82,0.28)',
     backgroundColor: 'rgba(0,0,0,0.18)',
     color: '#FFF5E8',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     padding: 12,
     marginTop: 10,
     textAlignVertical: 'top',
+  },
+  composePreviewText: {
+    color: '#FFF5E8',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  composePreviewPlaceholder: {
+    color: 'rgba(255,255,255,0.42)',
+  },
+  editorOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingTop: 20,
+    paddingBottom: 20,
+    paddingHorizontal: 10,
+  },
+  editorCard: {
+    borderRadius: 18,
+    backgroundColor: '#1E1E28',
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.28)',
+    padding: 14,
+    maxHeight: '82%',
+  },
+  editorTitle: {
+    color: '#E8C49A',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  editorInput: {
+    minHeight: 170,
+    maxHeight: 260,
+    borderRadius: 12,
+    borderColor: 'rgba(212,165,116,0.35)',
+    borderWidth: 1,
+    backgroundColor: 'rgba(30,30,40,0.95)',
+    color: '#FFF5E8',
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    textAlignVertical: 'top',
+  },
+  editorActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  editorGhostBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.5)',
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,165,116,0.12)',
+  },
+  editorGhostText: {
+    color: '#E8C49A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editorSendBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: '#D4A574',
+  },
+  editorSendText: {
+    color: '#14141E',
+    fontSize: 12,
+    fontWeight: '800',
   },
   quickActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
   primaryAction: {
@@ -465,6 +739,16 @@ const styles = StyleSheet.create({
   },
   holdTalkActionRecording: { backgroundColor: '#FF6B6B' },
   holdTalkActionText: { color: '#14141E', fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  endButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  endButtonText: { color: '#FFF5E8', fontSize: 13, fontWeight: '800' },
   disabledAction: { opacity: 0.55 },
   periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   periodButton: {

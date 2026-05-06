@@ -118,8 +118,8 @@ export const DEFAULT_DEV_SETTINGS: DevSettings = {
   systemPrompt:
     'Bu alan geliştirici override içindir. Boş bırakılırsa seçilen assistant identity dosyası ana sistem talimatı olarak kullanılır. ' +
     'Override verirsen mevcut persona davranışını tamamen bozma; sadece ek kısıt veya deney ayarı ekle.',
-  inputPrice: 0.3,
-  outputPrice: 0.4,
+  inputPrice: 0.1,
+  outputPrice: 0.3,
 };
 
 /** Available TTS voices (for future persona expansion) */

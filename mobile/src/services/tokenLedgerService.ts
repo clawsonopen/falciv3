@@ -3,6 +3,19 @@ import * as FileSystem from 'expo-file-system/legacy';
 const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const LEDGER_FILE = `${DATA_DIR}token-ledger.json`;
 
+export const DEFAULT_USD_TRY_RATE = 45.45;
+export const GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M = 0.1;
+export const GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M = 0.3;
+
+export type PersonalTokenUsageRow = {
+  key: string;
+  modelName: string;
+  readingName: string;
+  imageInputTokens: number;
+  textInputTokens: number;
+  outputTokens: number;
+};
+
 type TokenLedger = {
   pendingInputTokens: number;
   pendingRejectedUploads: number;
@@ -10,6 +23,7 @@ type TokenLedger = {
   totalMemoryAnalysisInputTokens: number;
   totalMemoryAnalysisOutputTokens: number;
   memoryAnalysisInFlight: number;
+  personalUsageRows: PersonalTokenUsageRow[];
 };
 
 const EMPTY_LEDGER: TokenLedger = {
@@ -19,6 +33,7 @@ const EMPTY_LEDGER: TokenLedger = {
   totalMemoryAnalysisInputTokens: 0,
   totalMemoryAnalysisOutputTokens: 0,
   memoryAnalysisInFlight: 0,
+  personalUsageRows: [],
 };
 let pendingResetDoneForLaunch = false;
 
@@ -44,6 +59,42 @@ async function writeLedger(ledger: TokenLedger) {
 
 export async function getTokenLedgerSnapshot(): Promise<TokenLedger> {
   return readLedger();
+}
+
+export async function addPersonalTokenUsage(params: {
+  modelName: string;
+  readingName: string;
+  imageInputTokens?: number;
+  textInputTokens?: number;
+  outputTokens?: number;
+}): Promise<void> {
+  const ledger = await readLedger();
+  const key = `${params.modelName || 'gemini-2.5-flash-lite'}|${params.readingName}`;
+  const current = (ledger.personalUsageRows || []).find((row) => row.key === key);
+  if (current) {
+    current.imageInputTokens += Math.max(0, params.imageInputTokens || 0);
+    current.textInputTokens += Math.max(0, params.textInputTokens || 0);
+    current.outputTokens += Math.max(0, params.outputTokens || 0);
+  } else {
+    ledger.personalUsageRows = [
+      ...(ledger.personalUsageRows || []),
+      {
+        key,
+        modelName: params.modelName || 'gemini-2.5-flash-lite',
+        readingName: params.readingName,
+        imageInputTokens: Math.max(0, params.imageInputTokens || 0),
+        textInputTokens: Math.max(0, params.textInputTokens || 0),
+        outputTokens: Math.max(0, params.outputTokens || 0),
+      },
+    ];
+  }
+  await writeLedger(ledger);
+}
+
+export async function resetPersonalTokenUsage(): Promise<void> {
+  const ledger = await readLedger();
+  ledger.personalUsageRows = [];
+  await writeLedger(ledger);
 }
 
 export async function resetPendingLedgerOncePerLaunch(): Promise<void> {
@@ -121,6 +172,24 @@ export async function settleMemoryAnalysisUsage(
   );
   ledger.totalMemoryAnalysisInputTokens += Math.max(0, inputTokens || 0);
   ledger.totalMemoryAnalysisOutputTokens += Math.max(0, outputTokens || 0);
+  const key = 'gemini-2.5-flash-lite|Hafıza Analizi';
+  const current = (ledger.personalUsageRows || []).find((row) => row.key === key);
+  if (current) {
+    current.textInputTokens += Math.max(0, inputTokens || 0);
+    current.outputTokens += Math.max(0, outputTokens || 0);
+  } else {
+    ledger.personalUsageRows = [
+      ...(ledger.personalUsageRows || []),
+      {
+        key,
+        modelName: 'gemini-2.5-flash-lite',
+        readingName: 'Hafıza Analizi',
+        imageInputTokens: 0,
+        textInputTokens: Math.max(0, inputTokens || 0),
+        outputTokens: Math.max(0, outputTokens || 0),
+      },
+    ];
+  }
   await writeLedger(ledger);
 }
 

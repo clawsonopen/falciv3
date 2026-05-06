@@ -124,6 +124,10 @@ const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, index) => String(index).pa
 const COUNTRY_OPTIONS = ['Türkiye', 'Almanya', 'Fransa', 'Hollanda', 'Belçika', 'İngiltere', 'ABD', 'Kanada', 'Diğer'];
 const DISTRICT_OTHER_VALUE = '__other__';
 
+function sortTurkishLabels<T extends string>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => a.localeCompare(b, 'tr-TR', { sensitivity: 'base' }));
+}
+
 function labelForRelationship(value: RelationshipPrimary) {
   switch (value) {
     case 'kendi':
@@ -310,8 +314,11 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     ? state?.profiles.find((profile) => profile.profileId === profileDraft.profileId)?.isPrimary || false
     : !primaryProfile;
   const isTurkeyBirthCountry = isTurkeyCountry(profileDraft.birthCountry);
-  const turkeyCities = TURKEY_CITY_OPTIONS as readonly string[];
-  const selectedCityDistricts = isTurkeyBirthCountry ? TURKEY_DISTRICTS_BY_CITY[profileDraft.birthCity] || [] : [];
+  const turkeyCities = useMemo<string[]>(() => sortTurkishLabels(TURKEY_CITY_OPTIONS), []);
+  const selectedCityDistricts = useMemo(
+    () => (isTurkeyBirthCountry ? sortTurkishLabels(TURKEY_DISTRICTS_BY_CITY[profileDraft.birthCity] || []) : []),
+    [isTurkeyBirthCountry, profileDraft.birthCity],
+  );
   const districtIsKnown =
     Boolean(profileDraft.birthDistrict) && selectedCityDistricts.includes(profileDraft.birthDistrict);
   const showDistrictFreeform =
@@ -729,7 +736,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                       style={styles.picker}
                     >
                       <Picker.Item label="Şehir seç" value="sec" color="#000" />
-                      {TURKEY_CITY_OPTIONS.map((option) => (
+                      {turkeyCities.map((option) => (
                         <Picker.Item key={option} label={option} value={option} color="#000" />
                       ))}
                     </Picker>

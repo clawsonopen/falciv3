@@ -3,6 +3,8 @@ import * as Astronomy from 'astronomy-engine';
 import type { ProfileMemorySnippet, SubjectProfile } from '../types/memory';
 import { resolveAstroLocation } from './astroLocationService';
 import { generateGeminiTextDirect } from './geminiDirectService';
+import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
+import { completeWithPersonaClosing } from './personaClosingService';
 
 export type AstroPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -14,6 +16,12 @@ export type AstroReadingResult = {
   periodKey: string;
   precisionNote?: string;
   cached?: boolean;
+  modelName?: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 };
 
 function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
@@ -31,6 +39,29 @@ function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
     .join('\n');
 }
 
+function formatAstroAvoidanceMemory(snippet?: ProfileMemorySnippet | null) {
+  if (!snippet) return '';
+  const parts: string[] = [];
+  const recentThemes = (snippet.readingTopicGroups || [])
+    .slice(0, 6)
+    .map((item) => `${item.group || 'Genel'} / ${item.subgroup || 'Diğer'}: ${item.label}`)
+    .join('\n');
+  if (recentThemes) {
+    parts.push(`Önceki yorumlarda sık dönen temalar:\n${recentThemes}`);
+  }
+  const concreteMemory = (snippet.relevantObservations || [])
+    .slice(0, 5)
+    .map((item) => {
+      const details = [item.title, item.summary].filter(Boolean).join(' | ');
+      return `${item.category || item.group} / ${item.subgroup}: ${details}`;
+    })
+    .join('\n');
+  if (concreteMemory) {
+    parts.push(`İlgili hafıza kırıntıları:\n${concreteMemory}`);
+  }
+  return parts.join('\n\n');
+}
+
 export type BirthChartAspect = {
   planetA: string;
   planetB: string;
@@ -41,8 +72,10 @@ export type BirthChartAspect = {
 export type BirthChartSnapshot = {
   sign: string;
   ascendant: string | null;
+  moonSign?: string | null;
   dominantHouse: number;
   planets: Array<{ name: string; sign: string; degree: number; longitude: number; retrograde: boolean; house: number | null }>;
+  points?: Array<{ name: string; sign: string; degree: number; longitude: number; house: number | null; note: string }>;
   aspects: BirthChartAspect[];
   transitNotes: string[];
   timezoneUsed?: string;
@@ -92,12 +125,29 @@ type CompactAstroPayload = {
         signLabel: string;
         degreeInSign: number;
         retrograde: boolean;
+        natalHouse: number | null;
       }>;
       toNatalAspects: Array<{
         transitPlanetLabel: string;
         natalPlanetLabel: string;
         aspect: string;
         orb: number;
+      }>;
+      periodTimeline: Array<{
+        dateKey: string;
+        positions: Array<{
+          planetLabel: string;
+          signLabel: string;
+          degreeInSign: number;
+          retrograde: boolean;
+          natalHouse: number | null;
+        }>;
+        toNatalAspects: Array<{
+          transitPlanetLabel: string;
+          natalPlanetLabel: string;
+          aspect: string;
+          orb: number;
+        }>;
       }>;
     };
   };
@@ -132,7 +182,10 @@ const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const PERSONAL_ASTRO_CACHE_FILE = `${DATA_DIR}personal-astro-cache.json`;
 const BIRTH_CHART_CACHE_FILE = `${DATA_DIR}birth-chart-cache.json`;
 const MAX_PERSONAL_ASTRO_CACHE_ITEMS = 160;
-const LOCAL_ASTRO_VERSION = 2;
+const LOCAL_ASTRO_VERSION = 6;
+const PERSONAL_ASTRO_PERSONA_PROMPT_VERSION = 6;
+const BIRTH_CHART_MAIN_MAX_OUTPUT_TOKENS = 4092;
+const BIRTH_CHART_CONTINUATION_MAX_OUTPUT_TOKENS = 1400;
 
 const SIGN_LABELS = ['Koç', 'Boğa', 'İkizler', 'Yengeç', 'Aslan', 'Başak', 'Terazi', 'Akrep', 'Yay', 'Oğlak', 'Kova', 'Balık'];
 const PLANETS = [
@@ -288,10 +341,34 @@ async function savePersonalAstroToCache(entry: PersonalAstroCacheFile['entries']
   });
 }
 
+export async function getCachedPersonalAstroReading(params: {
+  profile: SubjectProfile;
+  assistantId: string;
+  period: AstroPeriod;
+}): Promise<AstroReadingResult | null> {
+  const currentPeriodKey = periodKey(params.period);
+  const fingerprint = profileFingerprint(params.profile);
+  const cacheKeyValue = cacheKey([
+    String(PERSONAL_ASTRO_PERSONA_PROMPT_VERSION),
+    params.assistantId,
+    params.profile.profileId,
+    params.period,
+    currentPeriodKey,
+    fingerprint,
+  ]);
+  return loadFreshPersonalAstroFromCache({ cacheKeyValue, periodKeyValue: currentPeriodKey, fingerprint });
+}
+
 async function loadBirthChartFromCache(profileId: string, fingerprint: string): Promise<BirthChartSnapshot | null> {
   const store = await readJsonFile(BIRTH_CHART_CACHE_FILE, defaultBirthChartCache());
   const hit = store.entries.find((entry) => entry.profileId === profileId && entry.profileFingerprint === fingerprint);
-  if (hit && (!Array.isArray(hit.chart.aspects) || hit.chart.planets.some((planet) => !('house' in planet)))) {
+  if (
+    hit &&
+    (!Array.isArray(hit.chart.aspects) ||
+      hit.chart.planets.some((planet) => !('house' in planet)) ||
+      !Array.isArray(hit.chart.points) ||
+      !('moonSign' in hit.chart))
+  ) {
     return null;
   }
   return hit ? { ...hit.chart, cached: true } : null;
@@ -309,7 +386,7 @@ function buildPrecisionNote(profile: SubjectProfile, locationPrecision: string, 
   if (!profile.birth.timeKnown || !profile.birth.time) {
     parts.push('Doğum saati bilinmediği için yükselen burç, evler ve saat hassasiyetli Ay derecesi yoruma dahil edilmedi.');
   }
-  if (locationPrecision !== 'district') {
+  if (locationPrecision === 'country') {
     parts.push(...warnings);
   }
   return parts.join(' ');
@@ -443,6 +520,22 @@ function buildAspects(
   return aspects.sort((a, b) => a.orb - b.orb).slice(0, 10);
 }
 
+function meanNorthNodeLongitude(time: Astronomy.AstroTime) {
+  const t = time.ut / 36525;
+  return normalizeDegrees(125.04452 - 1934.136261 * t + 0.0020708 * t * t + (t * t * t) / 450000);
+}
+
+function meanLilithLongitude(time: Astronomy.AstroTime) {
+  const t = time.ut / 36525;
+  return normalizeDegrees(
+    83.3532465 +
+      4069.0137287 * t -
+      0.01032 * t * t -
+      (t * t * t) / 80053 +
+      (t * t * t * t) / 18999000,
+  );
+}
+
 function buildLocalPlanets(time: Astronomy.AstroTime, ascendantLongitudeValue: number | null) {
   return PLANETS.map((planet) => {
     const longitude = eclipticLongitude(planet.body, time);
@@ -459,6 +552,34 @@ function buildLocalPlanets(time: Astronomy.AstroTime, ascendantLongitudeValue: n
   });
 }
 
+function buildChartPoints(time: Astronomy.AstroTime, ascendantLongitudeValue: number | null) {
+  const northNodeLongitude = meanNorthNodeLongitude(time);
+  const southNodeLongitude = normalizeDegrees(northNodeLongitude + 180);
+  const lilithLongitude = meanLilithLongitude(time);
+  return [
+    {
+      name: 'Kuzey Ay Düğümü',
+      longitude: northNodeLongitude,
+      note: 'Yaklaşık ortalama ay düğümü hesabı; yön, gelişim ve hayat dersleri için kullanılır.',
+    },
+    {
+      name: 'Güney Ay Düğümü',
+      longitude: southNodeLongitude,
+      note: 'Kuzey Ay Düğümü karşıt noktası; alışılmış refleksler ve geçmiş kalıplar için kullanılır.',
+    },
+    {
+      name: 'Lilith',
+      longitude: lilithLongitude,
+      note: 'Yaklaşık ortalama Lilith hesabı; bastırılan taraflar ve içgüdüsel sınırlar için temkinli yorumlanır.',
+    },
+  ].map((point) => ({
+    ...point,
+    sign: SIGN_LABELS[signIndexFromLongitude(point.longitude)],
+    degree: point.longitude % 30,
+    house: houseForLongitude(point.longitude, ascendantLongitudeValue),
+  }));
+}
+
 function buildLocalBirthChartSnapshot(profile: SubjectProfile): BirthChartSnapshot {
   const location = resolveAstroLocation(profile.birth.location);
   if (!profile.birth.date || !location) {
@@ -466,6 +587,7 @@ function buildLocalBirthChartSnapshot(profile: SubjectProfile): BirthChartSnapsh
   }
 
   const precisionNote = buildPrecisionNote(profile, location.precision, location.warnings);
+  const timeKnown = Boolean(profile.birth.timeKnown && profile.birth.time);
   const birthUtc = zonedDateTimeToUtc(profile.birth.date, profile.birth.timeKnown ? profile.birth.time : null, location.timezone);
   const birthTime = new Astronomy.AstroTime(birthUtc);
   const ascendantLongitudeValue =
@@ -474,11 +596,13 @@ function buildLocalBirthChartSnapshot(profile: SubjectProfile): BirthChartSnapsh
       : null;
   const ascendant = ascendantLongitudeValue === null ? null : SIGN_LABELS[signIndexFromLongitude(ascendantLongitudeValue)];
   const planets = buildLocalPlanets(birthTime, ascendantLongitudeValue);
+  const points = buildChartPoints(birthTime, ascendantLongitudeValue);
   const sun = planets.find((planet) => planet.name === 'Güneş');
-  const aspects = buildAspects(planets);
+  const moon = planets.find((planet) => planet.name === 'Ay');
+  const aspects = buildAspects([...planets, ...points]);
   const retrogradeNames = planets.filter((planet) => planet.retrograde).map((planet) => planet.name);
   const transitNotes = [
-    ...(precisionNote ? [precisionNote] : []),
+    ...(!timeKnown && precisionNote ? [precisionNote] : []),
     ascendant
       ? `Yükselen ${ascendant}, doğum saatiyle birlikte kişisel aksın daha belirgin okunmasını sağlar.`
       : 'Doğum saati olmadığı için yorum Güneş, Ay ve gezegen burçlarına yaslanır.',
@@ -490,8 +614,10 @@ function buildLocalBirthChartSnapshot(profile: SubjectProfile): BirthChartSnapsh
   return {
     sign: sun?.sign || SIGN_LABELS[sunSignIndexFromDate(profile.birth.date)],
     ascendant,
+    moonSign: moon?.sign || null,
     dominantHouse: ascendant ? 1 : 0,
     planets,
+    points,
     aspects,
     transitNotes,
     timezoneUsed: location.timezone,
@@ -541,6 +667,19 @@ function repairMojibakeTurkish(text: string) {
   return out;
 }
 
+function sanitizeAffectionateRepetition(text: string) {
+  return (text || '')
+    .replace(/\b(canım|tatlım|güzelim|evladım|yavrum)([\s,;:]+\1\b)+/giu, '$1')
+    .replace(/\b(canım|tatlım|güzelim|evladım|yavrum),?\s+([^.?!]{0,80}?)\b\1\b/giu, '$1, $2')
+    .replace(/\s+([,.!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function cleanGeneratedTurkishText(text: string) {
+  return sanitizeAffectionateRepetition(repairMojibakeTurkish(text));
+}
+
 function normalizeSignLabel(sign: string | null | undefined) {
   const repaired = repairMojibakeTurkish(sign || '').trim();
   const aliases: Record<string, string> = {
@@ -567,19 +706,48 @@ function normalizeSignLabel(sign: string | null | undefined) {
   return aliases[key] || repaired || 'Analiz edildi';
 }
 
-function buildTransitPlanets(profile: SubjectProfile) {
-  const time = new Astronomy.AstroTime(new Date(`${todayIsoDate()}T12:00:00.000Z`));
-  return buildLocalPlanets(time, null).map((planet) => ({
+function dateKeyFromDate(date: Date) {
+  const { dateKey } = periodDateParts(date);
+  return dateKey;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function natalAscendantLongitude(profile: SubjectProfile) {
+  if (!profile.birth.timeKnown || !profile.birth.time || !profile.birth.date) return null;
+  const location = resolveAstroLocation(profile.birth.location);
+  if (!location) return null;
+  const birthUtc = zonedDateTimeToUtc(profile.birth.date, profile.birth.time, location.timezone);
+  return ascendantLongitude(new Astronomy.AstroTime(birthUtc), location.latitude, location.longitude);
+}
+
+function periodCheckpointDates(period: AstroPeriod) {
+  const base = new Date(`${todayIsoDate()}T12:00:00.000Z`);
+  if (period === 'daily') return [base];
+  if (period === 'weekly') return [base, addDays(base, 3), addDays(base, 6)];
+  if (period === 'monthly') return [base, addDays(base, 7), addDays(base, 14), addDays(base, 21)];
+  return [base, addDays(base, 90), addDays(base, 180), addDays(base, 270)];
+}
+
+function buildTransitPlanets(profile: SubjectProfile, date = new Date(`${todayIsoDate()}T12:00:00.000Z`)) {
+  const time = new Astronomy.AstroTime(date);
+  const natalAscendant = natalAscendantLongitude(profile);
+  return buildLocalPlanets(time, natalAscendant).map((planet) => ({
     planetLabel: planet.name,
     signLabel: planet.sign,
     degreeInSign: Number(planet.degree.toFixed(1)),
     retrograde: planet.retrograde,
+    natalHouse: planet.house,
     longitude: planet.longitude,
   }));
 }
 
-function buildTransitToNatalAspects(chart: BirthChartSnapshot, profile: SubjectProfile) {
-  const transits = buildTransitPlanets(profile);
+function buildTransitToNatalAspects(chart: BirthChartSnapshot, profile: SubjectProfile, date?: Date) {
+  const transits = buildTransitPlanets(profile, date);
   const aspects: CompactAstroPayload['data']['transit']['toNatalAspects'] = [];
   const aspectDefs = [
     { aspect: 'Kavuşum', angle: 0, orb: 4 },
@@ -604,8 +772,23 @@ function buildTransitToNatalAspects(chart: BirthChartSnapshot, profile: SubjectP
   return aspects.sort((a, b) => a.orb - b.orb).slice(0, 8);
 }
 
-function buildCompactAstroPayload(profile: SubjectProfile, chart: BirthChartSnapshot, locationPrecision: string): CompactAstroPayload {
+function stripTransitLongitude(planet: ReturnType<typeof buildTransitPlanets>[number]) {
+  const { longitude: _longitude, ...rest } = planet;
+  return rest;
+}
+
+function buildCompactAstroPayload(
+  profile: SubjectProfile,
+  chart: BirthChartSnapshot,
+  locationPrecision: string,
+  period: AstroPeriod = 'daily',
+): CompactAstroPayload {
   const transitPositions = buildTransitPlanets(profile);
+  const periodTimeline = periodCheckpointDates(period).map((date) => ({
+    dateKey: dateKeyFromDate(date),
+    positions: buildTransitPlanets(profile, date).slice(0, 7).map(stripTransitLongitude),
+    toNatalAspects: buildTransitToNatalAspects(chart, profile, date),
+  }));
   return {
     ok: true,
     source: 'mobile-local-astro',
@@ -631,8 +814,9 @@ function buildCompactAstroPayload(profile: SubjectProfile, chart: BirthChartSnap
         })),
       },
       transit: {
-        positions: transitPositions.slice(0, 7).map(({ longitude: _longitude, ...planet }) => planet),
+        positions: transitPositions.slice(0, 7).map(stripTransitLongitude),
         toNatalAspects: buildTransitToNatalAspects(chart, profile),
+        periodTimeline,
       },
     },
   };
@@ -648,15 +832,329 @@ export async function createBirthChartSnapshot(profile: SubjectProfile): Promise
   return chart;
 }
 
+function birthChartAssistantStyleHint() {
+  return 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek, sıcak ama net bir astrolog; teknik bilgiyi insanın hayatına çevirerek anlatır.';
+}
+
+function buildBirthChartInterpretationPayload(params: {
+  profile: SubjectProfile;
+  chart: BirthChartSnapshot;
+  locationLabel: string;
+  locationPrecision: string;
+}) {
+  const keyPlacements = {
+    sunSign: params.chart.sign,
+    moonSign: params.chart.moonSign,
+    risingSign: params.chart.ascendant,
+    precisionNote: params.chart.precisionNote,
+    timezoneUsed: params.chart.timezoneUsed,
+    locationLabel: params.locationLabel,
+    locationPrecision: params.locationPrecision,
+    timeKnown: Boolean(params.profile.birth.timeKnown && params.profile.birth.time),
+    birthTime: params.profile.birth.timeKnown ? params.profile.birth.time : null,
+  };
+  const chartData = {
+    planets: params.chart.planets.map((planet) => ({
+      name: planet.name,
+      sign: planet.sign,
+      degree: Number(planet.degree.toFixed(1)),
+      house: planet.house,
+      retrograde: planet.retrograde,
+    })),
+    points: (params.chart.points || []).map((point) => ({
+      name: point.name,
+      sign: point.sign,
+      degree: Number(point.degree.toFixed(1)),
+      house: point.house,
+      note: point.note,
+    })),
+    aspects: params.chart.aspects.map((aspect) => ({
+      planetA: aspect.planetA,
+      planetB: aspect.planetB,
+      type: aspect.type,
+      orb: aspect.orb,
+    })),
+    notes: params.chart.transitNotes,
+  };
+  const systemText =
+    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Yalnızca verilen doğum haritası verilerini kullan. Teknik bilgiyi boğmadan, her konumu kişinin hayatı, ilişki biçimi, karar alma tarzı, dönemleri ve iç dünyasıyla anlamlandır. Kesin karakter hükmü verme; insanın dinamik olduğunu hissettir.';
+  const userText = [
+    `Profil: ${params.profile.displayName}`,
+    `Anlatım tonu: ${birthChartAssistantStyleHint()}`,
+    `Hitap politikası: ${addressPolicyForProfile(params.profile, params.profile.displayName)}`,
+    `Ana yerleşimler JSON:\n${JSON.stringify(keyPlacements)}`,
+    `Doğum haritası verisi JSON:\n${JSON.stringify(chartData)}`,
+    [
+      'Kapsamlı ama sıkmayan bir doğum haritası yorumu yaz.',
+      'Metni anlam akışına göre 5-7 kısa paragrafta ver: açılış/ana karakter, duygu dünyası, zihin ve iletişim, ilişkiler, iş-para/yaşam yönü, gelişim dersleri ve kapanış. Her konu değişiminde boş satır bırak.',
+      'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme.',
+      'İlk paragrafta kişinin burç listesini rapor gibi tekrarlama; Güneş, yükselen ve Ay bilgisini yalnızca bir kez, akıcı ve kısa bir çerçeve olarak kullan.',
+      'birthTime dolu ve timeKnown true ise kesinlikle doğum saati bilinmiyor deme; yükselen ve evler okunabilir kabul edilir.',
+      'Doğum saati yoksa yükselen, evler ve saat hassasiyetli yorumların güvenilir olmayacağını yalnızca bir kez ve kısa belirt.',
+      'İlçe, şehir merkezi, koordinat hassasiyeti veya yaklaşık konum hesabından bahsetme.',
+      'Gezegenleri, bulundukları burçları ve varsa evlerini tek tek hayat alanlarına çevir: benlik, duygu, zihin, ilişki, enerji, genişleme, sorumluluk, değişim, sezgi ve dönüşüm.',
+      'Açıları teknik liste gibi değil, gezegenlerin birbirleriyle kurduğu iç gerilim/destek diliyle anlat.',
+      'Kuzey Ay Düğümü, Güney Ay Düğümü ve Lilith varsa yaklaşık ek noktalar olduklarını bilerek gelişim yönü, alışkanlıklar ve bastırılan sınırlar olarak yorumla.',
+      'Kişiyi etiketleme; “sen böylesin” yerine “sende böyle bir eğilim çalışabilir” dilini kullan.',
+      'Başlık kullanabilirsin ama kısa tut. Yaklaşık 3000 token civarında ana yorumu toparlamaya başla; kalan alanı sonuç, genel değerlendirme ve nazik kapanış için kullan. En geç 4092 token içinde tamamla.',
+    ].join(' '),
+  ].join('\n\n');
+  return {
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.62,
+      maxOutputTokens: BIRTH_CHART_MAIN_MAX_OUTPUT_TOKENS,
+    },
+  };
+}
+
+function buildBirthChartContinuationPayload(params: {
+  profile: SubjectProfile;
+  chart: BirthChartSnapshot;
+  previousText: string;
+}) {
+  const chartSummary = {
+    sunSign: params.chart.sign,
+    moonSign: params.chart.moonSign,
+    risingSign: params.chart.ascendant,
+    precisionNote: params.chart.precisionNote,
+    timeKnown: Boolean(params.chart.ascendant),
+    planets: params.chart.planets.map((planet) => ({
+      name: planet.name,
+      sign: planet.sign,
+      degree: Number(planet.degree.toFixed(1)),
+      house: planet.house,
+      retrograde: planet.retrograde,
+    })),
+    points: (params.chart.points || []).map((point) => ({
+      name: point.name,
+      sign: point.sign,
+      degree: Number(point.degree.toFixed(1)),
+      house: point.house,
+    })),
+    aspects: params.chart.aspects,
+  };
+  const systemText =
+    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Önceki doğum haritası yorumu token sınırı yüzünden yarım kalmış olabilir; metni tekrar etmeden doğal biçimde tamamla.';
+  const userText = [
+    `Profil: ${params.profile.displayName}`,
+    `Harita özeti JSON:\n${JSON.stringify(chartSummary)}`,
+    `Şimdiye kadar üretilen doğum haritası yorumu:\n${params.previousText}`,
+    [
+      'Yukarıdaki metni baştan yazma ve önceki paragrafları tekrar etme.',
+      'Son cümle yarım kaldıysa önce onu doğal biçimde tamamla.',
+      'Eksik kalan önemli yerleşim, açı, Lilith veya Ay Düğümü teması varsa kısaca tamamla.',
+      'Ardından genel değerlendirme ve nazik kapanış yaz.',
+      'Yeni baştan kapsamlı yorum üretme; yalnızca devam ve kapanış ver. Yaklaşık 700-1000 token içinde bitir.',
+    ].join(' '),
+  ].join('\n\n');
+  return {
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.54,
+      maxOutputTokens: BIRTH_CHART_CONTINUATION_MAX_OUTPUT_TOKENS,
+    },
+  };
+}
+
+export async function createBirthChartInterpretation(params: {
+  profile: SubjectProfile;
+  chart?: BirthChartSnapshot;
+}): Promise<AstroReadingResult> {
+  const location = resolveAstroLocation(params.profile.birth.location);
+  if (!params.profile.birth.date || !location) {
+    throw new Error('Doğum haritası yorumu için doğum tarihi, ülke ve şehir gerekli.');
+  }
+  const chart = params.chart || (await createBirthChartSnapshot(params.profile));
+  const payload = buildBirthChartInterpretationPayload({
+    profile: params.profile,
+    chart,
+    locationLabel: location.label,
+    locationPrecision: location.precision,
+  });
+  const data = await generateGeminiTextDirect(payload, 70000);
+  let text = cleanGeneratedTurkishText(data.text);
+  let usage = data.usage;
+  if (data.finishReason === 'MAX_TOKENS') {
+    const continuation = await generateGeminiTextDirect(
+      buildBirthChartContinuationPayload({
+        profile: params.profile,
+        chart,
+        previousText: text,
+      }),
+      70000,
+    );
+    text = `${text}\n\n${cleanGeneratedTurkishText(continuation.text)}`.trim();
+    usage = {
+      inputTokens: usage.inputTokens + continuation.usage.inputTokens,
+      outputTokens: usage.outputTokens + continuation.usage.outputTokens,
+      totalTokens: usage.totalTokens + continuation.usage.totalTokens,
+    };
+  }
+  return {
+    text,
+    sign: normalizeSignLabel(chart.sign),
+    risingSign: chart.ascendant,
+    timezoneUsed: location.timezone,
+    periodKey: `birth-chart-${params.profile.profileId}`,
+    precisionNote: chart.precisionNote,
+    cached: false,
+    modelName: data.model,
+    usage,
+  };
+}
+
+export async function createBirthChartFollowUp(params: {
+  profileName: string;
+  chart: BirthChartSnapshot;
+  interpretationText: string;
+  question: string;
+  previousFollowUps?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  memorySnippet?: ProfileMemorySnippet | null;
+}): Promise<{ text: string; modelName?: string; usage: { inputTokens: number; outputTokens: number; totalTokens: number } }> {
+  const relevantMemory = formatRelevantMemory(params.memorySnippet);
+  const previousFollowUpText = (params.previousFollowUps || [])
+    .filter((message) => message.text.trim())
+    .map((message) => `${message.role === 'user' ? 'Kullanıcı' : 'Bahar Hanım'}: ${message.text.trim()}`)
+    .join('\n');
+  const chartSummary = {
+    sunSign: params.chart.sign,
+    moonSign: params.chart.moonSign,
+    risingSign: params.chart.ascendant,
+    precisionNote: params.chart.precisionNote,
+    planets: params.chart.planets.map((planet) => ({
+      name: planet.name,
+      sign: planet.sign,
+      degree: Number(planet.degree.toFixed(1)),
+      house: planet.house,
+      retrograde: planet.retrograde,
+    })),
+    points: (params.chart.points || []).map((point) => ({
+      name: point.name,
+      sign: point.sign,
+      degree: Number(point.degree.toFixed(1)),
+      house: point.house,
+    })),
+    aspects: params.chart.aspects,
+  };
+  const systemText = [
+    'Sen Bahar Hanım adlı astrologsun.',
+    'Cevabı mevcut doğum haritası yorumu ve soru-cevap akışı üzerinden ver.',
+    'Kendini tekrar tanıtma; "ben Bahar" gibi girişler yapma.',
+    'Ana yorumu veya kişinin Güneş/Ay/yükselen bilgisini yeniden özetleme.',
+    'Kullanıcı özellikle sormadıkça veri kaynağını anlatma; harita bilgisini cevaba ince ve doğal biçimde yedir.',
+    'Teknik bilgiyi kısa tut; asıl anlatımı kişinin hayatındaki karşılığına çevir.',
+    'Önceki cevaplarla çelişme, kesin karakter hükmü verme.',
+  ].join(' ');
+  const userText = [
+    `Profil: ${params.profileName}`,
+    `Harita özeti JSON:\n${JSON.stringify(chartSummary)}`,
+    relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
+    `Ana doğum haritası yorumu:\n${params.interpretationText}`,
+    previousFollowUpText ? `Bu harita yorumundaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
+    `Kullanıcının sorusu:\n${params.question}`,
+    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta harita bağlamından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Yaklaşık 120-170 token içinde tamamla.',
+  ].filter(Boolean).join('\n\n');
+  const data = await generateGeminiTextDirect({
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.62,
+      maxOutputTokens: 520,
+    },
+  });
+  return { text: cleanGeneratedTurkishText(data.text), modelName: data.model, usage: data.usage };
+}
+
 function personalAstroAssistantStyleHint(assistantId: string, assistantLabel: string) {
   const styles: Record<string, string> = {
-    'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek, sıcak ama net bir astrolog.',
-    'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın ve toparlayıcı.',
-    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu.',
-    'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan.',
-    caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik.',
+    'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek; teknik astrolojiyi zarif ve net bir içgörüye çevirir.',
+    'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın; ihtimalleri gereksiz süslemeden mantıklı bir plana bağlar.',
+    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul fal dili hissedilir ama aşırı şekerli hitap kullanmaz.',
+    'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan; kısa öğütleri hayat tecrübesi gibi verir.',
+    caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik; sembolleri duygu ve atmosferle okur.',
   };
   return styles[assistantId] || `${assistantLabel || 'Falcı'} tonu: sıcak, doğal ve persona içinde kalan.`;
+}
+
+const NON_ASTRO_PERSONA_DOMAIN_TERMS =
+  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el falı|el fal|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i;
+
+function domainNeutralPersonaSignature(assistantId: string) {
+  const signatures: Record<string, string> = {
+    'bahar-hanim': [
+      'Modern, rafine, sezgisi güçlü ama cümleleri temiz ve kontrollü bir yorumcu gibi konuşur.',
+      'Psikolojik farkındalık, iç düzen, ilişki dinamiği ve kişinin kendi seçim gücü öne çıkar.',
+      'Süslemeyi abartmaz; zarif, net, premium ve sakin bir içgörü dili kurar.',
+    ].join(' '),
+    'mert-bey': [
+      'Analitik, sade, arkadaş gibi yakın ve toparlayıcı konuşur.',
+      'Belirsizliği pratik adımlara çevirir; "şunu şöyle düşün" hissi veren net, güven veren bir ritmi vardır.',
+      'Duyguyu küçümsemeden, çözüm ve plan tarafını görünür kılar.',
+    ].join(' '),
+    'durdane-hanim': [
+      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir fal malzemesine yaslanmaz.',
+      'Hane, kalp, niyet, kısmet, yol, yakın çevre ve iç direnç gibi hayat alanlarını doğal ve çeşitli biçimde okuyabilir.',
+      'Şefkatli hitapları ölçülü kullanır; telaş, yük ve koşturma temasına takılı kalmaz.',
+    ].join(' '),
+    'hikmet-bey': [
+      'Babacan, sakin, felsefi ve psikolojik derinliği olan bir sesle konuşur.',
+      'Cümleleri ölçülü öğüt, hayat tecrübesi ve iç denge hissi taşır.',
+      'Keskin kehanet yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
+    ].join(' '),
+    caner: [
+      'Sezgisel, yumuşak, sanatsal ve hafif melankolik konuşur.',
+      'Duygu ritmi, iç ses, atmosfer, kırılgan umut ve estetik sezgi öne çıkar.',
+      'Cümleleri şiirsel olabilir ama anlaşılır kalır; fal malzemesi değil insanın iç dünyası üzerinden imge kurar.',
+    ].join(' '),
+  };
+  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili falcının kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
+}
+
+function astroSafePersonaText(text?: string) {
+  return (text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !NON_ASTRO_PERSONA_DOMAIN_TERMS.test(line.toLocaleLowerCase('tr-TR')))
+    .join('\n');
+}
+
+function assistantPersonaContext(assistantId: string) {
+  const identity = FORTUNE_PERSONA_DATA[assistantId as keyof typeof FORTUNE_PERSONA_DATA];
+  if (!identity?.systemBody) return '';
+  const voice = astroSafePersonaText(
+    identity.systemBody.match(/# Voice And Temperament\n\n([\s\S]*?)(?:\n\n# |$)/)?.[1]?.trim()
+  );
+  return [
+    `Persona adı: ${identity.displayName}`,
+    `İmza üslup:\n${domainNeutralPersonaSignature(assistantId)}`,
+    voice ? `Ses ve mizaç (yalnızca üslup için):\n${voice}` : '',
+    'Astroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanılmaz.',
+  ].filter(Boolean).join('\n\n');
+}
+
+function addressPolicyForProfile(profile: SubjectProfile, profileName: string) {
+  const isSelf = profile.isPrimary || profile.relationshipPrimary === 'kendi';
+  const genderHint = profile.gender
+    ? `Profil cinsiyeti: ${profile.gender}; cinsiyetli hitap seçerken buna uy.`
+    : 'Profil cinsiyeti bilinmiyor; cinsiyetli hitap kullanma.';
+  if (isSelf) {
+    return [
+      'Hitap modu: seçili profil hesap sahibinin kendisi.',
+      'Metin boyunca doğrudan ve tutarlı biçimde "sen" dili kullan; üçüncü tekil şahsa dönme.',
+      'Profil adını rapor gibi tekrar etme.',
+      genderHint,
+    ].join(' ');
+  }
+  return [
+    `Hitap modu: bu okuma hesap sahibinden farklı biri için; seçili profil ${profileName || 'bu kişi'}.`,
+    'Metin boyunca üçüncü tekil şahıs kullan; bu kişiye veya hesap sahibine sonradan "sen" diye dönme.',
+    'Gerekirse profil adını doğal biçimde kullan.',
+    genderHint,
+  ].join(' ');
 }
 
 function buildPersonalAstroGeminiPayload(params: {
@@ -667,6 +1165,8 @@ function buildPersonalAstroGeminiPayload(params: {
   astroPayload: ReturnType<typeof buildCompactAstroPayload>;
   precisionNote: string;
   locationLabel: string;
+  addressPolicy: string;
+  memorySnippet?: ProfileMemorySnippet | null;
 }) {
   const periodLabel = { daily: 'günlük', weekly: 'haftalık', monthly: 'aylık', yearly: 'yıllık' }[params.period];
   const data = params.astroPayload.data;
@@ -685,34 +1185,53 @@ function buildPersonalAstroGeminiPayload(params: {
     natalAspects: natal.aspects,
     transitPositions: transit.positions,
     transitToNatalAspects: transit.toNatalAspects,
+    periodTimeline: transit.periodTimeline,
   };
+  const memoryContext = formatAstroAvoidanceMemory(params.memorySnippet);
+  const personaContext = assistantPersonaContext(params.assistantId);
   const focus = {
     daily: 'Bugünün kişisel odağı, duygu ritmi, ilişki/iş akışı ve kısa öneri.',
     weekly: 'Haftanın ana teması, ilişki ve iş para ritmi, içsel denge ve uygulanabilir öneri.',
     monthly: 'Ayın ana evresi, ilişki ve kariyer/para temaları, enerji dalgalanması ve öneri.',
     yearly: 'Yılın büyük temaları, ilişki, kariyer/para, kişisel gelişim, kritik dönemler ve öneri.',
   }[params.period];
-  const systemText =
-    'You are a Turkish personal astrology writer. Use only the provided on-device astronomy JSON. Do not invent houses, ascendant, exact Moon degree or birth-time-sensitive claims when timeKnown is false. Focus on how the current sky touches the user natal pattern and real life.';
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı falcısın; kişiye özel astrolojiyi bu falcının aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
+    'Use only the provided on-device astronomy JSON. Do not invent houses, ascendant, exact Moon degree or birth-time-sensitive claims when timeKnown is false.',
+    'A personal reading must compare natal placements/aspects with the selected period transits, transit-to-natal aspects and transit movement through natal houses when available; do not collapse it into a generic sky report.',
+    'Astroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; natal yerleşimler, transitler ve dönem akışı üzerinden konuş.',
+    'Persona sesi teknik astroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili falcıya ait olmalı. Kendini tanıtma.',
+  ].join(' ');
   const userText = [
     `Profile: ${params.profileName || 'Profil'}`,
     `Assistant style: ${personalAstroAssistantStyleHint(params.assistantId, params.assistantLabel)}`,
+    personaContext ? `Assistant persona card:\n${personaContext}` : '',
     `Period: ${periodLabel}`,
     `Birth/location precision note: ${params.precisionNote || 'Doğum bilgileri yeterli.'}`,
     `Resolved location: ${params.locationLabel || 'belirtilmedi'}`,
+    `Address policy: ${params.addressPolicy}`,
     `Content focus: ${focus}`,
+    memoryContext ? `Memory and repetition guard:\n${memoryContext}` : '',
     `Calculated key placements JSON:\n${JSON.stringify(keyPlacements)}`,
     `Period interpretation data JSON:\n${JSON.stringify(interpretationData)}`,
     [
       'Türkçe yaz. Başlık atma; düz, akıcı ve premium bir yorum ver.',
+      'Metni anlam akışına göre 3-5 kısa paragrafta ver; her paragraf ayrı bir konu taşısın ve konu değişiminde boş satır bırak.',
       'Persona içinde kal ama kendini tanıtma.',
-      'Genel burç yorumundan farklı ol: natal Güneş/Ay, gezegen evleri, natal açılar, transit temaslar, retro hareketler ve varsa yükseleni kullan.',
-      'Gökyüzü bilgisini kısa tut; asıl ağırlık ilişkiler, duygu hali, kararlar, iş/para ve kişisel ritimde neyi etkilediği olsun.',
-      'Öneri dilini belirgin kur: ne yapmalı, neyi zorlamamalı, hangi davranış beklemeli.',
+      'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme.',
+      'Aynı şefkat hitabını bir yanıtta en fazla bir kez kullan; "canım canım", "tatlım tatlım", "güzelim güzelim" gibi ikilemeler yapma.',
+      'Bu kişiye özel astroloji yorumu genel burç yorumu gibi yazılmamalı; natal yerleşimler, natal açılar, transitlerin natal noktalara yaptığı açılar ve varsa transitlerin natal evlerden geçişi birlikte okunmalı.',
+      'Teknik omurga şu olsun: doğumdaki bir yerleşim/açı hangi hayat alanını hassaslaştırıyor, seçilen dönemdeki gerçek transit bunu nasıl tetikliyor, kişi bunu bugün/hafta/ay/yıl içinde nasıl hissedebilir.',
+      'Kullanıcıya sürekli "doğum haritana göre", "yükselenin", "Güneş burcun" diye kaynak tabelası gösterme; ama gerektiğinde "doğumdaki Ay vurgun" veya "Marsın şu alana dokunuyor" gibi doğal ve teknik olarak anlamlı bağ kur.',
+      'Para ve finans, kariyer, aşk, sağlık, ilişkiler veya benzeri alanlarda o alanın dönemsel etkisini natal-transit karşılaştırmasıyla anlat; genel transit cümleleriyle yetinme.',
+      'Period timeline verisini kullan: günlük için bugünü, haftalık/aylık/yıllık için ara tarihlerde güçlenen veya zayıflayan temaları sezdir.',
+      'Memory bölümündeki eski temaları birebir tekrar etme; gerekiyorsa yalnızca yeni bir açıdan kısa gönderme yap.',
+      'Son paragraf mutlaka Öneriler hissi taşısın: ne yapmalı, neyi zorlamamalı, hangi davranış beklemeli. Yeni soru sormadan tamamla.',
       'Doğum saati bilinmiyorsa yükselen/ev yorumu yapma; eksik bilgiyi bir kez nazikçe belirtip kalan bilinen verilerle güçlü yorum kur.',
-      'Kapanışta yeni soru sorma.',
+      'İlçe, şehir merkezi, koordinat hassasiyeti veya yaklaşık konum hesabından bahsetme.',
+      'Son cümleyi yarım bırakma; token sınırına yaklaşmadan doğal ve tamamlanmış bir kapanış yap.',
     ].join(' '),
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
   return {
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
@@ -728,6 +1247,7 @@ export async function createPersonalAstroReading(params: {
   profile: SubjectProfile;
   assistantId: string;
   assistantLabel: string;
+  memorySnippet?: ProfileMemorySnippet | null;
 }): Promise<AstroReadingResult> {
   const location = resolveAstroLocation(params.profile.birth.location);
   if (!params.profile.birth.date || !location) {
@@ -736,7 +1256,7 @@ export async function createPersonalAstroReading(params: {
 
   const precisionNote = buildPrecisionNote(params.profile, location.precision, location.warnings);
   const chart = await createBirthChartSnapshot(params.profile);
-  const astroPayload = buildCompactAstroPayload(params.profile, chart, location.precision);
+  const astroPayload = buildCompactAstroPayload(params.profile, chart, location.precision, params.period);
   const geminiPayload = buildPersonalAstroGeminiPayload({
     period: params.period,
     profileName: params.profile.displayName,
@@ -745,24 +1265,35 @@ export async function createPersonalAstroReading(params: {
     astroPayload,
     precisionNote,
     locationLabel: location.label,
+    addressPolicy: addressPolicyForProfile(params.profile, params.profile.displayName),
+    memorySnippet: params.memorySnippet,
   });
   const currentPeriodKey = periodKey(params.period);
   const fingerprint = profileFingerprint(params.profile);
-  const cacheKeyValue = cacheKey([params.assistantId, params.profile.profileId, params.period, currentPeriodKey, fingerprint]);
+  const cacheKeyValue = cacheKey([String(PERSONAL_ASTRO_PERSONA_PROMPT_VERSION), params.assistantId, params.profile.profileId, params.period, currentPeriodKey, fingerprint]);
   const cached = await loadFreshPersonalAstroFromCache({ cacheKeyValue, periodKeyValue: currentPeriodKey, fingerprint });
   if (cached) return cached;
 
   try {
     const data = await generateGeminiTextDirect(geminiPayload);
+    const text = completeWithPersonaClosing({
+      text: cleanGeneratedTurkishText(data.text),
+      assistantId: params.assistantId,
+      domain: 'astro',
+      seed: `${params.profile.profileId}:${params.period}:${currentPeriodKey}`,
+      forceClosing: data.finishReason === 'MAX_TOKENS',
+    });
 
     const reading: AstroReadingResult = {
-      text: repairMojibakeTurkish(data.text),
+      text,
       sign: normalizeSignLabel(chart.sign),
       risingSign: chart.ascendant,
       timezoneUsed: location.timezone,
       periodKey: currentPeriodKey,
       precisionNote,
       cached: false,
+      modelName: data.model,
+      usage: data.usage,
     };
     await savePersonalAstroToCache({
       cacheKey: cacheKeyValue,
@@ -787,35 +1318,87 @@ export async function createPersonalAstroFollowUp(params: {
   assistantId: string;
   assistantLabel: string;
   period: AstroPeriod;
+  profile?: SubjectProfile | null;
   readingText: string;
   question: string;
+  previousFollowUps?: Array<{ role: 'user' | 'assistant'; text: string }>;
   memorySnippet?: ProfileMemorySnippet | null;
-}): Promise<string> {
+}): Promise<{ text: string; modelName?: string; usage: { inputTokens: number; outputTokens: number; totalTokens: number } }> {
   const relevantMemory = formatRelevantMemory(params.memorySnippet);
+  let currentAstroContext = '';
+  try {
+    if (params.profile) {
+      const location = resolveAstroLocation(params.profile.birth.location);
+      if (params.profile.birth.date && location) {
+        const chart = await createBirthChartSnapshot(params.profile);
+        const astroPayload = buildCompactAstroPayload(params.profile, chart, location.precision, params.period);
+        currentAstroContext = JSON.stringify({
+          currentTransits: astroPayload.data.transit.positions,
+          transitToNatalAspects: astroPayload.data.transit.toNatalAspects,
+          periodTimeline: astroPayload.data.transit.periodTimeline,
+          natalFilter: {
+            sunSignLabel: astroPayload.data.natal.sunSignLabel,
+            risingSignLabel: astroPayload.data.natal.risingSignLabel,
+            timeKnown: astroPayload.data.natal.timeKnown,
+            positions: astroPayload.data.natal.positions,
+            aspects: astroPayload.data.natal.aspects,
+          },
+        });
+      }
+    }
+  } catch {
+    currentAstroContext = '';
+  }
+  const previousFollowUpText = (params.previousFollowUps || [])
+    .filter((message) => message.text.trim())
+    .slice(-8)
+    .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text.trim()}`)
+    .join('\n');
+  const addressPolicy = params.profile
+    ? addressPolicyForProfile(params.profile, params.profileName)
+    : 'Hitap modunu önceki kişisel astroloji yorumuyla tutarlı sürdür; aynı cevap içinde üçüncü tekil şahıs ve sen dili arasında geçiş yapma.';
+  const personaContext = assistantPersonaContext(params.assistantId);
   const systemText = [
     `Sen ${params.assistantLabel} adlı falcısın.`,
     'Türkçe, sıcak, net ve kişiye özel konuş.',
-    'Cevabı yalnızca daha önce üretilmiş kişisel astroloji yorumu ve kullanıcının sorusu üzerinden ver.',
+    'Persona sesini koru; kişiye özel astrolojide falcının aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
+    'Astroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; natal-transit bağlamı ve son soru üzerinden konuş.',
+    'Cevabı daha önce üretilmiş kişisel astroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
+    'Son soruya göre natal yerleşimler ile mevcut/periyot transitlerini birlikte oku; cevabı genel gökyüzü yorumu gibi verme.',
+    'Kullanıcı özellikle sormadıkça "doğum haritana göre", "önceki yorumda", "hafızada" gibi kaynak gösteren ifadeleri tekrarlama; teknik bağı doğal cümle içinde kur.',
+    'Hitap modunu değiştirme; aynı yanıtta "canım", "tatlım", "güzelim" gibi şefkat hitaplarını tekrarlama.',
+    'Önceki follow-up cevaplarıyla çelişme; son soru önceki bir soruya gönderme yapıyorsa o bağı sürdür.',
     'Yeni uzun doğum haritası üretme; tekrar eden cümleler kurma.',
   ].join(' ');
   const userText = [
     `Profil: ${params.profileName}`,
     `Dönem: ${params.period}`,
     `Falcı kimliği: ${params.assistantId}`,
+    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    `Hitap politikası: ${addressPolicy}`,
+    currentAstroContext ? `Güncel gökyüzü/transit JSON:\n${currentAstroContext}` : '',
     relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Önceki kişisel astroloji yorumu:\n${params.readingText}`,
+    previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı tek paragraf olarak ver. Kısa geçiştirme yapma; önce net yanıtı, sonra astroloji bağlamından 1-2 gerekçeyi ve en sonda uygulanabilir kısa tavsiyeyi ver. Yaklaşık 120-170 token içinde tamamla.',
+    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta natal-transit karşılaştırmasından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Doğum haritasına doğrudan atıf gerekiyorsa teknik ve doğal biçimde kullan. Yaklaşık 170-230 token içinde, son cümleyi tamamlayarak bitir.',
   ].filter(Boolean).join('\n\n');
   const data = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.68,
-      maxOutputTokens: 520,
+      maxOutputTokens: 680,
     },
   });
-  return repairMojibakeTurkish(data.text);
+  const text = completeWithPersonaClosing({
+    text: cleanGeneratedTurkishText(data.text),
+    assistantId: params.assistantId,
+    domain: 'astro',
+    seed: `${params.profileName}:${params.period}:${params.question}`,
+    forceClosing: data.finishReason === 'MAX_TOKENS',
+  });
+  return { text, modelName: data.model, usage: data.usage };
 }
 
 export async function createGeneralAstroReading(params: {

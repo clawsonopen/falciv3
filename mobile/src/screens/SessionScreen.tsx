@@ -19,6 +19,8 @@ import { useSession } from '../hooks/useSession';
 import { TokenUsage } from '../components/TokenUsage';
 import { ImageUploader } from '../components/ImageUploader';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { AssistantLoading } from '../components/AssistantLoading';
+import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import {
   getLatestNativeTranscript,
   resetNativeTranscript,
@@ -138,7 +140,7 @@ export function SessionScreen({ route, navigation }: Props) {
     startSession(config)
       .then(() => {
         if (isCancelled) return;
-        setSttHint('Basılı tut konuş ile dikte et, bırakınca metin hazır olur.');
+        setSttHint('');
       })
       .catch((err) => {
         if (isCancelled) return;
@@ -202,6 +204,16 @@ export function SessionScreen({ route, navigation }: Props) {
     };
   }, [state.messages]);
 
+  useEffect(() => {
+    if (!state.isAiSpeaking) return;
+    const t1 = setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 0);
+    const t2 = setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 80);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [state.isAiSpeaking]);
+
   const isTurnLocked =
     state.isAiSpeaking || isAssistantSpeaking() || isReading;
   const isHoldToTalkDisabled = state.isAiSpeaking;
@@ -229,6 +241,8 @@ export function SessionScreen({ route, navigation }: Props) {
       holdBudgetAtPressStartRef.current = holdRemainingMs;
       autoStopLockRef.current = false;
       setRecordElapsedMs(0);
+      isRecordingRef.current = true;
+      setIsRecording(true);
       setUserSpeakingActive(true);
       await startNativeRecording(
         (text) => {
@@ -245,8 +259,9 @@ export function SessionScreen({ route, navigation }: Props) {
           }
         },
       );
-      setIsRecording(true);
     } catch (err: any) {
+      isRecordingRef.current = false;
+      setIsRecording(false);
       setUserSpeakingActive(false);
       Alert.alert('Mikrofon Hatası', err?.message || 'Kayıt başlatılamadı');
     }
@@ -312,6 +327,32 @@ export function SessionScreen({ route, navigation }: Props) {
     setHoldRemainingMs(MAX_HOLD_TO_TALK_SECONDS * 1000);
   };
 
+  const handleMessageActions = (message: { role: 'user' | 'assistant'; text: string }) => {
+    const value = message.text.trim();
+    if (!value) return;
+    if (message.role !== 'user') return;
+    Alert.alert('Mesaj', 'Bu soruyla ne yapmak istersin?', [
+      {
+        text: 'Yeniden Gönder',
+        onPress: () => {
+          if (isTurnLocked || isRecording) {
+            Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan yeniden gönderemezsin.');
+            return;
+          }
+          void sendUserTranscriptRef.current(value);
+        },
+      },
+      {
+        text: 'Düzenle',
+        onPress: () => {
+          setDraftText(value);
+          setEditorVisible(true);
+        },
+      },
+      { text: 'Kapat', style: 'cancel' as const },
+    ]);
+  };
+
   const handleSessionImageSelected = async (slot: 'cup' | 'saucer' | 'palm', uri: string) => {
     setSessionImageUris((prev) => ({ ...prev, [slot]: uri }));
     await updateSessionImage(slot, uri).catch((err: any) => {
@@ -373,12 +414,14 @@ export function SessionScreen({ route, navigation }: Props) {
     if (isReadPaused) return 'Devam Et';
     return 'Telefon Okusun';
   })();
-  const remainingMsLive = isRecording
-    ? Math.max(0, holdBudgetAtPressStartRef.current - recordElapsedMs)
-    : holdRemainingMs;
-  const remainingSeconds = Math.ceil(remainingMsLive / 1000);
-
+  const modeHeaderLabel =
+    config.readingType === 'coffee'
+      ? config.coffeeMode === 'ai-brew'
+        ? 'Benim Yerime İç Modu'
+        : 'Kahve Falı'
+      : 'El Falı Modu';
   const persistReadingAndEnd = async () => {
+    if (state.isAiSpeaking) return;
     const transcript = state.messages.map((message) => ({
       role: message.role,
       text: message.text,
@@ -471,24 +514,14 @@ export function SessionScreen({ route, navigation }: Props) {
         </View>
         <View style={styles.sessionHeaderRow}>
           <Text style={styles.sessionHeaderText}>{config.profileName}</Text>
+          <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>{modeHeaderLabel}</Text>
           <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
         </View>
 
         {config.readingType === 'coffee' && config.coffeeMode === 'ai-brew' ? (
-          <View style={styles.modeInfoCard}>
-            <Text style={styles.modeInfoTitle}>Benim Yerime İç Modu</Text>
-            <Text style={styles.modeInfoText}>
-              Bu oturumda gerçek fincan görseli yok. {assistantLabel}, {config.profileName} için
-              hafıza ve önceki temalardan destek alarak sezgisel bir kahve falı açıyor.
-            </Text>
-          </View>
+          null
         ) : config.readingType === 'palm' ? (
-          <View style={styles.modeInfoCard}>
-            <Text style={styles.modeInfoTitle}>El Falı Modu</Text>
-            <Text style={styles.modeInfoText}>
-              Bu oturumda avuç içi çizgileri ve el formu yorumlanacak. İlk sürümde yumuşak doğrulama kullanıyoruz; sert bir el kalıbı dayatmıyoruz.
-            </Text>
-          </View>
+          null
         ) : (
           <View style={styles.imagesRow}>
             {sessionImageUris.cup ? (
@@ -566,6 +599,11 @@ export function SessionScreen({ route, navigation }: Props) {
           style={styles.chatArea}
           contentContainerStyle={styles.chatContent}
           showsVerticalScrollIndicator={false}
+          onContentSizeChange={() => {
+            if (state.isAiSpeaking) {
+              chatScrollRef.current?.scrollToEnd({ animated: true });
+            }
+          }}
         >
           {state.messages.map((msg) => (
             <View
@@ -575,36 +613,48 @@ export function SessionScreen({ route, navigation }: Props) {
                 messageYRef.current[msg.id] = e.nativeEvent.layout.y;
               }}
             >
-              <Text style={[styles.chatText, msg.role === 'user' ? styles.textUser : styles.textAi]}>
-                {msg.text}
-              </Text>
+              <SelectableFormattedText
+                text={msg.text}
+                selectionColor={msg.role === 'user' ? '#E8C49A' : '#E6D7C6'}
+                style={[styles.chatText, msg.role === 'user' ? styles.textUser : styles.textAi]}
+              />
+              {msg.role === 'user' ? (
+                <TouchableOpacity
+                  style={styles.messageActionsButton}
+                  activeOpacity={0.78}
+                  onPress={() => handleMessageActions(msg)}
+                >
+                  <Text style={styles.messageActionsText}>Yeniden gönder / düzenle</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))}
+          {state.isAiSpeaking ? (
+            <AssistantLoading
+              label={state.messages.length ? 'Yanıt hazırlanıyor' : 'Falın hazırlanıyor'}
+              detail={state.messages.length ? undefined : 'Lütfen bekleyiniz. Ekranı kapatmayınız.'}
+              compact={Boolean(state.messages.length)}
+            />
+          ) : null}
         </ScrollView>
 
-        <View style={styles.holdCountdownRow}>
-          <Text style={styles.holdCountdownText}>
-            Basılı tut konuş süresi: {remainingSeconds} sn
-          </Text>
+        <View style={styles.readActionsBar}>
+          <TouchableOpacity
+            style={[
+              styles.secondaryAction,
+              (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
+            ]}
+            onPress={handleToggleRead}
+            disabled={!pendingTurnMessageId || state.isAiSpeaking}
+          >
+            <Text style={styles.secondaryActionText}>{readButtonLabel}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.secondaryAction, styles.readControlDisabled]} disabled>
+            <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerTitle}>Sorunu Sor</Text>
-          <View style={styles.quickActions}>
-            <TouchableOpacity
-              style={[
-                styles.secondaryAction,
-                (!pendingTurnMessageId || state.isAiSpeaking) && styles.readControlDisabled,
-              ]}
-              onPress={handleToggleRead}
-              disabled={!pendingTurnMessageId || state.isAiSpeaking}
-            >
-              <Text style={styles.secondaryActionText}>{readButtonLabel}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.secondaryAction, styles.readControlDisabled]} disabled>
-              <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
-            </TouchableOpacity>
-          </View>
           <TouchableOpacity
             style={styles.questionInput}
             activeOpacity={0.88}
@@ -644,7 +694,11 @@ export function SessionScreen({ route, navigation }: Props) {
           </View>
           <Text style={styles.limitInfoText}>Bu tur için ses limitin: {MAX_HOLD_TO_TALK_SECONDS} sn</Text>
           {!!sttHint ? <Text style={styles.sttHint}>{sttHint}</Text> : null}
-          <TouchableOpacity style={styles.endButton} onPress={() => void persistReadingAndEnd()}>
+          <TouchableOpacity
+            style={[styles.endButton, state.isAiSpeaking && styles.squareButtonDisabled]}
+            onPress={() => void persistReadingAndEnd()}
+            disabled={state.isAiSpeaking}
+          >
             <Text style={styles.endButtonText}>Falı Bitir</Text>
           </TouchableOpacity>
         </View>
@@ -795,6 +849,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  modeHeaderText: {
+    fontStyle: 'italic',
+  },
   previewWrap: {
     position: 'relative',
   },
@@ -873,6 +930,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
   },
+  messageActionsButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingVertical: 4,
+  },
+  messageActionsText: {
+    color: '#CFA46E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   textUser: { color: '#E8C49A' },
   textAi: { color: '#FFF' },
   footer: {
@@ -881,6 +948,14 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(168,130,82,0.12)',
+    backgroundColor: 'rgba(20,20,30,0.95)',
+  },
+  readActionsBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    paddingBottom: 8,
     backgroundColor: 'rgba(20,20,30,0.95)',
   },
   footerTitle: {
@@ -951,16 +1026,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 8,
     marginTop: 8,
-  },
-  holdCountdownRow: {
-    paddingHorizontal: 12,
-    paddingBottom: 4,
-    alignItems: 'center',
-  },
-  holdCountdownText: {
-    color: '#F6C38B',
-    fontSize: 12,
-    fontWeight: '700',
   },
   composeInputWrap: {
     flex: 1,

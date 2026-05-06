@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -7,10 +7,11 @@ import type { RootStackParamList } from '../../App';
 import { createBirthChartSnapshot, formatTimezoneForDisplay, hasRequiredAstroBirthInputs, type BirthChartSnapshot } from '../services/astroEngine';
 import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { birthChartProfileFingerprint, loadBirthChartInterpretationSession } from '../services/birthChartInterpretationStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalBirthChart'>;
 
-export function PersonalBirthChartScreen({ route }: Props) {
+export function PersonalBirthChartScreen({ route, navigation }: Props) {
   const { profileId } = route.params;
   const insets = useSafeAreaInsets();
   const [state, setState] = React.useState<{
@@ -18,14 +19,38 @@ export function PersonalBirthChartScreen({ route }: Props) {
     title: string;
     lines: string[];
     chart: BirthChartSnapshot | null;
+    interpretationExists: boolean;
     modal: { visible: boolean; title: string; message: string };
   }>({
     loading: true,
     title: '',
     lines: [],
     chart: null,
+    interpretationExists: false,
     modal: { visible: false, title: '', message: '' },
   });
+
+  const openProfileSettings = React.useCallback(() => {
+    navigation.navigate('ProfileSettings');
+  }, [navigation]);
+
+  const openInterpretation = React.useCallback(async () => {
+    const account = await loadAccountState();
+    const profile = account.profiles.find((p) => p.profileId === profileId) || null;
+    if (!profile || !hasRequiredAstroBirthInputs(profile)) {
+      setState((prev) => ({
+        ...prev,
+        modal: {
+          visible: true,
+          title: 'Profil Bilgisi Gerekli',
+          message:
+            'Doğum haritanı yorumlamadan önce doğum tarihi, ülke ve şehir bilgilerini tamamlamalısın. Doğum saati yoksa yükselen ve evler net okunamaz.',
+        },
+      }));
+      return;
+    }
+    navigation.navigate('BirthChartInterpretation', { profileId });
+  }, [navigation, profileId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -60,6 +85,7 @@ export function PersonalBirthChartScreen({ route }: Props) {
         }
 
         const chart = await createBirthChartSnapshot(profile);
+        const interpretation = await loadBirthChartInterpretationSession(profileId, birthChartProfileFingerprint(profile));
         const lines = [
           `Güneş Burcu: ${chart.sign}`,
           `Yükselen: ${chart.ascendant || 'Doğum saati gerekli'}`,
@@ -71,6 +97,16 @@ export function PersonalBirthChartScreen({ route }: Props) {
             const houseText = p.house ? `, ${p.house}. ev` : ', ev için doğum saati gerekli';
             return `${p.name}: ${p.sign} ${p.degree.toFixed(1)}°${houseText}${p.retrograde ? ' (R)' : ''}`;
           }),
+          ...(chart.points?.length
+            ? [
+                '',
+                'Ek Noktalar:',
+                ...chart.points.map((p) => {
+                  const houseText = p.house ? `, ${p.house}. ev` : ', ev için doğum saati gerekli';
+                  return `${p.name}: ${p.sign} ${p.degree.toFixed(1)}°${houseText}`;
+                }),
+              ]
+            : []),
           '',
           'Ana Açılar:',
           ...(chart.aspects.length
@@ -103,6 +139,7 @@ export function PersonalBirthChartScreen({ route }: Props) {
             title: `${profile.displayName} - Doğum Haritası`,
             lines,
             chart,
+            interpretationExists: Boolean(interpretation),
           }));
         }
       } catch (err: any) {
@@ -126,6 +163,13 @@ export function PersonalBirthChartScreen({ route }: Props) {
         <View style={styles.panel}>
           <Text style={styles.title}>{state.title || 'Doğum Haritası'}</Text>
           <BirthChartWheel chart={state.chart} />
+          <TouchableOpacity
+            style={[styles.interpretButton, state.loading && styles.interpretButtonDisabled]}
+            onPress={() => void openInterpretation()}
+            disabled={state.loading}
+          >
+            <Text style={styles.interpretButtonText}>{state.interpretationExists ? 'Yorum Hakkında Soru Sor' : 'Yorumla'}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.panel}>
@@ -149,6 +193,8 @@ export function PersonalBirthChartScreen({ route }: Props) {
         cancelLabel="Kapat"
         onConfirm={() => setState((prev) => ({ ...prev, modal: { visible: false, title: '', message: '' } }))}
         onCancel={() => setState((prev) => ({ ...prev, modal: { visible: false, title: '', message: '' } }))}
+        extraActionLabel={state.modal.title === 'Profil Bilgisi Gerekli' ? 'Profile Git' : null}
+        onExtraAction={state.modal.title === 'Profil Bilgisi Gerekli' ? openProfileSettings : undefined}
       />
     </SafeAreaView>
   );
@@ -166,6 +212,9 @@ const PLANET_SYMBOLS: Record<string, string> = {
   Uranüs: '♅',
   Neptün: '♆',
   Plüton: '♇',
+  'Kuzey Ay Düğümü': '☊',
+  'Güney Ay Düğümü': '☋',
+  Lilith: '⚸',
 };
 
 function point(cx: number, cy: number, radius: number, longitude: number) {
@@ -199,7 +248,7 @@ function BirthChartWheel({ chart }: { chart: BirthChartSnapshot | null }) {
             </G>
           );
         })}
-        {chart?.planets.map((planet, index) => {
+        {[...(chart?.planets || []), ...(chart?.points || [])].map((planet, index) => {
           const offset = (index % 3) * 8;
           const pos = point(cx, cy, planetRadius - offset, planet.longitude);
           const lineStart = point(cx, cy, 60, planet.longitude);
@@ -240,6 +289,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,130,82,0.18)',
   },
   title: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 10, textAlign: 'center' },
+  interpretButton: {
+    borderRadius: 12,
+    backgroundColor: '#D4A574',
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  interpretButtonDisabled: { opacity: 0.55 },
+  interpretButtonText: { color: '#14141E', fontSize: 13, fontWeight: '800' },
   text: { color: '#FFF5E8', fontSize: 13, lineHeight: 20, marginBottom: 2 },
   bullet: { color: '#F6C38B', fontSize: 13, lineHeight: 20, marginBottom: 2 },
   wheel: {

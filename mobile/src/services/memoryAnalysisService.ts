@@ -1,5 +1,5 @@
-import { AGENT_API_URL } from '../config/constants';
 import type { MemoryCategoryCandidate, MemoryObservation, ProfileMemorySnippet } from '../types/memory';
+import { generateGeminiTextDirect } from './geminiDirectService';
 
 export interface MemoryAnalysisTranscriptEntry {
   role: 'user' | 'assistant';
@@ -45,41 +45,151 @@ interface MemoryAnalysisRequest {
   transcript: MemoryAnalysisTranscriptEntry[];
 }
 
-export async function analyzeMemoryTranscript(body: MemoryAnalysisRequest): Promise<MemoryAnalysisResult> {
-  const response = await fetch(`${AGENT_API_URL}/memory-analyze`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  const data = (await response.json().catch(() => ({}))) as Partial<MemoryAnalysisResult> & {
-    userMessage?: string;
-    error?: string;
-  };
-
-  if (!response.ok) {
-    throw new Error(data.userMessage || data.error || 'Hafıza analizi tamamlanamadı.');
-  }
-
+function emptyResult(usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 }): MemoryAnalysisResult {
   return {
     userStated: {
-      recurringTopics: data.userStated?.recurringTopics || [],
-      importantPeople: data.userStated?.importantPeople || [],
-      emotionalPatterns: data.userStated?.emotionalPatterns || [],
-      observations: data.userStated?.observations || [],
-      categoryCandidates: data.userStated?.categoryCandidates || [],
+      recurringTopics: [],
+      importantPeople: [],
+      emotionalPatterns: [],
+      observations: [],
+      categoryCandidates: [],
     },
     readingDerived: {
-      recurringTopics: data.readingDerived?.recurringTopics || [],
-      importantPeople: data.readingDerived?.importantPeople || [],
-      emotionalPatterns: data.readingDerived?.emotionalPatterns || [],
-      observations: data.readingDerived?.observations || [],
-      categoryCandidates: data.readingDerived?.categoryCandidates || [],
+      recurringTopics: [],
+      importantPeople: [],
+      emotionalPatterns: [],
+      observations: [],
+      categoryCandidates: [],
     },
-    usage: {
-      inputTokens: Number(data.usage?.inputTokens || 0),
-      outputTokens: Number(data.usage?.outputTokens || 0),
-      totalTokens: Number(data.usage?.totalTokens || 0),
+    usage,
+  };
+}
+
+function stripJsonFence(text: string) {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function asArray<T>(value: T[] | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeItem(item: Partial<MemoryAnalysisItem>): MemoryAnalysisItem | null {
+  const key = String(item.key || '').trim();
+  const label = String(item.label || '').trim();
+  if (!key || !label) return null;
+  return {
+    key,
+    label,
+    relationship: item.relationship ? String(item.relationship) : undefined,
+    salience: typeof item.salience === 'number' ? Math.max(0, Math.min(1, item.salience)) : undefined,
+    confidence: typeof item.confidence === 'number' ? Math.max(0, Math.min(1, item.confidence)) : undefined,
+  };
+}
+
+function normalizeItems(items: Partial<MemoryAnalysisItem>[] | undefined) {
+  return asArray(items).map(normalizeItem).filter(Boolean) as MemoryAnalysisItem[];
+}
+
+function normalizeObservation(item: Partial<MemoryObservation>): MemoryObservation | null {
+  const title = String(item.title || '').trim();
+  const summary = String(item.summary || '').trim();
+  if (!title || !summary) return null;
+  return {
+    ...item,
+    title,
+    summary,
+    key: String(item.key || title).trim(),
+    group: String(item.group || item.category || 'Genel').trim(),
+    subgroup: String(item.subgroup || 'Diğer konuşulanlar').trim(),
+    category: String(item.category || item.group || 'Genel').trim(),
+    emotions: Array.isArray(item.emotions) ? item.emotions.map(String).slice(0, 4) : [],
+    confidence: typeof item.confidence === 'number' ? Math.max(0, Math.min(1, item.confidence)) : 0.62,
+  } as MemoryObservation;
+}
+
+function normalizeCandidates(items: Partial<MemoryCategoryCandidate>[] | undefined) {
+  return asArray(items)
+    .map((item: Partial<MemoryCategoryCandidate> & { label?: string; score?: number }) => {
+      const group = String(item.group || 'Genel').trim();
+      const subgroup = String(item.subgroup || item.label || 'Diğer konuşulanlar').trim();
+      const reason = String(item.reason || item.label || subgroup).trim();
+      if (!subgroup || !reason) return null;
+      return {
+        key: String(item.key || `${group}:${subgroup}`).trim(),
+        group,
+        subgroup,
+        reason,
+        count: typeof item.count === 'number' ? Math.max(1, Math.round(item.count)) : 1,
+        firstSeenAt: item.firstSeenAt || new Date().toISOString(),
+        lastSeenAt: item.lastSeenAt || new Date().toISOString(),
+        confidence: typeof item.confidence === 'number'
+          ? Math.max(0, Math.min(1, item.confidence))
+          : typeof item.score === 'number'
+            ? Math.max(0, Math.min(1, item.score))
+            : 0.5,
+      } as MemoryCategoryCandidate;
+    })
+    .filter(Boolean) as MemoryCategoryCandidate[];
+}
+
+function normalizeSection(section: any) {
+  return {
+    recurringTopics: normalizeItems(section?.recurringTopics),
+    importantPeople: normalizeItems(section?.importantPeople),
+    emotionalPatterns: normalizeItems(section?.emotionalPatterns),
+    observations: asArray<Partial<MemoryObservation>>(section?.observations)
+      .map(normalizeObservation)
+      .filter(Boolean) as MemoryObservation[],
+    categoryCandidates: normalizeCandidates(section?.categoryCandidates),
+  };
+}
+
+function buildMemoryPayload(body: MemoryAnalysisRequest) {
+  const systemText = [
+    'Sen mobil cihaz içinde çalışan bir hafıza analizcisisin.',
+    'Sadece verilen konuşmadan çıkarım yap; yeni fal yorumu yazma.',
+    'Kısa, güvenli ve yapılandırılmış JSON döndür. Markdown kullanma.',
+  ].join(' ');
+  const userText = [
+    `Profil: ${body.profileName}`,
+    `Profil id: ${body.profileId}`,
+    `Okuma türü: ${body.readingType}`,
+    body.memorySnippet ? `Mevcut hafıza özeti JSON:\n${JSON.stringify(body.memorySnippet)}` : '',
+    `Konuşma JSON:\n${JSON.stringify(body.transcript.slice(-12))}`,
+    [
+      'Şu JSON şemasına birebir uy:',
+      '{"userStated":{"recurringTopics":[],"importantPeople":[],"emotionalPatterns":[],"observations":[],"categoryCandidates":[]},"readingDerived":{"recurringTopics":[],"importantPeople":[],"emotionalPatterns":[],"observations":[],"categoryCandidates":[]}}',
+      'userStated yalnızca kullanıcının doğrudan söylediği bilgileri içersin.',
+      'readingDerived yalnızca fal/yorum metninden çıkan tekrar edilebilir temaları içersin.',
+      'Her listeyi en fazla 4 öğe ile sınırla. Emin değilsen boş liste döndür.',
+    ].join('\n'),
+  ].filter(Boolean).join('\n\n');
+
+  return {
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 900,
+      responseMimeType: 'application/json',
     },
   };
+}
+
+export async function analyzeMemoryTranscript(body: MemoryAnalysisRequest): Promise<MemoryAnalysisResult> {
+  const data = await generateGeminiTextDirect(buildMemoryPayload(body), 45000);
+  try {
+    const parsed = JSON.parse(stripJsonFence(data.text));
+    return {
+      userStated: normalizeSection(parsed.userStated),
+      readingDerived: normalizeSection(parsed.readingDerived),
+      usage: data.usage,
+    };
+  } catch {
+    return emptyResult(data.usage);
+  }
 }

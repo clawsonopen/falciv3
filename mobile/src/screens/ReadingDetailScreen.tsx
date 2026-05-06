@@ -3,6 +3,7 @@ import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import { getAssistantLabel } from '../config/constants';
 import { deleteReading, getReadingTypeLabel } from '../services/profileMemoryService';
 
@@ -55,7 +56,7 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
 
         <View style={styles.readingCard}>
           <Text style={styles.sectionTitle}>Fal Özeti</Text>
-          <Text style={styles.readingText}>{reading.summary}</Text>
+          <SelectableFormattedText text={reading.summary} style={styles.readingText} />
         </View>
 
         {qaPairs.length ? (
@@ -64,9 +65,9 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
             {qaPairs.map((item, index) => (
               <View key={`${index}-${item.question.slice(0, 16)}`} style={styles.qaBlock}>
                 <Text style={styles.qaLabel}>Soru</Text>
-                <Text style={styles.readingText}>{item.question}</Text>
+                <SelectableFormattedText text={item.question} style={styles.readingText} />
                 <Text style={[styles.qaLabel, styles.qaLabelTop]}>Cevap</Text>
-                <Text style={styles.readingText}>{item.answer || 'Bu soruya kayıtlı cevap bulunamadı.'}</Text>
+                <SelectableFormattedText text={item.answer || 'Bu soruya kayıtlı cevap bulunamadı.'} style={styles.readingText} />
               </View>
             ))}
           </View>

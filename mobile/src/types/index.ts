@@ -49,6 +49,10 @@ export interface TokenUsageData {
   inputTokens: number;
   /** Cumulative output tokens this session */
   outputTokens: number;
+  /** Estimated image input tokens this session */
+  imageInputTokens?: number;
+  /** Text input tokens this session */
+  textInputTokens?: number;
 }
 
 export interface ChatMessage {

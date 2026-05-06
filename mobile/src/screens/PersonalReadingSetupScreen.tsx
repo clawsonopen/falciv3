@@ -194,7 +194,7 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
                     onPress={() => setCoffeeMode('ai-brew')}
                   >
                     <Text style={styles.modeTitle}>Benim yerime iç</Text>
-                    <Text style={styles.modeText}>Hafıza destekli, görselsiz sezgisel açılış.</Text>
+                    <Text style={styles.modeText}>senin niyetine içip bakıyoruz</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -334,4 +334,3 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { color: '#14141E', fontSize: 15, fontWeight: '800' },
 });
-

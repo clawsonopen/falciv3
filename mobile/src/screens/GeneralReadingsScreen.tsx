@@ -6,7 +6,7 @@ import type { RootStackParamList } from '../../App';
 import type { SubjectProfile } from '../types/memory';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
 import { createDailyGeneralReading, type GeneralDivinationType } from '../services/divinationEngine';
-import { fetchGeneralAstroFromBackend } from '../services/generalAstroApiService';
+import { fetchGeneralAstroDirect } from '../services/generalAstroApiService';
 import {
   getAssistantSpeechProgress,
   isAssistantSpeaking,
@@ -309,7 +309,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         let result;
         if (isAstro) {
           const period = item.id === 'astro-daily' ? 'daily' : item.id === 'astro-weekly' ? 'weekly' : 'monthly';
-          result = await fetchGeneralAstroFromBackend({
+          result = await fetchGeneralAstroDirect({
             period,
             profile: selectedProfile,
           });

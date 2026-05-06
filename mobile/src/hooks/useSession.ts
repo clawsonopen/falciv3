@@ -5,6 +5,7 @@ import { getFortuneReply, type FortuneMessage } from '../services/fortuneApiServ
 import { appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import {
   addPendingInputTokens,
+  addPersonalTokenUsage,
   addRejectedUploadAttempt,
   consumePendingInputTokens,
   consumeRejectedUploadAttempts,
@@ -15,6 +16,21 @@ function looksLikeQuestion(text: string): boolean {
   if (!normalized) return false;
   if (normalized.includes('?')) return true;
   return /\b(ne|neden|nasil|nasıl|ne zaman|kim|hangi|mi|mı|mu|mü|olur mu|var mi|var mı)\b/.test(normalized);
+}
+
+const GEMINI_IMAGE_TOKENS_768 = 258;
+
+function readingNameForConfig(config: SessionConfig) {
+  if (config.readingType === 'palm') return 'El Falı';
+  return config.coffeeMode === 'ai-brew' ? 'Kahve Falı - Benim Yerime İç' : 'Kahve Falı';
+}
+
+function estimateImageInputTokens(config: SessionConfig, images: { cup?: string; saucer?: string; palm?: string }, isFollowUp: boolean) {
+  if (isFollowUp) return 0;
+  if (config.readingType === 'palm') return images.palm ? GEMINI_IMAGE_TOKENS_768 * 2 : 0;
+  if (config.coffeeMode !== 'upload') return 0;
+  const imageCount = [images.cup, images.saucer].filter(Boolean).length;
+  return imageCount * GEMINI_IMAGE_TOKENS_768 * 2;
 }
 
 function normalizedWords(text: string): string[] {
@@ -55,7 +71,7 @@ function stripAssistantEchoFromUserText(text: string, messages: ChatMessage[]): 
 export function useSession() {
   const [state, setState] = useState<SessionState>({
     status: 'idle',
-    tokenUsage: { inputTokens: 0, outputTokens: 0 },
+    tokenUsage: { inputTokens: 0, outputTokens: 0, imageInputTokens: 0, textInputTokens: 0 },
     messages: [],
     isAiSpeaking: false,
     isUserSpeaking: false,
@@ -176,15 +192,44 @@ export function useSession() {
           images: imagesRef.current,
         });
         addMessage('assistant', text.text);
+        const imageInputTokens = Math.min(
+          text.usage.inputTokens || 0,
+          estimateImageInputTokens(config, imagesRef.current, Boolean(options?.isFollowUp)),
+        );
+        const textInputTokens = Math.max(0, (text.usage.inputTokens || 0) - imageInputTokens);
         setState((s) => ({
           ...s,
           tokenUsage: {
             inputTokens: s.tokenUsage.inputTokens + (text.usage.inputTokens || 0),
             outputTokens: s.tokenUsage.outputTokens + (text.usage.outputTokens || 0),
+            imageInputTokens: (s.tokenUsage.imageInputTokens || 0) + imageInputTokens,
+            textInputTokens: (s.tokenUsage.textInputTokens || 0) + textInputTokens,
           },
         }));
+        await addPersonalTokenUsage({
+          modelName: 'gemini-2.5-flash-lite',
+          readingName: readingNameForConfig(config),
+          imageInputTokens,
+          textInputTokens,
+          outputTokens: text.usage.outputTokens || 0,
+        }).catch(() => {});
       } catch (err: any) {
         const pendingInput = Number(err?.tokenUsage?.totalTokens || err?.tokenUsage?.inputTokens || 0);
+        const failedInputTokens = Number(err?.tokenUsage?.inputTokens || 0);
+        const failedOutputTokens = Number(err?.tokenUsage?.outputTokens || 0);
+        if (failedInputTokens || failedOutputTokens) {
+          const imageInputTokens = Math.min(
+            failedInputTokens,
+            estimateImageInputTokens(config, imagesRef.current, Boolean(options?.isFollowUp)),
+          );
+          await addPersonalTokenUsage({
+            modelName: 'gemini-2.5-flash-lite',
+            readingName: `${readingNameForConfig(config)} - Hata/Validasyon`,
+            imageInputTokens,
+            textInputTokens: Math.max(0, failedInputTokens - imageInputTokens),
+            outputTokens: failedOutputTokens,
+          }).catch(() => {});
+        }
         if (pendingInput > 0) {
           await addPendingInputTokens(pendingInput).catch(() => {});
         }
@@ -207,7 +252,7 @@ export function useSession() {
         ...s,
         status: 'connecting',
         messages: [],
-        tokenUsage: { inputTokens: 0, outputTokens: 0 },
+        tokenUsage: { inputTokens: 0, outputTokens: 0, imageInputTokens: 0, textInputTokens: 0 },
         isAiSpeaking: false,
         isUserSpeaking: false,
       }));
@@ -228,6 +273,8 @@ export function useSession() {
         tokenUsage: {
           inputTokens: pendingInputDebt,
           outputTokens: 0,
+          imageInputTokens: 0,
+          textInputTokens: pendingInputDebt,
         },
       }));
 
@@ -280,7 +327,7 @@ export function useSession() {
       status: 'ended',
       isAiSpeaking: false,
       isUserSpeaking: false,
-      tokenUsage: { inputTokens: 0, outputTokens: 0 },
+      tokenUsage: { inputTokens: 0, outputTokens: 0, imageInputTokens: 0, textInputTokens: 0 },
       messages: [],
     }));
   }, []);
@@ -288,7 +335,7 @@ export function useSession() {
   const resetSession = useCallback(() => {
     setState({
       status: 'idle',
-      tokenUsage: { inputTokens: 0, outputTokens: 0 },
+      tokenUsage: { inputTokens: 0, outputTokens: 0, imageInputTokens: 0, textInputTokens: 0 },
       messages: [],
       isAiSpeaking: false,
       isUserSpeaking: false,

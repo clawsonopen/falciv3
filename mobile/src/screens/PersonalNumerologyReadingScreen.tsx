@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { AssistantLoading } from '../components/AssistantLoading';
+import { TokenUsage } from '../components/TokenUsage';
+import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
 import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
@@ -11,10 +14,17 @@ import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
 import {
   createPersonalNumerologyFollowUp,
   createPersonalNumerologyReading,
+  getCachedPersonalNumerologyReading,
   hasRequiredNumerologyInputs,
   type PersonalNumerologyCore,
   type PersonalNumerologyMode,
 } from '../services/personalNumerologyEngine';
+import {
+  addPersonalTokenUsage,
+  GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M,
+  GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M,
+} from '../services/tokenLedgerService';
+import type { TokenUsageData } from '../types';
 import {
   getLatestNativeTranscript,
   resetNativeTranscript,
@@ -55,7 +65,7 @@ function compactSummary(text: string) {
   return text.replace(/\s+/g, ' ').trim().slice(0, 420);
 }
 
-export function PersonalNumerologyReadingScreen({ route }: Props) {
+export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
   const { profileId, assistantId } = route.params;
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<PersonalNumerologyMode | null>(null);
@@ -63,22 +73,84 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
   const [profileName, setProfileName] = useState('');
   const [text, setText] = useState('');
   const [core, setCore] = useState<PersonalNumerologyCore | null>(null);
+  const [readingTheme, setReadingTheme] = useState<{ label: string; key: string; period?: 'monthly' } | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsageData>({ inputTokens: 0, outputTokens: 0, textInputTokens: 0, imageInputTokens: 0 });
   const [questionText, setQuestionText] = useState('');
   const [followUps, setFollowUps] = useState<FollowUpMessage[]>([]);
   const [isSendingQuestion, setIsSendingQuestion] = useState(false);
   const [isRecordingQuestion, setIsRecordingQuestion] = useState(false);
+  const [editorVisible, setEditorVisible] = useState(false);
   const [speechMode, setSpeechMode] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [infoModal, setInfoModal] = useState({ visible: false, title: APP_NAME, message: '' });
   const speechRunRef = useRef(0);
   const questionBaseRef = useRef('');
+  const pageScrollRef = useRef<ScrollView>(null);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
-  const actionLabel = mode ? 'Yorumu Hazırla' : 'Önce Bölüm Seç';
+  const modeHeaderLabel = useMemo(() => (mode ? MODE_LABELS[mode] : 'Bölüm seç'), [mode]);
+  const isBusy = isLoading || isSendingQuestion;
+  const hasPreparedReading = Boolean(text && mode);
+  const canPrepareReading = Boolean(mode && !isBusy && !hasPreparedReading);
+  const actionLabel = hasPreparedReading ? 'Yorum Hazır' : mode ? 'Yorumu Hazırla' : 'Önce Bölüm Seç';
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerBackVisible: !isBusy,
+      gestureEnabled: !isBusy,
+    });
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (!isBusy) return;
+      event.preventDefault();
+    });
+    return unsubscribe;
+  }, [isBusy, navigation]);
+
+  const applyReadingToScreen = useCallback((reading: Awaited<ReturnType<typeof createPersonalNumerologyReading>>) => {
+    setText(reading.text);
+    setCore(reading.core);
+    setFollowUps([]);
+
+    const theme =
+      reading.mode === 'core'
+        ? `temel numeroloji: yaşam yolu ${reading.core.lifePath}, kader ${reading.core.destiny}, olgunluk ${reading.core.maturity}`
+        : `aylık numeroloji: ${reading.context.calendarMonthName} ${reading.context.calendarYear} için dört haftalık akış yorumu`;
+    const themeKey =
+      reading.mode === 'core'
+        ? 'personal-numerology-core'
+        : `personal-numerology-monthly-${reading.periodKey || reading.context.targetDateIso}`;
+    setReadingTheme({ label: theme, key: themeKey, period: reading.mode === 'period' ? 'monthly' : undefined });
+  }, []);
+
+  const handleSelectMode = useCallback(
+    async (nextMode: PersonalNumerologyMode) => {
+      if (isBusy) return;
+      setMode(nextMode);
+      setText('');
+      setCore(null);
+      setReadingTheme(null);
+      setFollowUps([]);
+      setQuestionText('');
+      try {
+        const state = await loadAccountState();
+        const profile = state.profiles.find((item) => item.profileId === profileId) || null;
+        if (!profile) return;
+        setProfileName(profile.displayName);
+        if (!hasRequiredNumerologyInputs(profile)) return;
+        const cached = await getCachedPersonalNumerologyReading({ profile, assistantId, mode: nextMode });
+        if (cached) applyReadingToScreen(cached);
+      } catch {
+        // Cache kontrolü sessiz kalmalı; üretim butonu normal akışı sürdürecek.
+      }
+    },
+    [applyReadingToScreen, assistantId, isBusy, profileId],
+  );
 
   const loadReading = useCallback(async () => {
+    if (isBusy || text) return;
     if (!mode) {
       setText('');
       setCore(null);
+      setReadingTheme(null);
       return;
     }
 
@@ -108,30 +180,23 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
         assistantLabel,
         mode,
       });
-      setText(reading.text);
-      setCore(reading.core);
-      setFollowUps([]);
-
-      if (!reading.cached) {
-        await appendReadingSummary({
-          profileId,
-          assistantId,
-          readingType: 'personal-numerology',
-          period: reading.mode === 'period' ? 'monthly' : undefined,
-          surfacesRead: [],
-          summary: compactSummary(reading.text),
-          transcript: [{ role: 'assistant', text: reading.text, timestamp: Date.now() }],
-        });
-        const theme =
-          mode === 'core'
-            ? `temel numeroloji: yaşam yolu ${reading.core.lifePath}, kader ${reading.core.destiny}, olgunluk ${reading.core.maturity}`
-            : `aylık numeroloji: ${reading.context.calendarMonthName} ${reading.context.calendarYear} için dört haftalık akış yorumu`;
-        const themeKey =
-          mode === 'core'
-            ? 'personal-numerology-core'
-            : `personal-numerology-monthly-${reading.periodKey || reading.context.targetDateIso}`;
-        await appendReadingDerivedTheme(profileId, theme, themeKey);
+      if (!reading.cached && reading.usage) {
+        const inputTokens = reading.usage.inputTokens || 0;
+        const outputTokens = reading.usage.outputTokens || 0;
+        setTokenUsage((current) => ({
+          inputTokens: current.inputTokens + inputTokens,
+          outputTokens: current.outputTokens + outputTokens,
+          textInputTokens: (current.textInputTokens || 0) + inputTokens,
+          imageInputTokens: current.imageInputTokens || 0,
+        }));
+        await addPersonalTokenUsage({
+          modelName: reading.modelName || 'gemini-2.5-flash-lite',
+          readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : 'Kişisel Numeroloji - Aylık',
+          textInputTokens: inputTokens,
+          outputTokens,
+        }).catch(() => {});
       }
+      applyReadingToScreen(reading);
     } catch (err: any) {
       const retryMessage = isRetryableLlmError(err) ? getRetryLaterMessage('personal-numerology', `${profileId}-${mode}`) : null;
       setInfoModal({
@@ -143,7 +208,7 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
     } finally {
       setIsLoading(false);
     }
-  }, [assistantId, assistantLabel, mode, profileId]);
+  }, [applyReadingToScreen, assistantId, assistantLabel, isBusy, mode, profileId, text]);
 
   useEffect(() => {
     return () => {
@@ -151,6 +216,16 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
       void stopNativeRecording();
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSendingQuestion) return;
+    const t1 = setTimeout(() => pageScrollRef.current?.scrollToEnd({ animated: true }), 0);
+    const t2 = setTimeout(() => pageScrollRef.current?.scrollToEnd({ animated: true }), 80);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isSendingQuestion, followUps.length]);
 
   const latestReadableText = useMemo(() => {
     const lastAssistant = [...followUps].reverse().find((message) => message.role === 'assistant');
@@ -184,8 +259,10 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
     const question = questionText.replace(/\s+/g, ' ').trim();
     if (!question || !text || !mode || isSendingQuestion) return;
     const userMessage: FollowUpMessage = { id: `u-${Date.now()}`, role: 'user', text: question };
+    const previousFollowUps = followUps.map(({ role, text }) => ({ role, text }));
     setFollowUps((current) => [...current, userMessage]);
     setQuestionText('');
+    setEditorVisible(false);
     setIsSendingQuestion(true);
     try {
       await appendUserConversationMemory(profileId, question).catch(() => {});
@@ -199,22 +276,24 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
         mode,
         readingText: text,
         question,
+        previousFollowUps,
         memorySnippet: semanticMemorySnippet,
       });
-      setFollowUps((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', text: answer }]);
-      void analyzeMemoryTranscript({
-        profileId,
-        profileName: profileName || 'Profil',
-        readingType: 'personal-numerology',
-        memorySnippet: semanticMemorySnippet,
-        transcript: [
-          { role: 'assistant', text, timestamp: Date.now() },
-          { role: 'user', text: question, timestamp: Date.now() },
-          { role: 'assistant', text: answer, timestamp: Date.now() },
-        ],
-      })
-        .then((result) => applyMemoryAnalysisResult(profileId, result))
-        .catch(() => {});
+      setFollowUps((current) => [...current, { id: `a-${Date.now()}`, role: 'assistant', text: answer.text }]);
+      const inputTokens = answer.usage.inputTokens || 0;
+      const outputTokens = answer.usage.outputTokens || 0;
+      setTokenUsage((current) => ({
+        inputTokens: current.inputTokens + inputTokens,
+        outputTokens: current.outputTokens + outputTokens,
+        textInputTokens: (current.textInputTokens || 0) + inputTokens,
+        imageInputTokens: current.imageInputTokens || 0,
+      }));
+      await addPersonalTokenUsage({
+        modelName: answer.modelName || 'gemini-2.5-flash-lite',
+        readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : 'Kişisel Numeroloji - Aylık',
+        textInputTokens: inputTokens,
+        outputTokens,
+      }).catch(() => {});
       setSpeechMode('idle');
     } catch (err: any) {
       setInfoModal({
@@ -225,7 +304,48 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
     } finally {
       setIsSendingQuestion(false);
     }
-  }, [assistantId, assistantLabel, isSendingQuestion, mode, profileName, questionText, text]);
+  }, [assistantId, assistantLabel, followUps, isSendingQuestion, mode, profileName, questionText, text]);
+
+  const buildTranscript = useCallback(
+    () => [
+      { role: 'assistant' as const, text, timestamp: Date.now() },
+      ...followUps.map((message) => ({ role: message.role, text: message.text, timestamp: Date.now() })),
+    ],
+    [followUps, text],
+  );
+
+  const persistReadingAndEnd = useCallback(async () => {
+    if (!text || !mode) return;
+    stopAssistantSpeech();
+    await stopNativeRecording().catch(() => {});
+    const transcript = buildTranscript();
+    await appendReadingSummary({
+      profileId,
+      assistantId,
+      readingType: 'personal-numerology',
+      period: readingTheme?.period,
+      surfacesRead: [],
+      summary: compactSummary(text),
+      transcript,
+    }).catch(() => {});
+    if (readingTheme) {
+      await appendReadingDerivedTheme(profileId, readingTheme.label, readingTheme.key).catch(() => {});
+    }
+    void loadAccountState()
+      .then((state) => loadProfileMemorySnippet(state, profileId))
+      .then((memorySnippet) =>
+        analyzeMemoryTranscript({
+          profileId,
+          profileName: profileName || 'Profil',
+          readingType: 'personal-numerology',
+          memorySnippet,
+          transcript,
+        }),
+      )
+      .then((result) => applyMemoryAnalysisResult(profileId, result))
+      .catch(() => {});
+    navigation.goBack();
+  }, [assistantId, buildTranscript, mode, navigation, profileId, profileName, readingTheme, text]);
 
   const mergeQuestionTranscript = useCallback((transcript: string) => {
     const cleaned = transcript.replace(/\s+/g, ' ').trim();
@@ -260,12 +380,11 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
   }, [isRecordingQuestion, mergeQuestionTranscript, questionText, speechMode, text]);
 
   const handleQuestionRecordStop = useCallback(async () => {
-    if (!isRecordingQuestion) return;
-    await stopNativeRecording();
+    await stopNativeRecording().catch(() => {});
     mergeQuestionTranscript(getLatestNativeTranscript());
     resetNativeTranscript();
     setIsRecordingQuestion(false);
-  }, [isRecordingQuestion, mergeQuestionTranscript]);
+  }, [mergeQuestionTranscript]);
 
   return (
     <KeyboardAvoidingView
@@ -274,24 +393,37 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
       keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
     >
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
+      <ScrollView
+        ref={pageScrollRef}
+        contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
+        onContentSizeChange={() => {
+          if (isSendingQuestion) {
+            pageScrollRef.current?.scrollToEnd({ animated: true });
+          }
+        }}
+      >
+        <View style={styles.tokenAckRow}>
+          <TokenUsage
+            usage={tokenUsage}
+            inputPrice={GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M}
+            outputPrice={GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M}
+          />
+        </View>
+        <View style={styles.sessionHeaderRow}>
+          <Text style={styles.sessionHeaderText}>{profileName || 'Profil'}</Text>
+          <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>{modeHeaderLabel}</Text>
+          <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
+        </View>
         <View style={styles.panel}>
-          <Text style={styles.title}>Kişiye Özel Numeroloji</Text>
-          <Text style={styles.helper}>Falcı: {assistantLabel}</Text>
           <View style={styles.modeRow}>
             {(['core', 'period'] as PersonalNumerologyMode[]).map((item) => {
               const selected = mode === item;
               return (
                 <TouchableOpacity
                   key={item}
-                  style={[styles.modeButton, selected && styles.modeButtonSelected]}
-                  onPress={() => {
-                    setMode(item);
-                    setText('');
-                    setCore(null);
-                    setFollowUps([]);
-                    setQuestionText('');
-                  }}
+                  style={[styles.modeButton, selected && styles.modeButtonSelected, isBusy && styles.disabledAction]}
+                  onPress={() => void handleSelectMode(item)}
+                  disabled={isBusy}
                 >
                   <Text style={[styles.modeButtonText, selected && styles.modeButtonTextSelected]}>{MODE_LABELS[item]}</Text>
                 </TouchableOpacity>
@@ -299,7 +431,11 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
             })}
           </View>
 
-          <TouchableOpacity style={[styles.refreshButton, !mode && styles.refreshButtonDisabled]} onPress={() => void loadReading()}>
+          <TouchableOpacity
+            style={[styles.refreshButton, !canPrepareReading && styles.refreshButtonDisabled]}
+            onPress={() => void loadReading()}
+            disabled={!canPrepareReading}
+          >
             <Text style={styles.refreshButtonText}>{actionLabel}</Text>
           </TouchableOpacity>
         </View>
@@ -317,27 +453,16 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Yorum</Text>
-          {isLoading ? (
-            <Text style={styles.loading}>Hazırlanıyor...</Text>
-          ) : text ? (
-            <Text style={styles.readingText}>{text}</Text>
-          ) : (
-            <Text style={styles.loading}>Temel sayı haritası veya aylık numeroloji seçip yorumu hazırlayabilirsin.</Text>
-          )}
-        </View>
-
-        {text ? (
-          <View style={styles.panel}>
-            <Text style={styles.sectionTitle}>Sorunu Sor</Text>
-            {followUps.map((message) => (
-              <View
-                key={message.id}
-                style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}
-              >
-                <Text style={styles.chatRole}>{message.role === 'user' ? 'Sen' : assistantLabel}</Text>
-                <Text style={styles.chatText}>{message.text}</Text>
-              </View>
-            ))}
+          <ScrollView style={styles.readingScroll} contentContainerStyle={styles.readingScrollContent} nestedScrollEnabled>
+            {isLoading ? (
+              <AssistantLoading label="Yorum hazırlanıyor" detail="Lütfen bekleyiniz. Ekranı kapatmayınız." />
+            ) : text ? (
+              <SelectableFormattedText text={text} style={styles.readingText} />
+            ) : (
+              <Text style={styles.loading}>Temel sayı haritası veya aylık numeroloji seçip yorumu hazırlayabilirsin.</Text>
+            )}
+          </ScrollView>
+          {text ? (
             <View style={styles.quickActions}>
               <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
                 <Text style={styles.secondaryActionText}>{speechMode === 'playing' ? 'Duraklat' : 'Telefon Okusun'}</Text>
@@ -346,14 +471,59 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
                 <Text style={styles.secondaryActionText}>{assistantLabel} Okusun</Text>
               </TouchableOpacity>
             </View>
-            <TextInput
-              style={styles.questionInput}
-              value={questionText}
-              onChangeText={setQuestionText}
-              placeholder="Bu yorumla ilgili ne sormak istersin?"
-              placeholderTextColor="rgba(255,255,255,0.42)"
-              multiline
-            />
+          ) : null}
+        </View>
+
+        {text ? (
+          <View style={styles.panel}>
+            {followUps.map((message) => (
+              <View
+                key={message.id}
+                style={[styles.chatBubble, message.role === 'user' ? styles.userBubble : styles.assistantBubble]}
+              >
+                <Text style={styles.chatRole}>{message.role === 'user' ? 'Sen' : assistantLabel}</Text>
+                <SelectableFormattedText text={message.text} style={styles.chatText} />
+              </View>
+            ))}
+            {isSendingQuestion ? <AssistantLoading compact /> : null}
+            <TouchableOpacity style={styles.questionInput} activeOpacity={0.88} onPress={() => setEditorVisible(true)}>
+              <Text style={[styles.composePreviewText, !questionText.trim() && styles.composePreviewPlaceholder]}>
+                {questionText.trim() || 'Bu yorumla ilgili ne sormak istersin?'}
+              </Text>
+            </TouchableOpacity>
+            <Modal visible={editorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditorVisible(false)}>
+              <KeyboardAvoidingView
+                style={styles.editorOverlay}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+              >
+                <View style={styles.editorCard}>
+                  <Text style={styles.editorTitle}>Sorunu Düzenle</Text>
+                  <TextInput
+                    style={styles.editorInput}
+                    value={questionText}
+                    onChangeText={setQuestionText}
+                    placeholder="Sorunu buradan düzenleyebilirsin..."
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    multiline
+                    autoFocus
+                    scrollEnabled
+                  />
+                  <View style={styles.editorActions}>
+                    <TouchableOpacity style={styles.editorGhostBtn} onPress={() => setEditorVisible(false)}>
+                      <Text style={styles.editorGhostText}>Kapat</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editorSendBtn, (!questionText.trim() || isSendingQuestion) && styles.disabledAction]}
+                      onPress={() => void handleSendQuestion()}
+                      disabled={!questionText.trim() || isSendingQuestion}
+                    >
+                      <Text style={styles.editorSendText}>{isSendingQuestion ? 'Soruluyor...' : 'Sor'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            </Modal>
             <View style={styles.quickActions}>
               <TouchableOpacity
                 style={[styles.holdTalkAction, isRecordingQuestion && styles.holdTalkActionRecording]}
@@ -370,6 +540,13 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
                 <Text style={styles.primaryActionText}>{isSendingQuestion ? 'Soruluyor...' : 'Sor'}</Text>
               </TouchableOpacity>
             </View>
+            <TouchableOpacity
+              style={[styles.endButton, isSendingQuestion && styles.disabledAction]}
+              onPress={() => void persistReadingAndEnd()}
+              disabled={isSendingQuestion}
+            >
+              <Text style={styles.endButtonText}>Falı Bitir</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
       </ScrollView>
@@ -391,6 +568,22 @@ export function PersonalNumerologyReadingScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#14141E' },
   content: { padding: 18, paddingBottom: 30 },
+  tokenAckRow: { marginBottom: 12 },
+  sessionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 6,
+  },
+  sessionHeaderText: {
+    color: '#E8C49A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  modeHeaderText: {
+    fontStyle: 'italic',
+  },
   panel: {
     marginBottom: 14,
     padding: 16,
@@ -403,7 +596,9 @@ const styles = StyleSheet.create({
   helper: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 10 },
   sectionTitle: { color: '#E8C49A', fontSize: 15, fontWeight: '700', marginBottom: 8 },
   loading: { color: '#FFF5E8', fontSize: 14, lineHeight: 21 },
-  readingText: { color: '#FFF5E8', fontSize: 14, lineHeight: 22 },
+  readingScroll: { maxHeight: 270 },
+  readingScrollContent: { paddingBottom: 2 },
+  readingText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   chatBubble: {
     marginBottom: 10,
     borderRadius: 12,
@@ -419,7 +614,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.16)',
   },
   chatRole: { color: '#D4A574', fontSize: 11, fontWeight: '800', marginBottom: 5 },
-  chatText: { color: '#FFF5E8', fontSize: 13, lineHeight: 20 },
+  chatText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   questionInput: {
     minHeight: 88,
     borderRadius: 12,
@@ -427,11 +622,86 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,130,82,0.28)',
     backgroundColor: 'rgba(0,0,0,0.18)',
     color: '#FFF5E8',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     padding: 12,
     marginTop: 10,
     textAlignVertical: 'top',
+  },
+  composePreviewText: {
+    color: '#FFF5E8',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  composePreviewPlaceholder: {
+    color: 'rgba(255,255,255,0.42)',
+  },
+  editorOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingTop: 20,
+    paddingBottom: 20,
+    paddingHorizontal: 10,
+  },
+  editorCard: {
+    borderRadius: 18,
+    backgroundColor: '#1E1E28',
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.28)',
+    padding: 14,
+    maxHeight: '82%',
+  },
+  editorTitle: {
+    color: '#E8C49A',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  editorInput: {
+    minHeight: 170,
+    maxHeight: 260,
+    borderRadius: 12,
+    borderColor: 'rgba(212,165,116,0.35)',
+    borderWidth: 1,
+    backgroundColor: 'rgba(30,30,40,0.95)',
+    color: '#FFF5E8',
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    textAlignVertical: 'top',
+  },
+  editorActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  editorGhostBtn: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.5)',
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,165,116,0.12)',
+  },
+  editorGhostText: {
+    color: '#E8C49A',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editorSendBtn: {
+    flex: 1,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    backgroundColor: '#D4A574',
+  },
+  editorSendText: {
+    color: '#14141E',
+    fontSize: 12,
+    fontWeight: '800',
   },
   quickActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
   primaryAction: {
@@ -461,6 +731,16 @@ const styles = StyleSheet.create({
   },
   holdTalkActionRecording: { backgroundColor: '#FF6B6B' },
   holdTalkActionText: { color: '#14141E', fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  endButton: {
+    marginTop: 12,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  endButtonText: { color: '#FFF5E8', fontSize: 13, fontWeight: '800' },
   disabledAction: { opacity: 0.55 },
   modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   modeButton: {

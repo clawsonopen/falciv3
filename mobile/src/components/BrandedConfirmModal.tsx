@@ -6,7 +6,7 @@ type Props = {
   visible: boolean;
   title: string;
   message: string;
-  confirmLabel?: string;
+  confirmLabel?: string | null;
   cancelLabel?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
@@ -82,9 +82,11 @@ export function BrandedConfirmModal({
                 <Text style={styles.secondaryButtonText}>{extraActionLabel}</Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity style={styles.primaryButton} onPress={onConfirm}>
-              <Text style={styles.primaryButtonText}>{confirmLabel}</Text>
-            </TouchableOpacity>
+            {confirmLabel ? (
+              <TouchableOpacity style={styles.primaryButton} onPress={onConfirm}>
+                <Text style={styles.primaryButtonText}>{confirmLabel}</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         </View>
       </View>

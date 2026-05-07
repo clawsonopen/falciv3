@@ -201,6 +201,33 @@ function renderBirthLine(snippet: ProfileMemorySnippet | null) {
   );
 }
 
+function renderTestResults(observations: MemoryObservation[]) {
+  const testItemsByTitle = new Map<string, MemoryObservation>();
+  observations
+    .filter((item) => item.key.startsWith('test:') || item.subgroup === 'kişilik eğilimi')
+    .forEach((item) => {
+      if (!testItemsByTitle.has(item.title)) {
+        testItemsByTitle.set(item.title, item);
+      }
+    });
+  const testItems = [...testItemsByTitle.values()];
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Test Sonuçları</Text>
+      {testItems.length ? (
+        testItems.map((item) => (
+          <View key={`test-${item.id}`} style={styles.testResultBox}>
+            <Text style={styles.testResultTitle}>{item.title}</Text>
+            <Text style={styles.itemText}>{item.summary}</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.emptyText}>Kayıt yok</Text>
+      )}
+    </View>
+  );
+}
+
 export function MemoryDebugScreen({ route, navigation }: Props) {
   const { profileId, profileName } = route.params;
   const [bundle, setBundle] = useState<ProfileMemoryBundle | null>(null);
@@ -232,6 +259,7 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
           {renderBirthLine(snippet)}
+          {bundle ? renderTestResults(bundle.userStated.observations) : null}
           {snippet?.prominentRelations.length ? renderPeopleList('Tekilleştirilmiş öne çıkan ilişkiler', snippet.prominentRelations) : null}
         </View>
 
@@ -288,5 +316,14 @@ const styles = StyleSheet.create({
   topicGroup: { marginBottom: 8 },
   groupTitle: { color: 'rgba(232,196,154,0.8)', fontSize: 12, fontWeight: '800', marginBottom: 3 },
   itemText: { color: '#FFF5E8', fontSize: 13, lineHeight: 20, marginBottom: 4 },
+  testResultBox: {
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+    backgroundColor: 'rgba(0,0,0,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.16)',
+  },
+  testResultTitle: { color: '#F6C38B', fontSize: 13, fontWeight: '800', marginBottom: 4 },
   emptyText: { color: 'rgba(255,255,255,0.62)', fontSize: 12, lineHeight: 18 },
 });

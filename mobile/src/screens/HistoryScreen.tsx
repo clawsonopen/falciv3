@@ -20,7 +20,7 @@ export function HistoryScreen({ route, navigation }: Props) {
   }, [profileId]);
 
   useEffect(() => {
-    navigation.setOptions({ title: `${profileName} - Son Fallar` });
+    navigation.setOptions({ title: `${profileName} - Son Kayıtlar` });
     refresh();
   }, [navigation, profileName, refresh]);
 
@@ -39,10 +39,18 @@ export function HistoryScreen({ route, navigation }: Props) {
                 style={styles.cardMain}
                 onPress={() => navigation.navigate('ReadingDetail', { reading, profileName })}
               >
-                <Text style={styles.assistant}>{getAssistantLabel(reading.assistantId)}</Text>
+                <Text style={styles.assistant}>
+                  {reading.readingType === 'personality-test' ? 'Testler' : getAssistantLabel(reading.assistantId)}
+                </Text>
                 <Text style={styles.meta}>{getReadingTypeLabel(reading)}</Text>
                 <Text style={styles.metaMuted}>
-                  {reading.transcript?.length ? `${reading.transcript.length} mesaj kaydı` : 'Eski kayıt'}
+                  {reading.readingType === 'personality-test'
+                    ? reading.testResult?.resultCode
+                      ? `Sonuç: ${reading.testResult.resultCode}`
+                      : 'Test sonucu'
+                    : reading.transcript?.length
+                      ? `${reading.transcript.length} mesaj kaydı`
+                      : 'Eski kayıt'}
                 </Text>
                 <Text style={styles.date}>{new Date(reading.createdAt).toLocaleString('tr-TR')}</Text>
               </TouchableOpacity>
@@ -51,7 +59,7 @@ export function HistoryScreen({ route, navigation }: Props) {
                 onPress={() =>
                   Alert.alert(
                     'Falı Sil',
-                    'Bu fal kaydını cihazından silmek istediğine emin misin?',
+                    'Bu kaydı cihazından silmek istediğine emin misin?',
                     [
                       { text: 'Hayır, silme', style: 'cancel' },
                       {
@@ -73,7 +81,7 @@ export function HistoryScreen({ route, navigation }: Props) {
         ) : (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Henüz kayıt yok</Text>
-            <Text style={styles.emptyText}>Bu profil için biten fallar burada listelenecek.</Text>
+            <Text style={styles.emptyText}>Bu profil için biten fallar ve test sonuçları burada listelenecek.</Text>
           </View>
         )}
       </ScrollView>

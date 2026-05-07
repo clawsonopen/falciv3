@@ -22,7 +22,11 @@ import { PersonalReadingSetupScreen } from './src/screens/PersonalReadingSetupSc
 import { PersonalAstroReadingScreen } from './src/screens/PersonalAstroReadingScreen';
 import { PersonalBirthChartScreen } from './src/screens/PersonalBirthChartScreen';
 import { BirthChartInterpretationScreen } from './src/screens/BirthChartInterpretationScreen';
+import { DreamInterpretationScreen } from './src/screens/DreamInterpretationScreen';
 import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerologyReadingScreen';
+import { TarotSpreadSelectScreen } from './src/screens/TarotSpreadSelectScreen';
+import { TarotReadingScreen } from './src/screens/TarotReadingScreen';
+import { MbtiTestScreen } from './src/screens/MbtiTestScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
 import type { ReadingSummary } from './src/types/memory';
@@ -44,7 +48,8 @@ export type RootStackParamList = {
       | 'tarot-personal'
       | 'numerology-personal'
       | 'angel-personal'
-      | 'manifest-chat';
+      | 'manifest-chat'
+      | 'dream-interpretation';
   };
   PersonalReadingSetup:
     | {
@@ -65,9 +70,25 @@ export type RootStackParamList = {
   BirthChartInterpretation: {
     profileId: string;
   };
+  DreamInterpretation: {
+    profileId: string;
+    assistantId: string;
+  };
+  TarotSpreadSelect: {
+    profileId: string;
+    assistantId: string;
+  };
+  TarotReading: {
+    profileId: string;
+    assistantId: string;
+    spreadId: string;
+  };
   PersonalNumerologyReading: {
     profileId: string;
     assistantId: string;
+  };
+  MbtiTest: {
+    profileId: string;
   };
   Session: { config: SessionConfig };
   History: { profileId: string; profileName: string };
@@ -129,9 +150,29 @@ export default function App() {
             options={{ title: 'Doğum Haritası Yorumu' }}
           />
           <Stack.Screen
+            name="DreamInterpretation"
+            component={DreamInterpretationScreen}
+            options={{ title: 'Rüya Yorumu' }}
+          />
+          <Stack.Screen
+            name="TarotSpreadSelect"
+            component={TarotSpreadSelectScreen}
+            options={{ title: 'Tarot Açılımı' }}
+          />
+          <Stack.Screen
+            name="TarotReading"
+            component={TarotReadingScreen}
+            options={{ title: 'Tarot Yorumu' }}
+          />
+          <Stack.Screen
             name="PersonalNumerologyReading"
             component={PersonalNumerologyReadingScreen}
             options={{ title: 'Kişiye Özel Numeroloji' }}
+          />
+          <Stack.Screen
+            name="MbtiTest"
+            component={MbtiTestScreen}
+            options={{ title: 'MBTI Kişilik Testi' }}
           />
           <Stack.Screen
             name="Session"

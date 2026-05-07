@@ -1166,6 +1166,7 @@ function buildPersonalAstroGeminiPayload(params: {
   precisionNote: string;
   locationLabel: string;
   addressPolicy: string;
+  focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
 }) {
   const periodLabel = { daily: 'günlük', weekly: 'haftalık', monthly: 'aylık', yearly: 'yıllık' }[params.period];
@@ -1189,6 +1190,7 @@ function buildPersonalAstroGeminiPayload(params: {
   };
   const memoryContext = formatAstroAvoidanceMemory(params.memorySnippet);
   const personaContext = assistantPersonaContext(params.assistantId);
+  const focusQuestion = params.focusQuestion?.replace(/\s+/g, ' ').trim() || '';
   const focus = {
     daily: 'Bugünün kişisel odağı, duygu ritmi, ilişki/iş akışı ve kısa öneri.',
     weekly: 'Haftanın ana teması, ilişki ve iş para ritmi, içsel denge ve uygulanabilir öneri.',
@@ -1210,12 +1212,14 @@ function buildPersonalAstroGeminiPayload(params: {
     `Birth/location precision note: ${params.precisionNote || 'Doğum bilgileri yeterli.'}`,
     `Resolved location: ${params.locationLabel || 'belirtilmedi'}`,
     `Address policy: ${params.addressPolicy}`,
-    `Content focus: ${focus}`,
+    `Content focus: ${focusQuestion ? `Konu odaklı kişisel astroloji: ${focusQuestion}` : focus}`,
+    focusQuestion ? `Kullanıcının yorumlanmasını istediği konu:\n${focusQuestion}` : '',
     memoryContext ? `Memory and repetition guard:\n${memoryContext}` : '',
     `Calculated key placements JSON:\n${JSON.stringify(keyPlacements)}`,
     `Period interpretation data JSON:\n${JSON.stringify(interpretationData)}`,
     [
       'Türkçe yaz. Başlık atma; düz, akıcı ve premium bir yorum ver.',
+      focusQuestion ? 'Bu yorumda ilk paragraftan itibaren kullanıcının verdiği konuya doğrudan cevap ver; konuyu genel astroloji yorumunun arasında kaybetme.' : '',
       'Metni anlam akışına göre 3-5 kısa paragrafta ver; her paragraf ayrı bir konu taşısın ve konu değişiminde boş satır bırak.',
       'Persona içinde kal ama kendini tanıtma.',
       'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme.',
@@ -1247,6 +1251,7 @@ export async function createPersonalAstroReading(params: {
   profile: SubjectProfile;
   assistantId: string;
   assistantLabel: string;
+  focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
 }): Promise<AstroReadingResult> {
   const location = resolveAstroLocation(params.profile.birth.location);
@@ -1266,13 +1271,17 @@ export async function createPersonalAstroReading(params: {
     precisionNote,
     locationLabel: location.label,
     addressPolicy: addressPolicyForProfile(params.profile, params.profile.displayName),
+    focusQuestion: params.focusQuestion,
     memorySnippet: params.memorySnippet,
   });
   const currentPeriodKey = periodKey(params.period);
   const fingerprint = profileFingerprint(params.profile);
+  const focusQuestion = params.focusQuestion?.replace(/\s+/g, ' ').trim() || '';
   const cacheKeyValue = cacheKey([String(PERSONAL_ASTRO_PERSONA_PROMPT_VERSION), params.assistantId, params.profile.profileId, params.period, currentPeriodKey, fingerprint]);
-  const cached = await loadFreshPersonalAstroFromCache({ cacheKeyValue, periodKeyValue: currentPeriodKey, fingerprint });
-  if (cached) return cached;
+  if (!focusQuestion) {
+    const cached = await loadFreshPersonalAstroFromCache({ cacheKeyValue, periodKeyValue: currentPeriodKey, fingerprint });
+    if (cached) return cached;
+  }
 
   try {
     const data = await generateGeminiTextDirect(geminiPayload);
@@ -1295,17 +1304,19 @@ export async function createPersonalAstroReading(params: {
       modelName: data.model,
       usage: data.usage,
     };
-    await savePersonalAstroToCache({
-      cacheKey: cacheKeyValue,
-      assistantId: params.assistantId,
-      profileId: params.profile.profileId,
-      period: params.period,
-      periodKey: currentPeriodKey,
-      profileFingerprint: fingerprint,
-      createdAt: nowIso(),
-      expiresAt: periodExpiryIso(params.period),
-      reading,
-    });
+    if (!focusQuestion) {
+      await savePersonalAstroToCache({
+        cacheKey: cacheKeyValue,
+        assistantId: params.assistantId,
+        profileId: params.profile.profileId,
+        period: params.period,
+        periodKey: currentPeriodKey,
+        profileFingerprint: fingerprint,
+        createdAt: nowIso(),
+        expiresAt: periodExpiryIso(params.period),
+        reading,
+      });
+    }
     return reading;
   } catch (err: any) {
     if (err?.status) throw err;

@@ -21,10 +21,19 @@ type ReadingTypeItem = {
     | 'tarot-personal'
     | 'numerology-personal'
     | 'angel-personal'
-    | 'manifest-chat';
+    | 'manifest-chat'
+    | 'dream-interpretation';
   title: string;
   shortTitle: string;
+  description: string;
   currentlyAvailable: boolean;
+};
+
+type TestTypeItem = {
+  id: 'mbti' | 'compatibility' | 'big-five' | 'attachment' | 'values' | 'coping-style';
+  title: string;
+  meta: string;
+  description: string;
 };
 
 function profileBadge(profile: SubjectProfile) {
@@ -96,49 +105,99 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         id: 'birth-chart',
         title: 'Doğum Haritası',
         shortTitle: 'DOĞUM HARİTASI',
-        currentlyAvailable: true,
-      },
-      {
-        id: 'coffee',
-        title: 'Kahve Falı',
-        shortTitle: 'Kahve',
-        currentlyAvailable: true,
-      },
-      {
-        id: 'palm',
-        title: 'El / Pati Falı',
-        shortTitle: 'El / Pati',
+        description: 'Doğum anındaki gökyüzü yerleşimlerinden karakter, potansiyel ve yaşam temalarını gör.',
         currentlyAvailable: true,
       },
       {
         id: 'astro-personal',
         title: 'Astroloji',
-        shortTitle: 'Astroloji',
+        shortTitle: 'ASTROLOJİ',
+        description: 'Profil bilgilerine göre dönemsel etkiler, ilişki dinamikleri ve kişisel gökyüzü yorumu al.',
+        currentlyAvailable: true,
+      },
+      {
+        id: 'coffee',
+        title: 'Kahve Falı',
+        shortTitle: 'KAHVE',
+        description: 'Fincan ve tabak görsellerinden semboller, yollar, niyetler ve yakın dönem işaretleri okunur.',
+        currentlyAvailable: true,
+      },
+      {
+        id: 'palm',
+        title: 'El / Pati Falı',
+        shortTitle: 'EL / PATİ',
+        description: 'El çizgileri ya da pati formundan mizacın, içgüdülerin ve yaşam akışın yorumlanır.',
         currentlyAvailable: true,
       },
       {
         id: 'tarot-personal',
         title: 'Kişiye Özel Tarot',
-        shortTitle: 'Tarot',
-        currentlyAvailable: false,
+        shortTitle: 'TAROT',
+        description: 'Seçtiğin açılıma göre kartlar, niyetin ve falcı personası birlikte yorumlanır.',
+        currentlyAvailable: true,
       },
       {
         id: 'numerology-personal',
         title: 'Kişiye Özel Numeroloji',
-        shortTitle: 'Numeroloji',
+        shortTitle: 'NUMEROLOJİ',
+        description: 'İsim ve doğum tarihinden yaşam yolu, kişisel yıl ve ana sayı titreşimleri çıkarılır.',
         currentlyAvailable: true,
       },
       {
-        id: 'angel-personal',
-        title: 'Kişiye Özel Melek Kartları',
-        shortTitle: 'Melek',
-        currentlyAvailable: false,
+        id: 'dream-interpretation',
+        title: 'Rüya Yorumu',
+        shortTitle: 'RÜYA YORUMU',
+        description: 'Rüyanda gördüklerini anlatırsın; semboller, duygu tonu ve kişisel bağlamla yorumlanır.',
+        currentlyAvailable: true,
       },
       {
         id: 'manifest-chat',
         title: 'Sohbetli Manifestleme',
-        shortTitle: 'Manifest',
+        shortTitle: 'MANİFESTLEME',
+        description: 'Niyetini netleştirmek, dirençleri fark etmek ve adım adım odak kurmak için sohbet alanı.',
         currentlyAvailable: false,
+      },
+    ],
+    [],
+  );
+
+  const tests: TestTypeItem[] = useMemo(
+    () => [
+      {
+        id: 'mbti',
+        title: 'MBTI Kişilik Testi',
+        meta: '32 soru, yaklaşık 12-15 dakika',
+        description: 'Karar alma, enerji toplama ve dünyayı algılama biçimini 16 kişilik tipi üzerinden tanır.',
+      },
+      {
+        id: 'compatibility',
+        title: 'Uyumluluk Testi',
+        meta: 'Yakında',
+        description: 'İki kişinin iletişim, beklenti, ritim ve ilişki ihtiyaçlarının nerede örtüştüğünü gösterir.',
+      },
+      {
+        id: 'big-five',
+        title: 'Beş Faktör Testi',
+        meta: 'Yakında',
+        description: 'Dışadönüklük, uyumluluk, sorumluluk, duygusal denge ve açıklık eğilimlerini ölçer.',
+      },
+      {
+        id: 'attachment',
+        title: 'Bağlanma Stili Testi',
+        meta: 'Yakında',
+        description: 'Yakın ilişkilerde güven, mesafe, kaygı ve ihtiyaç ifade etme kalıplarını anlamaya yardım eder.',
+      },
+      {
+        id: 'values',
+        title: 'Değerler Pusulası',
+        meta: 'Yakında',
+        description: 'Hayatta neyi öncelediğini, kararlarını hangi değerlerin yönlendirdiğini görünür kılar.',
+      },
+      {
+        id: 'coping-style',
+        title: 'Stresle Başa Çıkma Testi',
+        meta: 'Yakında',
+        description: 'Zorlanınca kaçınma, çözüm arama, destek isteme ya da içe çekilme eğilimlerini çıkarır.',
       },
     ],
     [],
@@ -210,6 +269,33 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
     [navigation, selectedProfile],
   );
 
+  const handleTestPress = useCallback(
+    (item: TestTypeItem) => {
+      if (!selectedProfile) {
+        setInfoAction('profile');
+        setInfoModal({
+          visible: true,
+          title: APP_NAME,
+          message: 'Testi başlatabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
+        });
+        return;
+      }
+      if (item.id === 'mbti') {
+        navigation.navigate('MbtiTest', {
+          profileId: selectedProfile.profileId,
+        });
+        return;
+      }
+      setInfoAction(null);
+      setInfoModal({
+        visible: true,
+        title: 'Yakında',
+        message: `${item.title} çok yakında aktif olacak.`,
+      });
+    },
+    [navigation, selectedProfile],
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -243,9 +329,20 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
                 onPress={() => handleTypePress(item)}
               >
                 <Text style={styles.typeSquareTitle}>{item.shortTitle}</Text>
-                <Text style={item.currentlyAvailable ? styles.typeSquareStateActive : styles.typeSquareStateSoon}>
-                  {item.currentlyAvailable ? 'Şimdi aktif' : 'Yakında'}
-                </Text>
+                <Text style={styles.typeSquareDescription}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Testler</Text>
+          <View style={styles.grid}>
+            {tests.map((item) => (
+              <TouchableOpacity key={item.id} style={styles.typeSquareCard} activeOpacity={0.82} onPress={() => handleTestPress(item)}>
+                <Text style={styles.typeSquareTitle}>{item.title.toLocaleUpperCase('tr-TR')}</Text>
+                <Text style={styles.typeSquareMeta}>{item.meta}</Text>
+                <Text style={styles.typeSquareDescription}>{item.description}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -332,23 +429,35 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   typeSquareCard: {
-    width: '31.5%',
-    aspectRatio: 1,
+    width: '48.5%',
+    minHeight: 132,
     borderRadius: 14,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.2)',
     backgroundColor: 'rgba(0,0,0,0.16)',
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 12,
+    justifyContent: 'space-between',
   },
   typeSquareCardDisabled: { opacity: 0.72 },
   typeSquareTitle: {
     color: '#FFF5E8',
     fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
+    fontWeight: '800',
+    lineHeight: 16,
+    textAlign: 'left',
+    marginBottom: 6,
+  },
+  typeSquareDescription: {
+    color: 'rgba(212,165,116,0.72)',
+    fontSize: 10,
+    lineHeight: 15,
+  },
+  typeSquareMeta: {
+    color: '#F6C38B',
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 14,
     marginBottom: 6,
   },
   typeSquareStateActive: {

@@ -184,10 +184,37 @@ export interface ReadingSummary {
   accountId: string;
   profileId: string;
   assistantId: string;
-  readingType: 'coffee' | 'palm' | 'personal-astro' | 'personal-numerology' | 'birth-chart';
+  readingType:
+    | 'coffee'
+    | 'palm'
+    | 'personal-astro'
+    | 'personal-numerology'
+    | 'birth-chart'
+    | 'dream-interpretation'
+    | 'personal-tarot'
+    | 'personality-test';
   period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  astroFocusQuestion?: string;
   coffeeMode?: 'upload' | 'ai-brew';
   surfacesRead: ReadingSurface[];
+  tarotSpread?: {
+    spreadId: string;
+    spreadName: string;
+    cards: Array<{
+      positionNo: number;
+      positionTitle: string;
+      cardName: string;
+      cardNameTr: string;
+      orientation: 'upright' | 'reversed';
+    }>;
+  };
+  testResult?: {
+    testId: string;
+    testName: string;
+    resultCode: string;
+    resultTitle: string;
+    dimensions?: Record<string, string | number>;
+  };
   createdAt: string;
   summary: string;
   transcript?: Array<{

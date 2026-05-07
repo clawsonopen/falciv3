@@ -82,6 +82,51 @@ function lineFromIndex(starts, idx) {
   return hi + 1;
 }
 
+function extractStringLiterals(content) {
+  const literals = [];
+  let quote = null;
+  let start = -1;
+  let text = '';
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i += 1) {
+    const ch = content[i];
+    if (!quote) {
+      if (ch === '"' || ch === "'" || ch === '`') {
+        quote = ch;
+        start = i;
+        text = '';
+        escaped = false;
+      }
+      continue;
+    }
+
+    if (escaped) {
+      text += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      text += ch;
+      escaped = true;
+      continue;
+    }
+
+    if (ch === quote) {
+      literals.push({ text, index: start });
+      quote = null;
+      start = -1;
+      text = '';
+      continue;
+    }
+
+    text += ch;
+  }
+
+  return literals;
+}
+
 function looksLikeInternalToken(text) {
   const trimmed = text.trim();
   if (!trimmed) return true;
@@ -116,23 +161,19 @@ function checkMojibake(filePath, content) {
 
 function checkQuestionMarkReplacement(filePath, content) {
   const issues = [];
-  const lines = content.split('\n');
-  const literalLineRegex = /(["'`])([^"'`]{8,})\1/g;
-  lines.forEach((line, idx) => {
-    let m;
-    while ((m = literalLineRegex.exec(line)) !== null) {
-      const text = m[2];
-      // Count how many '?' appear surrounded by letters
-      const qmCount = (text.match(/[a-zA-Z]\?[a-zA-Z]/g) || []).length;
-      // If 2+ occurrences in a single string, it's almost certainly corrupted Turkish
-      if (qmCount >= 2) {
-        issues.push({
-          type: 'question-mark-turkish',
-          filePath,
-          line: idx + 1,
-          sample: text.trim().slice(0, 180),
-        });
-      }
+  const lineStarts = buildLineIndex(content);
+  extractStringLiterals(content).forEach((literal) => {
+    if (literal.text.length < 8) return;
+    // Count how many '?' appear surrounded by letters
+    const qmCount = (literal.text.match(/[a-zA-Z]\?[a-zA-Z]/g) || []).length;
+    // If 2+ occurrences in a single string, it's almost certainly corrupted Turkish
+    if (qmCount >= 2) {
+      issues.push({
+        type: 'question-mark-turkish',
+        filePath,
+        line: lineFromIndex(lineStarts, literal.index),
+        sample: literal.text.trim().slice(0, 180),
+      });
     }
   });
   return issues;
@@ -141,21 +182,19 @@ function checkQuestionMarkReplacement(filePath, content) {
 function checkAsciiTurkishOnly(filePath, content) {
   const issues = [];
   const lineStarts = buildLineIndex(content);
-  const literalRegex = /(["'`])((?:\\.|(?!\1)[\s\S])*)\1/g;
-  let match;
-  while ((match = literalRegex.exec(content)) !== null) {
-    const text = match[2];
-    if (!asciiTurkishRegex.test(text)) continue;
-    if (turkishCharRegex.test(text)) continue;
-    if (looksLikeInternalToken(text)) continue;
-    const line = lineFromIndex(lineStarts, match.index);
+  extractStringLiterals(content).forEach((literal) => {
+    const text = literal.text;
+    if (!asciiTurkishRegex.test(text)) return;
+    if (turkishCharRegex.test(text)) return;
+    if (looksLikeInternalToken(text)) return;
+    const line = lineFromIndex(lineStarts, literal.index);
     issues.push({
       type: 'ascii-turkish',
       filePath,
       line,
       sample: text.trim().slice(0, 180),
     });
-  }
+  });
   return issues;
 }
 

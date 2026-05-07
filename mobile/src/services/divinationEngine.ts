@@ -361,13 +361,13 @@ function buildReading(type: GeneralDivinationType, sequence: number, now: Date):
     if (changingLinesInfo.length > 0) {
       const changesText = changingLinesInfo.map(cl => {
         if (cl.val === 9) {
-          return `${cl.index}. çizgi Eril enerjiden (Yang) Dişil enerjiye (Yin) geçiyor. (Dışa dönük aktif güç, sükunete ve kabulleniciliğe dönüşüyor)`;
+          return `${cl.index}. çizgi Erilden Dişil enerjiye geçiyor.`;
         } else {
-          return `${cl.index}. çizgi Dişil enerjiden (Yin) Eril enerjiye (Yang) geçiyor. (Durağan ve pasif durum, uyanışa ve eyleme geçiyor)`;
+          return `${cl.index}. çizgi Dişilden Eril enerjiye geçiyor.`;
         }
       }).join('\n');
       
-      text += `\n\nDönüşüm Süreci:\n${changesText}\nBu değişimler mevcut durumu kırıp yeni bir potansiyele kapı aralıyor.`;
+      text += `\n\nDönüşüm Süreci:\n${changesText}`;
       text += `\n\nGelecek Potansiyeli ve Tavsiye: ${endHex.name}\n${endHex.situation}\n\nYol Gösterici Mesaj:\n${endHex.advice}`;
     } else {
       text += `\n\n(Bugün hiçbir değişen çizgi çıkmadı; durumunuz stabil ve enerjiniz tamamen mevcut hexagrama odaklı.)\n\nTavsiye:\n${baseHex.advice}`;

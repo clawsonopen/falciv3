@@ -12,6 +12,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   const defaultAssistantId = useMemo(() => {
     if (readingType === 'astro-personal') return 'bahar-hanim';
     if (readingType === 'numerology-personal') return 'mert-bey';
+    if (readingType === 'tarot-personal') return 'caner';
     if (readingType === 'palm') return 'hikmet-bey';
     return AVAILABLE_ASSISTANTS[0].id;
   }, [readingType]);
@@ -27,6 +28,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
     if (readingType === 'astro-personal') return 'Astroloji';
     if (readingType === 'tarot-personal') return 'Kişiye Özel Tarot';
     if (readingType === 'numerology-personal') return 'Kişiye Özel Numeroloji';
+    if (readingType === 'dream-interpretation') return 'Rüya Yorumu';
     if (readingType === 'angel-personal') return 'Kişiye Özel Melek Kartları';
     return 'Sohbetli Manifestleme';
   }, [readingType]);
@@ -72,6 +74,22 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
                 return;
               }
 
+              if (readingType === 'dream-interpretation') {
+                navigation.navigate('DreamInterpretation', {
+                  profileId,
+                  assistantId: selectedAssistantId,
+                });
+                return;
+              }
+
+              if (readingType === 'tarot-personal') {
+                navigation.navigate('TarotSpreadSelect', {
+                  profileId,
+                  assistantId: selectedAssistantId,
+                });
+                return;
+              }
+
               if (readingType !== 'coffee' && readingType !== 'palm') {
                 navigation.navigate('Home');
                 return;
@@ -85,7 +103,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
               });
             }}
           >
-            <Text style={styles.primaryButtonText}>Fal Okumaya Geç</Text>
+            <Text style={styles.primaryButtonText}>Fal / Yoruma Geç</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

@@ -45,6 +45,8 @@ const PERIOD_LABELS: Record<AstroPeriod, string> = {
   yearly: 'Yıllık',
 };
 
+type AstroSelection = AstroPeriod | 'topic';
+
 type FollowUpMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -64,12 +66,15 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const { profileId, assistantId } = route.params;
   const insets = useSafeAreaInsets();
   const [period, setPeriod] = useState<AstroPeriod | null>(null);
+  const [selection, setSelection] = useState<AstroSelection | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [text, setText] = useState('');
   const [meta, setMeta] = useState<{ sign: string; risingSign?: string | null; timezone: string; precisionNote?: string } | null>(null);
   const [readingTheme, setReadingTheme] = useState<{ label: string; key: string } | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageData>({ inputTokens: 0, outputTokens: 0, textInputTokens: 0, imageInputTokens: 0 });
+  const [topicText, setTopicText] = useState('');
+  const [topicEditorVisible, setTopicEditorVisible] = useState(false);
   const [questionText, setQuestionText] = useState('');
   const [followUps, setFollowUps] = useState<FollowUpMessage[]>([]);
   const [isSendingQuestion, setIsSendingQuestion] = useState(false);
@@ -86,10 +91,14 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const pageScrollRef = useRef<ScrollView>(null);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
-  const modeHeaderLabel = useMemo(() => (period ? PERIOD_LABELS[period] : 'Dönem seç'), [period]);
+  const normalizedTopicText = topicText.replace(/\s+/g, ' ').trim();
+  const modeHeaderLabel = useMemo(
+    () => (selection === 'topic' ? 'Konu Odaklı' : period ? PERIOD_LABELS[period] : 'Dönem / konu seç'),
+    [period, selection],
+  );
   const isBusy = isLoading || isSendingQuestion;
   const hasPreparedReading = Boolean(text && period);
-  const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading);
+  const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading && (selection !== 'topic' || normalizedTopicText));
 
   useEffect(() => {
     navigation.setOptions({
@@ -104,7 +113,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   }, [isBusy, navigation]);
 
   const applyReadingToScreen = useCallback(
-    (reading: Awaited<ReturnType<typeof createPersonalAstroReading>>, selectedPeriod: AstroPeriod) => {
+    (reading: Awaited<ReturnType<typeof createPersonalAstroReading>>, selectedPeriod: AstroPeriod, focusQuestion?: string) => {
       setText(reading.text);
       setFollowUps([]);
       setMeta({
@@ -114,8 +123,12 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
         precisionNote: reading.precisionNote,
       });
       setReadingTheme({
-        label: themeFromReading(selectedPeriod, reading.sign, reading.risingSign),
-        key: `personal-astro-${selectedPeriod}-${reading.periodKey}`,
+        label: focusQuestion
+          ? `konu odaklı kişisel astro: ${focusQuestion.slice(0, 80)}`
+          : themeFromReading(selectedPeriod, reading.sign, reading.risingSign),
+        key: focusQuestion
+          ? `personal-astro-topic-${reading.periodKey}-${Date.now()}`
+          : `personal-astro-${selectedPeriod}-${reading.periodKey}`,
       });
     },
     [],
@@ -125,6 +138,9 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     async (nextPeriod: AstroPeriod) => {
       if (isBusy) return;
       setPeriod(nextPeriod);
+      setSelection(nextPeriod);
+      setTopicText('');
+      setTopicEditorVisible(false);
       setText('');
       setMeta(null);
       setReadingTheme(null);
@@ -145,12 +161,34 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     [applyReadingToScreen, assistantId, isBusy, profileId],
   );
 
+  const handleSelectTopic = useCallback(() => {
+    if (isBusy) return;
+    setSelection('topic');
+    setPeriod('weekly');
+    setText('');
+    setMeta(null);
+    setReadingTheme(null);
+    setFollowUps([]);
+    setQuestionText('');
+    setTopicEditorVisible(true);
+  }, [isBusy]);
+
   const loadReading = useCallback(async () => {
     if (isBusy || text) return;
     if (!period) {
       setText('');
       setMeta(null);
       setReadingTheme(null);
+      return;
+    }
+    const focusQuestion = selection === 'topic' ? normalizedTopicText : '';
+    if (selection === 'topic' && !focusQuestion) {
+      setTopicEditorVisible(true);
+      setInfoModal({
+        visible: true,
+        title: 'Konu Gerekli',
+        message: 'Konu odaklı astroloji yorumu için yorumlanmasını istediğin konuyu, soruyu ya da durumu yazmalısın.',
+      });
       return;
     }
     setIsLoading(true);
@@ -179,13 +217,21 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
         return;
       }
 
-      const memorySnippet = await loadProfileMemorySnippet(state, profile.profileId).catch(() => null);
+      if (focusQuestion) {
+        await appendUserConversationMemory(profile.profileId, focusQuestion).catch(() => {});
+      }
+      const memorySnippet = await loadProfileMemorySnippet(
+        state,
+        profile.profileId,
+        focusQuestion ? { semanticQuery: focusQuestion } : undefined,
+      ).catch(() => null);
       const reading = await createPersonalAstroReading({
         period,
         profile,
         assistantId,
         assistantLabel,
         memorySnippet,
+        focusQuestion: focusQuestion || undefined,
       });
       if (!reading.cached && reading.usage) {
         const inputTokens = reading.usage.inputTokens || 0;
@@ -198,12 +244,12 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
         }));
         await addPersonalTokenUsage({
           modelName: reading.modelName || 'gemini-2.5-flash-lite',
-          readingName: 'Kişisel Astro',
+          readingName: focusQuestion ? 'Kişisel Astro - Konu' : 'Kişisel Astro',
           textInputTokens: inputTokens,
           outputTokens,
         }).catch(() => {});
       }
-      applyReadingToScreen(reading, period);
+      applyReadingToScreen(reading, period, focusQuestion);
     } catch (err: any) {
       const retryLater = isRetryableLlmError(err);
       const retryMessage = retryLater ? getRetryLaterMessage('personal-astro', `${profileId}-${period}`) : null;
@@ -216,7 +262,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     } finally {
       setIsLoading(false);
     }
-  }, [applyReadingToScreen, assistantId, assistantLabel, isBusy, period, profileId, text]);
+  }, [applyReadingToScreen, assistantId, assistantLabel, isBusy, normalizedTopicText, period, profileId, selection, text]);
 
   useEffect(() => {
     return () => {
@@ -267,7 +313,12 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     const question = questionText.replace(/\s+/g, ' ').trim();
     if (!question || !text || !period || isSendingQuestion) return;
     const userMessage: FollowUpMessage = { id: `u-${Date.now()}`, role: 'user', text: question };
-    const previousFollowUps = followUps.map(({ role, text }) => ({ role, text }));
+    const previousFollowUps = [
+      ...(selection === 'topic' && normalizedTopicText
+        ? [{ role: 'user' as const, text: `Yorumlanmasını istediğim konu: ${normalizedTopicText}` }]
+        : []),
+      ...followUps.map(({ role, text }) => ({ role, text })),
+    ];
     setFollowUps((current) => [...current, userMessage]);
     setQuestionText('');
     setEditorVisible(false);
@@ -299,7 +350,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       }));
       await addPersonalTokenUsage({
         modelName: answer.modelName || 'gemini-2.5-flash-lite',
-        readingName: 'Kişisel Astro',
+        readingName: selection === 'topic' ? 'Kişisel Astro - Konu' : 'Kişisel Astro',
         textInputTokens: inputTokens,
         outputTokens,
       }).catch(() => {});
@@ -313,14 +364,21 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     } finally {
       setIsSendingQuestion(false);
     }
-  }, [assistantId, assistantLabel, followUps, isSendingQuestion, period, profileName, questionText, text]);
+  }, [assistantId, assistantLabel, followUps, isSendingQuestion, normalizedTopicText, period, profileName, profileId, questionText, selection, text]);
 
   const buildTranscript = useCallback(
-    () => [
-      { role: 'assistant' as const, text, timestamp: Date.now() },
-      ...followUps.map((message) => ({ role: message.role, text: message.text, timestamp: Date.now() })),
-    ],
-    [followUps, text],
+    () => {
+      const topicLead =
+        selection === 'topic' && normalizedTopicText
+          ? [{ role: 'user' as const, text: `Yorumlanmasını istediğim konu: ${normalizedTopicText}`, timestamp: Date.now() }]
+          : [];
+      return [
+        ...topicLead,
+        { role: 'assistant' as const, text, timestamp: Date.now() },
+        ...followUps.map((message) => ({ role: message.role, text: message.text, timestamp: Date.now() })),
+      ];
+    },
+    [followUps, normalizedTopicText, selection, text],
   );
 
   const persistReadingAndEnd = useCallback(async () => {
@@ -333,8 +391,9 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       assistantId,
       readingType: 'personal-astro',
       period,
+      astroFocusQuestion: selection === 'topic' && normalizedTopicText ? normalizedTopicText : undefined,
       surfacesRead: [],
-      summary: compactSummary(text),
+      summary: compactSummary(selection === 'topic' && normalizedTopicText ? `Konu: ${normalizedTopicText}\n\n${text}` : text),
       transcript,
     }).catch(() => {});
     if (readingTheme) {
@@ -354,7 +413,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       .then((result) => applyMemoryAnalysisResult(profileId, result))
       .catch(() => {});
     navigation.goBack();
-  }, [assistantId, buildTranscript, navigation, period, profileId, profileName, readingTheme, text]);
+  }, [assistantId, buildTranscript, navigation, normalizedTopicText, period, profileId, profileName, readingTheme, selection, text]);
 
   const mergeQuestionTranscript = useCallback((transcript: string) => {
     const cleaned = transcript.replace(/\s+/g, ' ').trim();
@@ -424,9 +483,10 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
           <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
         </View>
         <View style={styles.panel}>
+          <Text style={styles.sectionTitle}>Dönem / Konu Seç</Text>
           <View style={styles.periodRow}>
             {(['daily', 'weekly', 'monthly', 'yearly'] as AstroPeriod[]).map((item) => {
-              const selected = period === item;
+              const selected = selection === item;
               return (
                 <TouchableOpacity
                   key={item}
@@ -440,14 +500,37 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               );
             })}
+            <TouchableOpacity
+              style={[styles.periodButton, selection === 'topic' && styles.periodButtonSelected, isBusy && styles.disabledAction]}
+              onPress={handleSelectTopic}
+              disabled={isBusy}
+            >
+              <Text style={[styles.periodButtonText, selection === 'topic' && styles.periodButtonTextSelected]}>Belli Bir Konu</Text>
+            </TouchableOpacity>
           </View>
+          {selection === 'topic' ? (
+            <TouchableOpacity style={styles.topicPromptBox} activeOpacity={0.9} onPress={() => setTopicEditorVisible(true)}>
+              <Text style={styles.topicPromptLabel}>Yorumlanacak konu</Text>
+              <Text style={[styles.topicPromptText, !normalizedTopicText && styles.topicPromptPlaceholder]}>
+                {normalizedTopicText || 'Aklında yorumlanmasını istediğin konu, soru ya da durum var mı?'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             style={[styles.refreshButton, !canPrepareReading && styles.disabledAction]}
             onPress={() => void loadReading()}
             disabled={!canPrepareReading}
           >
             <Text style={styles.refreshButtonText}>
-              {hasPreparedReading ? 'Yorum Hazır' : period ? 'Yorumu Hazırla' : 'Önce Dönem Seç'}
+              {hasPreparedReading
+                ? 'Yorum Hazır'
+                : selection === 'topic'
+                  ? normalizedTopicText
+                    ? 'Konu Yorumunu Hazırla'
+                    : 'Önce Konuyu Yaz'
+                  : period
+                    ? 'Yorumu Hazırla'
+                    : 'Önce Dönem / Konu Seç'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -460,7 +543,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
             ) : text ? (
               <SelectableFormattedText text={text} style={styles.readingText} />
             ) : (
-              <Text style={styles.loading}>Günlük, haftalık, aylık veya yıllık dönem seçip yorumu hazırlayabilirsin.</Text>
+              <Text style={styles.loading}>Günlük, haftalık, aylık, yıllık dönem seçebilir ya da belli bir konu yazıp yorumu hazırlayabilirsin.</Text>
             )}
             {meta ? (
               <Text style={styles.meta}>
@@ -556,6 +639,40 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
           </View>
         ) : null}
       </ScrollView>
+
+      <Modal visible={topicEditorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setTopicEditorVisible(false)}>
+        <KeyboardAvoidingView
+          style={styles.editorOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
+        >
+          <View style={styles.editorCard}>
+            <Text style={styles.editorTitle}>Konu / Niyet</Text>
+            <TextInput
+              style={styles.editorInput}
+              value={topicText}
+              onChangeText={setTopicText}
+              placeholder="Aklında yorumlanmasını istediğin konu, soru ya da durum var mı? Boş bırakmadan yaz."
+              placeholderTextColor="rgba(255,255,255,0.35)"
+              multiline
+              autoFocus
+              scrollEnabled
+            />
+            <View style={styles.editorActions}>
+              <TouchableOpacity style={styles.editorGhostBtn} onPress={() => setTopicEditorVisible(false)}>
+                <Text style={styles.editorGhostText}>Kapat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.editorSendBtn, !normalizedTopicText && styles.disabledAction]}
+                onPress={() => setTopicEditorVisible(false)}
+                disabled={!normalizedTopicText}
+              >
+                <Text style={styles.editorSendText}>Kaydet</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <BrandedConfirmModal
         visible={infoModal.visible}
@@ -753,7 +870,7 @@ const styles = StyleSheet.create({
   periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   periodButton: {
     flexGrow: 1,
-    flexBasis: '22%',
+    flexBasis: '30%',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.3)',
@@ -767,6 +884,28 @@ const styles = StyleSheet.create({
   },
   periodButtonText: { color: '#E8C49A', fontSize: 12, fontWeight: '700' },
   periodButtonTextSelected: { color: '#FFF5E8' },
+  topicPromptBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+    padding: 12,
+    marginBottom: 10,
+  },
+  topicPromptLabel: {
+    color: '#D4A574',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 5,
+  },
+  topicPromptText: {
+    color: '#FFF5E8',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  topicPromptPlaceholder: {
+    color: 'rgba(255,255,255,0.42)',
+  },
   refreshButton: {
     borderRadius: 12,
     backgroundColor: '#D4A574',

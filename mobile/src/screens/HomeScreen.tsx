@@ -27,6 +27,8 @@ export function HomeScreen({ navigation }: Props) {
   const [pendingMemoryAnalysisTokens, setPendingMemoryAnalysisTokens] = useState(0);
   const [personalUsageRows, setPersonalUsageRows] = useState<PersonalTokenUsageRow[]>([]);
   const [usdTryRate, setUsdTryRate] = useState(DEFAULT_USD_TRY_RATE.toFixed(2));
+  const [appliedUsdTryRate, setAppliedUsdTryRate] = useState(DEFAULT_USD_TRY_RATE);
+  const [isTokenPanelExpanded, setIsTokenPanelExpanded] = useState(false);
 
   const refresh = useCallback(async () => {
     await resetPendingLedgerOncePerLaunch();
@@ -43,10 +45,32 @@ export function HomeScreen({ navigation }: Props) {
   const fmtTokens = useCallback((value: number) => Math.round(value || 0).toLocaleString('tr-TR'), []);
   const fmtUsd = useCallback((value: number) => `$${value.toFixed(6)}`, []);
   const fmtTry = useCallback((value: number) => `₺${value.toFixed(4)}`, []);
+  const sanitizeUsdTryRate = useCallback((value: string) => {
+    const normalized = value.replace(',', '.').replace(/[^0-9.]/g, '');
+    if (!normalized) return '';
+    const [wholePart, ...decimalParts] = normalized.split('.');
+    if (!decimalParts.length) return wholePart;
+    return `${wholePart || '0'}.${decimalParts.join('').slice(0, 2)}`;
+  }, []);
+  const usageTotals = React.useMemo(
+    () =>
+      personalUsageRows.reduce(
+        (totals, row) => ({
+          imageInputTokens: totals.imageInputTokens + row.imageInputTokens,
+          textInputTokens: totals.textInputTokens + row.textInputTokens,
+          outputTokens: totals.outputTokens + row.outputTokens,
+        }),
+        { imageInputTokens: 0, textInputTokens: 0, outputTokens: 0 },
+      ),
+    [personalUsageRows],
+  );
   const resetTokenTable = useCallback(async () => {
     await resetPersonalTokenUsage();
     await refresh();
   }, [refresh]);
+  const updateUsdTryRate = useCallback(() => {
+    setAppliedUsdTryRate(parsedUsdTryRate);
+  }, [parsedUsdTryRate]);
 
   useEffect(() => {
     void refresh();
@@ -92,98 +116,6 @@ export function HomeScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.panel}>
-          <View style={styles.tokenHeaderRow}>
-            <Text style={styles.panelTitle}>Genel Token Sayaçları</Text>
-            <TouchableOpacity style={styles.resetButton} onPress={() => void resetTokenTable()}>
-              <Text style={styles.resetButtonText}>Sıfırla</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.panelText}>
-            Model fiyatı: giriş ${GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token, çıkış $
-            {GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token.
-          </Text>
-          <View style={styles.rateRow}>
-            <Text style={styles.rateLabel}>USD/TRY</Text>
-            <TextInput
-              style={styles.rateInput}
-              value={usdTryRate}
-              onChangeText={(value) => {
-                const normalized = value.replace(',', '.').replace(/[^0-9.]/g, '');
-                const [whole, decimal = ''] = normalized.split('.');
-                setUsdTryRate(decimal ? `${whole}.${decimal.slice(0, 2)}` : whole);
-              }}
-              keyboardType="decimal-pad"
-              placeholder="45.45"
-              placeholderTextColor="rgba(255,255,255,0.35)"
-            />
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator>
-            <View style={styles.usageTable}>
-              <View style={[styles.usageRow, styles.usageHeader]}>
-                {[
-                  'Model',
-                  'Fal',
-                  'Image Input',
-                  'USD',
-                  'TRY',
-                  'Text Input',
-                  'USD',
-                  'TRY',
-                  'Text Output',
-                  'USD',
-                  'TRY',
-                  'Total Tokens',
-                  'USD',
-                  'TRY',
-                ].map((label, index) => (
-                  <Text key={`${label}-${index}`} style={[styles.usageCell, styles.usageHeaderText]}>
-                    {label}
-                  </Text>
-                ))}
-              </View>
-              {personalUsageRows.length ? (
-                personalUsageRows.map((row) => {
-                  const imageUsd = costUsd(row.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                  const textUsd = costUsd(row.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                  const outputUsd = costUsd(row.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M);
-                  const totalTokens = row.imageInputTokens + row.textInputTokens + row.outputTokens;
-                  const totalUsd = imageUsd + textUsd + outputUsd;
-                  const values = [
-                    row.modelName,
-                    row.readingName,
-                    fmtTokens(row.imageInputTokens),
-                    fmtUsd(imageUsd),
-                    fmtTry(imageUsd * parsedUsdTryRate),
-                    fmtTokens(row.textInputTokens),
-                    fmtUsd(textUsd),
-                    fmtTry(textUsd * parsedUsdTryRate),
-                    fmtTokens(row.outputTokens),
-                    fmtUsd(outputUsd),
-                    fmtTry(outputUsd * parsedUsdTryRate),
-                    fmtTokens(totalTokens),
-                    fmtUsd(totalUsd),
-                    fmtTry(totalUsd * parsedUsdTryRate),
-                  ];
-                  return (
-                    <View key={row.key} style={styles.usageRow}>
-                      {values.map((value, index) => (
-                        <Text key={`${row.key}-${index}`} style={styles.usageCell}>
-                          {value}
-                        </Text>
-                      ))}
-                    </View>
-                  );
-                })
-              ) : (
-                <View style={styles.usageRow}>
-                  <Text style={[styles.usageCell, styles.emptyUsageCell]}>Henüz kişisel fal token kaydı yok.</Text>
-                </View>
-              )}
-            </View>
-          </ScrollView>
-        </View>
-
-        <View style={styles.panel}>
           <Text style={styles.panelTitle}>Genel Fallar</Text>
           <Text style={styles.panelText}>
             Genel astro günlük/haftalık/aylık okumalar, kısmet kurabiyesi, sihirli küre, günlük tarot, günlük melek kartı ve günün numerolojisi burada.
@@ -204,6 +136,140 @@ export function HomeScreen({ navigation }: Props) {
           >
             <Text style={styles.primaryButtonText}>Kişiye Özel Fallara Git</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.panel}>
+          <TouchableOpacity
+            style={styles.tokenHeaderRow}
+            activeOpacity={0.78}
+            onPress={() => setIsTokenPanelExpanded((current) => !current)}
+          >
+            <Text style={[styles.panelTitle, styles.collapsibleTitle]}>Genel Token Sayaçları</Text>
+            <Text style={styles.expandButtonText}>{isTokenPanelExpanded ? 'Kapat' : 'Aç'}</Text>
+          </TouchableOpacity>
+          {isTokenPanelExpanded ? (
+            <>
+              <View style={styles.tokenActionRow}>
+                <TouchableOpacity style={styles.resetButton} onPress={() => void resetTokenTable()}>
+                  <Text style={styles.resetButtonText}>Sıfırla</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.panelText}>
+                Model fiyatı: giriş ${GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token, çıkış $
+                {GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token.
+              </Text>
+              <View style={styles.rateRow}>
+                <Text style={styles.rateLabel}>USD/TRY</Text>
+                <TextInput
+                  style={styles.rateInput}
+                  value={usdTryRate}
+                  onChangeText={(value) => setUsdTryRate(sanitizeUsdTryRate(value))}
+                  keyboardType="decimal-pad"
+                  placeholder="45.45"
+                  placeholderTextColor="rgba(255,255,255,0.35)"
+                />
+                <TouchableOpacity style={styles.rateUpdateButton} onPress={updateUsdTryRate}>
+                  <Text style={styles.rateUpdateButtonText}>Güncelle</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator>
+                <View style={styles.usageTable}>
+                  <View style={[styles.usageRow, styles.usageHeader]}>
+                    {[
+                      'Model',
+                      'Fal',
+                      'Image Input',
+                      'USD',
+                      'TRY',
+                      'Text Input',
+                      'USD',
+                      'TRY',
+                      'Text Output',
+                      'USD',
+                      'TRY',
+                      'Total Tokens',
+                      'USD',
+                      'TRY',
+                    ].map((label, index) => (
+                      <Text key={`${label}-${index}`} style={[styles.usageCell, styles.usageHeaderText]}>
+                        {label}
+                      </Text>
+                    ))}
+                  </View>
+                  {personalUsageRows.length ? (
+                    personalUsageRows.map((row) => {
+                      const imageUsd = costUsd(row.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
+                      const textUsd = costUsd(row.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
+                      const outputUsd = costUsd(row.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M);
+                      const totalTokens = row.imageInputTokens + row.textInputTokens + row.outputTokens;
+                      const totalUsd = imageUsd + textUsd + outputUsd;
+                      const values = [
+                        row.modelName,
+                        row.readingName,
+                        fmtTokens(row.imageInputTokens),
+                        fmtUsd(imageUsd),
+                        fmtTry(imageUsd * appliedUsdTryRate),
+                        fmtTokens(row.textInputTokens),
+                        fmtUsd(textUsd),
+                        fmtTry(textUsd * appliedUsdTryRate),
+                        fmtTokens(row.outputTokens),
+                        fmtUsd(outputUsd),
+                        fmtTry(outputUsd * appliedUsdTryRate),
+                        fmtTokens(totalTokens),
+                        fmtUsd(totalUsd),
+                        fmtTry(totalUsd * appliedUsdTryRate),
+                      ];
+                      return (
+                        <View key={row.key} style={styles.usageRow}>
+                          {values.map((value, index) => (
+                            <Text key={`${row.key}-${index}`} style={styles.usageCell}>
+                              {value}
+                            </Text>
+                          ))}
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.usageRow}>
+                      <Text style={[styles.usageCell, styles.emptyUsageCell]}>Henüz kişisel fal token kaydı yok.</Text>
+                    </View>
+                  )}
+                  {(() => {
+                    const imageUsd = costUsd(usageTotals.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
+                    const textUsd = costUsd(usageTotals.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
+                    const outputUsd = costUsd(usageTotals.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M);
+                    const totalTokens = usageTotals.imageInputTokens + usageTotals.textInputTokens + usageTotals.outputTokens;
+                    const totalUsd = imageUsd + textUsd + outputUsd;
+                    const values = [
+                      'Toplam',
+                      '',
+                      fmtTokens(usageTotals.imageInputTokens),
+                      fmtUsd(imageUsd),
+                      fmtTry(imageUsd * appliedUsdTryRate),
+                      fmtTokens(usageTotals.textInputTokens),
+                      fmtUsd(textUsd),
+                      fmtTry(textUsd * appliedUsdTryRate),
+                      fmtTokens(usageTotals.outputTokens),
+                      fmtUsd(outputUsd),
+                      fmtTry(outputUsd * appliedUsdTryRate),
+                      fmtTokens(totalTokens),
+                      fmtUsd(totalUsd),
+                      fmtTry(totalUsd * appliedUsdTryRate),
+                    ];
+                    return (
+                      <View style={[styles.usageRow, styles.usageTotalRow]}>
+                        {values.map((value, index) => (
+                          <Text key={`usage-total-${index}`} style={[styles.usageCell, styles.usageTotalCell]}>
+                            {value}
+                          </Text>
+                        ))}
+                      </View>
+                    );
+                  })()}
+                </View>
+              </ScrollView>
+            </>
+          ) : null}
         </View>
 
         <View style={styles.panel}>
@@ -240,9 +306,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168, 130, 82, 0.18)',
   },
   panelTitle: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 10 },
+  collapsibleTitle: { marginBottom: 0 },
   panelText: { color: 'rgba(255,255,255,0.75)', fontSize: 13, lineHeight: 20, marginBottom: 12 },
   panelHint: { color: 'rgba(255,255,255,0.58)', fontSize: 12, marginTop: 10 },
   tokenHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  tokenActionRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 12, marginBottom: 10 },
+  expandButtonText: { color: '#F6C38B', fontSize: 12, fontWeight: '900' },
   resetButton: {
     borderRadius: 10,
     borderWidth: 1,
@@ -265,9 +334,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  rateUpdateButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.48)',
+    backgroundColor: 'rgba(212,165,116,0.14)',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  rateUpdateButtonText: { color: '#F6C38B', fontSize: 12, fontWeight: '800' },
   usageTable: { borderWidth: 1, borderColor: 'rgba(168,130,82,0.22)', borderRadius: 10, overflow: 'hidden' },
   usageRow: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.12)' },
   usageHeader: { backgroundColor: 'rgba(212,165,116,0.14)' },
+  usageTotalRow: { backgroundColor: 'rgba(212,165,116,0.18)' },
   usageCell: {
     width: 106,
     minHeight: 38,
@@ -281,6 +360,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   usageHeaderText: { color: '#E8C49A', fontWeight: '800' },
+  usageTotalCell: { color: '#F6C38B', fontWeight: '900' },
   emptyUsageCell: { width: 320, color: 'rgba(255,255,255,0.62)' },
   primaryButton: {
     borderRadius: 14,

@@ -589,7 +589,10 @@ export async function loadAccountState(): Promise<AccountState> {
         reading.readingType === 'palm' ||
         reading.readingType === 'personal-astro' ||
         reading.readingType === 'personal-numerology' ||
-        reading.readingType === 'birth-chart'
+        reading.readingType === 'birth-chart' ||
+        reading.readingType === 'dream-interpretation' ||
+        reading.readingType === 'personal-tarot' ||
+        reading.readingType === 'personality-test'
           ? reading.readingType
           : 'coffee',
       period:
@@ -599,16 +602,22 @@ export async function loadAccountState(): Promise<AccountState> {
         reading.period === 'yearly'
           ? reading.period
           : undefined,
+      astroFocusQuestion: typeof reading.astroFocusQuestion === 'string' ? reading.astroFocusQuestion : undefined,
       coffeeMode:
         reading.readingType === 'palm' ||
         reading.readingType === 'personal-astro' ||
         reading.readingType === 'personal-numerology' ||
-        reading.readingType === 'birth-chart'
+        reading.readingType === 'birth-chart' ||
+        reading.readingType === 'dream-interpretation' ||
+        reading.readingType === 'personal-tarot' ||
+        reading.readingType === 'personality-test'
           ? undefined
           : reading.coffeeMode === 'ai-brew'
             ? 'ai-brew'
             : 'upload',
       surfacesRead: Array.isArray(reading.surfacesRead) ? reading.surfacesRead : [],
+      tarotSpread: reading.tarotSpread,
+      testResult: reading.testResult,
       createdAt: reading.createdAt || nowIso(),
       summary: reading.summary || reading.previewText || '',
       transcript: Array.isArray(reading.transcript)
@@ -1425,6 +1434,102 @@ export async function appendUserConversationMemory(profileId: string, text: stri
   await writeJsonFile(userMemoryFile(profileId), next);
 }
 
+export async function appendUserStatedTestResult(params: {
+  profileId: string;
+  readingId: string;
+  testId: string;
+  testName: string;
+  resultCode: string;
+  resultTitle: string;
+  summary: string;
+}): Promise<void> {
+  const state = await loadAccountState();
+  const profile = state.profiles.find((item) => item.profileId === params.profileId);
+  if (!profile) return;
+  await ensureProfileMemoryFiles(params.profileId, state.accountId);
+  const current = withMemoryDefaults(
+    await readJsonFile<UserStatedMemoryFile>(
+      userMemoryFile(params.profileId),
+      emptyUserStatedMemory(params.profileId, state.accountId),
+    ),
+  );
+  const key = `test:${params.testId}:${params.readingId}`;
+  const now = nowIso();
+  const existing = current.observations.find((item) => item.key === key);
+  const observation: MemoryObservation = {
+    id: existing?.id || makeId('obs'),
+    key,
+    source: 'user-stated',
+    category: 'kişilik testi',
+    group: 'profil',
+    subgroup: 'kişilik eğilimi',
+    detailGroup: params.testName,
+    kind: 'fact',
+    title: `${params.testName}: ${params.resultCode}`,
+    summary: params.summary,
+    entities: [
+      {
+        label: profile.displayName,
+        type: 'person',
+        profileId: profile.profileId,
+        relationship: ownerToProfileRelationship(profile),
+        gender: profile.gender,
+      },
+    ],
+    entityRelations: [],
+    emotions: [],
+    mentionedAt: existing?.mentionedAt || now,
+    lastSeenAt: now,
+    confidence: 0.9,
+  };
+  const next: UserStatedMemoryFile = {
+    ...current,
+    recurringTopics: mergeTopicMemory(current.recurringTopics, [
+      {
+        key: `test:${params.testId}:${params.readingId}:name`,
+        label: params.testName,
+        group: 'profil',
+        subgroup: 'test sonucu',
+        detailGroup: params.resultCode,
+        salience: 0.74,
+      },
+      {
+        key,
+        label: `${params.testName} ${params.resultCode}`,
+        group: 'profil',
+        subgroup: 'kişilik eğilimi',
+        detailGroup: params.resultTitle,
+        salience: 0.86,
+      },
+    ]),
+    observations: [observation, ...current.observations.filter((item) => item.key !== key)].slice(0, MAX_MEMORY_ITEMS),
+    updatedAt: now,
+  };
+  await writeJsonFile(userMemoryFile(params.profileId), next);
+}
+
+async function deleteUserStatedTestMemoryForReading(reading: ReadingSummary, state: AccountState): Promise<void> {
+  if (reading.readingType !== 'personality-test' || !reading.testResult?.testId) return;
+  await ensureProfileMemoryFiles(reading.profileId, state.accountId);
+  const current = withMemoryDefaults(
+    await readJsonFile<UserStatedMemoryFile>(
+      userMemoryFile(reading.profileId),
+      emptyUserStatedMemory(reading.profileId, state.accountId),
+    ),
+  );
+  const exactPrefix = `test:${reading.testResult.testId}:${reading.readingId}`;
+  const legacyKey = `test:${reading.testResult.testId}:${reading.testResult.resultCode}`;
+  const next: UserStatedMemoryFile = {
+    ...current,
+    recurringTopics: current.recurringTopics.filter(
+      (item) => !item.key.startsWith(exactPrefix) && item.key !== legacyKey && item.key !== `test-${reading.testResult?.testId}`,
+    ),
+    observations: current.observations.filter((item) => item.key !== exactPrefix && item.key !== legacyKey),
+    updatedAt: nowIso(),
+  };
+  await writeJsonFile(userMemoryFile(reading.profileId), next);
+}
+
 export async function applyMemoryAnalysisResult(
   profileId: string,
   result: MemoryAnalysisResult,
@@ -1566,8 +1671,49 @@ export async function appendReadingSummary(
   return nextState;
 }
 
+export async function appendReplacingProfileTestResult(
+  reading: Omit<ReadingSummary, 'readingId' | 'createdAt' | 'accountId'> & {
+    readingType: 'personality-test';
+    testResult: NonNullable<ReadingSummary['testResult']>;
+  },
+): Promise<AccountState> {
+  const state = await loadAccountState();
+  const shouldReplaceExisting = reading.testResult.testId !== 'compatibility';
+  const readingsToRemove = shouldReplaceExisting
+    ? state.readings.filter(
+        (item) =>
+          item.profileId === reading.profileId &&
+          item.readingType === 'personality-test' &&
+          item.testResult?.testId === reading.testResult.testId,
+      )
+    : [];
+  for (const existing of readingsToRemove) {
+    await deleteUserStatedTestMemoryForReading(existing, state).catch(() => {});
+  }
+  const entry: ReadingSummary = {
+    readingId: makeId('reading'),
+    accountId: state.accountId,
+    createdAt: nowIso(),
+    ...reading,
+  };
+  await ensureProfileMemoryFiles(reading.profileId, state.accountId);
+  const nextState: AccountState = {
+    ...state,
+    readings: [
+      entry,
+      ...state.readings.filter((item) => !readingsToRemove.some((removed) => removed.readingId === item.readingId)),
+    ].slice(0, 100),
+  };
+  await saveState(nextState);
+  return nextState;
+}
+
 export async function deleteReading(readingId: string): Promise<AccountState> {
   const state = await loadAccountState();
+  const reading = state.readings.find((item) => item.readingId === readingId);
+  if (reading) {
+    await deleteUserStatedTestMemoryForReading(reading, state).catch(() => {});
+  }
   const nextState: AccountState = {
     ...state,
     readings: state.readings.filter((reading) => reading.readingId !== readingId),
@@ -1629,6 +1775,7 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
       }[reading.period]
     : null;
   if (reading.readingType === 'personal-astro') {
+    if (reading.astroFocusQuestion) return 'Konu Odaklı Astroloji';
     return periodLabel ? `Kişiye Özel Astroloji - ${periodLabel}` : 'Kişiye Özel Astroloji';
   }
   if (reading.readingType === 'personal-numerology') {
@@ -1636,6 +1783,15 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
   }
   if (reading.readingType === 'birth-chart') {
     return 'Doğum Haritası';
+  }
+  if (reading.readingType === 'dream-interpretation') {
+    return 'Rüya Yorumu';
+  }
+  if (reading.readingType === 'personal-tarot') {
+    return reading.tarotSpread?.spreadName ? `Tarot - ${reading.tarotSpread.spreadName}` : 'Kişiye Özel Tarot';
+  }
+  if (reading.readingType === 'personality-test') {
+    return reading.testResult?.testName ? `Test - ${reading.testResult.testName}` : 'Kişilik Testi';
   }
   if (reading.readingType === 'palm') {
     return 'El Falı';

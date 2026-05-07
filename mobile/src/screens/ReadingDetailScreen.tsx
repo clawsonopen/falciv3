@@ -11,6 +11,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ReadingDetail'>;
 
 export function ReadingDetailScreen({ route, navigation }: Props) {
   const { reading, profileName } = route.params;
+  const mainText = (() => {
+    const firstAssistantText = reading.transcript?.find((item) => item.role === 'assistant')?.text?.trim() || '';
+    return firstAssistantText.length > reading.summary.length ? firstAssistantText : reading.summary;
+  })();
   const qaPairs = (() => {
     const transcript = Array.isArray(reading.transcript) ? reading.transcript : [];
     const firstAssistantIndex = transcript.findIndex((item) => item.role === 'assistant');
@@ -48,15 +52,17 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.metaCard}>
-          <Text style={styles.assistant}>{getAssistantLabel(reading.assistantId)}</Text>
+          <Text style={styles.assistant}>
+            {reading.readingType === 'personality-test' ? 'Testler' : getAssistantLabel(reading.assistantId)}
+          </Text>
           <Text style={styles.meta}>{getReadingTypeLabel(reading)}</Text>
           <Text style={styles.meta}>{profileName}</Text>
           <Text style={styles.date}>{new Date(reading.createdAt).toLocaleString('tr-TR')}</Text>
         </View>
 
         <View style={styles.readingCard}>
-          <Text style={styles.sectionTitle}>Fal Özeti</Text>
-          <SelectableFormattedText text={reading.summary} style={styles.readingText} />
+          <Text style={styles.sectionTitle}>{reading.readingType === 'personality-test' ? 'Test Özeti' : 'Fal Özeti'}</Text>
+          <SelectableFormattedText text={mainText} style={styles.readingText} />
         </View>
 
         {qaPairs.length ? (

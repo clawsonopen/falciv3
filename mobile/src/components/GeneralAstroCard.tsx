@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, ScrollView, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, Animated, Easing } from 'react-native';
 import Svg, { 
   Rect, 
   Path, 
@@ -9,6 +9,7 @@ import Svg, {
   Stop,
   Circle
 } from 'react-native-svg';
+import { BrandedScrollView } from './BrandedScrollView';
 
 interface GeneralAstroCardProps {
   title: string;
@@ -93,13 +94,13 @@ const GeneralAstroCard: React.FC<GeneralAstroCardProps> = ({
 
         {/* Glassmorphism İçerik Alanı */}
         <View style={styles.glassContainer}>
-          <ScrollView 
+          <BrandedScrollView
+            indicatorMode="box"
             style={styles.scroll} 
             contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
           >
             {renderFormattedText(text)}
-          </ScrollView>
+          </BrandedScrollView>
 
           {/* Alt Fade Efekti */}
           <View style={styles.fadeOverlay} pointerEvents="none">

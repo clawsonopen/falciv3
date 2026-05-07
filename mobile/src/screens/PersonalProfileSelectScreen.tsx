@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
 import type { SubjectProfile } from '../types/memory';
 
@@ -50,7 +51,7 @@ export function PersonalProfileSelectScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>2. Profil Seçim Ekranı</Text>
           <Text style={styles.helperText}>Kimin için baktıracağını seç. Devam ile markalı onay penceresi açılır.</Text>
@@ -87,7 +88,7 @@ export function PersonalProfileSelectScreen({ navigation, route }: Props) {
             <Text style={styles.primaryButtonText}>{selectedProfile ? 'Evet - Devam' : 'Profil Ayarlarına Git'}</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={confirmVisible}

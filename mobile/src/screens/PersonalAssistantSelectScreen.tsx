@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { AVAILABLE_ASSISTANTS, applyAssistantPreset } from '../config/constants';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalAssistantSelect'>;
 
@@ -35,7 +36,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Falcı Seçimi</Text>
           <Text style={styles.helperText}>Seçilen fal tipi: {selectedReadingLabel}</Text>
@@ -106,7 +107,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
             <Text style={styles.primaryButtonText}>Fal / Yoruma Geç</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </BrandedScrollView>
     </SafeAreaView>
   );
 }

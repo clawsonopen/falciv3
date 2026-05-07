@@ -192,9 +192,21 @@ export interface ReadingSummary {
     | 'birth-chart'
     | 'dream-interpretation'
     | 'personal-tarot'
-    | 'personality-test';
+    | 'personality-test'
+    | 'astro-compatibility'
+    | 'astro-family';
   period?: 'daily' | 'weekly' | 'monthly' | 'yearly';
   astroFocusQuestion?: string;
+  astroRelationship?: {
+    mode: 'compatibility' | 'family';
+    context?: string | null;
+    subjects: Array<{
+      profileId?: string | null;
+      displayName: string;
+      relationshipLabel?: string | null;
+      isPet?: boolean;
+    }>;
+  };
   coffeeMode?: 'upload' | 'ai-brew';
   surfacesRead: ReadingSurface[];
   tarotSpread?: {

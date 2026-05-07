@@ -1,9 +1,11 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { ImageUploader } from '../components/ImageUploader';
+import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import {
   APP_NAME,
   DEFAULT_DEV_SETTINGS,
@@ -33,6 +35,7 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
   const [pendingMemoryAnalysisTokens, setPendingMemoryAnalysisTokens] = useState(0);
   const [memoryAnalysisInFlight, setMemoryAnalysisInFlight] = useState(0);
   const [totalMemoryAnalysisCost, setTotalMemoryAnalysisCost] = useState({ input: 0, output: 0 });
+  const [infoModal, setInfoModal] = useState({ visible: false, title: APP_NAME, message: '' });
 
   const readingType = route.params?.preselectedReadingType || 'coffee';
   const assistantId = route.params?.preselectedAssistantId || DEFAULT_DEV_SETTINGS.assistantId;
@@ -90,17 +93,17 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
 
   const startSession = useCallback(async () => {
     if (!state || !selectedProfile) {
-      Alert.alert('Eksik', 'Profil bulunamadı. Lütfen akış adımlarını tekrar tamamla.');
+      setInfoModal({ visible: true, title: 'Eksik', message: 'Profil bulunamadı. Lütfen akış adımlarını tekrar tamamla.' });
       return;
     }
 
     if (readingType === 'coffee' && coffeeMode === 'upload' && !imageState.cup && !imageState.saucer) {
-      Alert.alert('Eksik', 'Kahve falında en azından fincan ya da tabak fotoğrafı gerekli.');
+      setInfoModal({ visible: true, title: 'Eksik', message: 'Kahve falında en azından fincan ya da tabak fotoğrafı gerekli.' });
       return;
     }
 
     if (readingType === 'palm' && !imageState.palm) {
-      Alert.alert('Eksik', 'El falı için uygun el ya da pati fotoğrafı gerekli.');
+      setInfoModal({ visible: true, title: 'Eksik', message: 'El falı için uygun el ya da pati fotoğrafı gerekli.' });
       return;
     }
 
@@ -133,7 +136,7 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <BrandedScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showScrollToTop>
           <Text style={styles.title}>{APP_NAME}</Text>
           <Text style={styles.subtitle}>Seçimlerin tamamlandı. Şimdi falı başlatabilirsin.</Text>
 
@@ -253,7 +256,16 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
               <Text style={styles.primaryButtonText}>Falımı Başlat</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </BrandedScrollView>
+        <BrandedConfirmModal
+          visible={infoModal.visible}
+          title={infoModal.title}
+          message={infoModal.message}
+          confirmLabel="Tamam"
+          cancelLabel={null}
+          onConfirm={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
+          onCancel={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
+        />
       </SafeAreaView>
     </KeyboardAvoidingView>
   );

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +19,7 @@ import { useSession } from '../hooks/useSession';
 import { TokenUsage } from '../components/TokenUsage';
 import { ImageUploader } from '../components/ImageUploader';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import {
@@ -117,6 +118,15 @@ export function SessionScreen({ route, navigation }: Props) {
   const [sendErrorModal, setSendErrorModal] = useState<{ visible: boolean; message: string }>({
     visible: false,
     message: '',
+  });
+  const [infoModal, setInfoModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: APP_NAME,
+    message: '',
+  });
+  const [messageActionModal, setMessageActionModal] = useState<{ visible: boolean; text: string }>({
+    visible: false,
+    text: '',
   });
   const [startupError, setStartupError] = useState<{ title: string; message: string; isRetry?: boolean } | null>(null);
   const lastAssistantMessageIdRef = useRef<string | null>(null);
@@ -220,7 +230,7 @@ export function SessionScreen({ route, navigation }: Props) {
 
   const handleStartRecording = async () => {
     if (state.isAiSpeaking && !isRecording) {
-      Alert.alert('Sıralı Akış', 'Yanıt hazırlanırken konuşma başlatılamaz. Birazdan tekrar dene.');
+      setInfoModal({ visible: true, title: 'Sıralı Akış', message: 'Yanıt hazırlanırken konuşma başlatılamaz. Birazdan tekrar dene.' });
       return;
     }
     if ((isAssistantSpeaking() || isReading) && !isRecording) {
@@ -263,7 +273,7 @@ export function SessionScreen({ route, navigation }: Props) {
       isRecordingRef.current = false;
       setIsRecording(false);
       setUserSpeakingActive(false);
-      Alert.alert('Mikrofon Hatası', err?.message || 'Kayıt başlatılamadı');
+      setInfoModal({ visible: true, title: 'Mikrofon Hatası', message: err?.message || 'Kayıt başlatılamadı' });
     }
   };
 
@@ -304,7 +314,7 @@ export function SessionScreen({ route, navigation }: Props) {
     const rawText = draftText;
     if (!rawText.trim()) return;
     if (isTurnLocked) {
-      Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan yeni mesaj gönderemezsin.');
+      setInfoModal({ visible: true, title: 'Sıralı Akış', message: 'Bu tur tamamlanmadan yeni mesaj gönderemezsin.' });
       return;
     }
     const sendResult = await sendUserTranscriptRef.current(rawText).then(
@@ -331,32 +341,13 @@ export function SessionScreen({ route, navigation }: Props) {
     const value = message.text.trim();
     if (!value) return;
     if (message.role !== 'user') return;
-    Alert.alert('Mesaj', 'Bu soruyla ne yapmak istersin?', [
-      {
-        text: 'Yeniden Gönder',
-        onPress: () => {
-          if (isTurnLocked || isRecording) {
-            Alert.alert('Sıralı Akış', 'Bu tur tamamlanmadan yeniden gönderemezsin.');
-            return;
-          }
-          void sendUserTranscriptRef.current(value);
-        },
-      },
-      {
-        text: 'Düzenle',
-        onPress: () => {
-          setDraftText(value);
-          setEditorVisible(true);
-        },
-      },
-      { text: 'Kapat', style: 'cancel' as const },
-    ]);
+    setMessageActionModal({ visible: true, text: value });
   };
 
   const handleSessionImageSelected = async (slot: 'cup' | 'saucer' | 'palm', uri: string) => {
     setSessionImageUris((prev) => ({ ...prev, [slot]: uri }));
     await updateSessionImage(slot, uri).catch((err: any) => {
-      Alert.alert('Görsel Hata', err?.message || 'Görsel işlenemedi.');
+      setInfoModal({ visible: true, title: 'Görsel Hata', message: err?.message || 'Görsel işlenemedi.' });
     });
   };
 
@@ -369,7 +360,7 @@ export function SessionScreen({ route, navigation }: Props) {
     }
 
     if (!pendingTurnMessageId) {
-      Alert.alert('Oku', `Henüz okunacak bir ${assistantLabel} mesajı yok.`);
+      setInfoModal({ visible: true, title: 'Oku', message: `Henüz okunacak bir ${assistantLabel} mesajı yok.` });
       return;
     }
 
@@ -393,7 +384,7 @@ export function SessionScreen({ route, navigation }: Props) {
         setIsReadPaused(false);
       }
     } catch (err: any) {
-      Alert.alert('TTS Hata', err?.message || 'Okuma başlatılamadı');
+      setInfoModal({ visible: true, title: 'TTS Hata', message: err?.message || 'Okuma başlatılamadı' });
     } finally {
       setIsReading(false);
     }
@@ -533,7 +524,6 @@ export function SessionScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             ) : (
               <View style={styles.sessionImageSlot}>
-                <Text style={styles.sessionImageLabel}>Fincan İçi</Text>
                 <ImageUploader
                   compact
                   hideLabel
@@ -554,7 +544,6 @@ export function SessionScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             ) : (
               <View style={styles.sessionImageSlot}>
-                <Text style={styles.sessionImageLabel}>Tabak</Text>
                 <ImageUploader
                   compact
                   hideLabel
@@ -579,7 +568,6 @@ export function SessionScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             ) : (
               <View style={styles.sessionImageSlot}>
-                <Text style={styles.sessionImageLabel}>Avuç İçi</Text>
                 <ImageUploader
                   compact
                   hideLabel
@@ -594,11 +582,12 @@ export function SessionScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        <ScrollView
+        <BrandedScrollView
           ref={chatScrollRef}
+          containerStyle={styles.chatAreaFrame}
           style={styles.chatArea}
           contentContainerStyle={styles.chatContent}
-          showsVerticalScrollIndicator={false}
+          indicatorMode="box"
           onContentSizeChange={() => {
             if (state.isAiSpeaking) {
               chatScrollRef.current?.scrollToEnd({ animated: true });
@@ -636,7 +625,7 @@ export function SessionScreen({ route, navigation }: Props) {
               compact={Boolean(state.messages.length)}
             />
           ) : null}
-        </ScrollView>
+        </BrandedScrollView>
 
         <View style={styles.readActionsBar}>
           <TouchableOpacity
@@ -665,7 +654,7 @@ export function SessionScreen({ route, navigation }: Props) {
             </Text>
           </TouchableOpacity>
           <View style={styles.quickActions}>
-            <TouchableOpacity
+            <Pressable
               style={[
                 styles.holdTalkAction,
                 isRecording && styles.holdTalkActionRecording,
@@ -677,10 +666,13 @@ export function SessionScreen({ route, navigation }: Props) {
               onPressOut={() => {
                 void handleStopRecording();
               }}
+              onResponderTerminate={() => {
+                void handleStopRecording();
+              }}
               disabled={!isRecording && isHoldToTalkDisabled}
             >
               <Text style={styles.holdTalkActionText}>{isRecording ? 'Bırakınca Yaz' : 'Basılı Tut Konuş'}</Text>
-            </TouchableOpacity>
+            </Pressable>
             <TouchableOpacity
               style={[
                 styles.primaryAction,
@@ -773,6 +765,38 @@ export function SessionScreen({ route, navigation }: Props) {
           onConfirm={() => setSendErrorModal({ visible: false, message: '' })}
           onCancel={() => setSendErrorModal({ visible: false, message: '' })}
         />
+        <BrandedConfirmModal
+          visible={infoModal.visible}
+          title={infoModal.title}
+          message={infoModal.message}
+          confirmLabel="Tamam"
+          cancelLabel={null}
+          onConfirm={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
+          onCancel={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
+        />
+        <BrandedConfirmModal
+          visible={messageActionModal.visible}
+          title="Mesaj"
+          message="Bu soruyla ne yapmak istersin?"
+          confirmLabel="Yeniden Gönder"
+          cancelLabel="Kapat"
+          extraActionLabel="Düzenle"
+          onExtraAction={() => {
+            setDraftText(messageActionModal.text);
+            setEditorVisible(true);
+            setMessageActionModal({ visible: false, text: '' });
+          }}
+          onConfirm={() => {
+            const value = messageActionModal.text;
+            setMessageActionModal({ visible: false, text: '' });
+            if (isTurnLocked || isRecording) {
+              setInfoModal({ visible: true, title: 'Sıralı Akış', message: 'Bu tur tamamlanmadan yeniden gönderemezsin.' });
+              return;
+            }
+            void sendUserTranscriptRef.current(value);
+          }}
+          onCancel={() => setMessageActionModal({ visible: false, text: '' })}
+        />
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
@@ -823,7 +847,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   sessionImageSlot: { alignItems: 'center' },
-  sessionImageLabel: { color: '#D4A574', fontSize: 12, fontWeight: '700', marginBottom: 8 },
   imageAudioRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -894,7 +917,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12,
   },
-  chatArea: { flex: 0.92 },
+  chatAreaFrame: { flex: 0.92 },
+  chatArea: { flex: 1 },
   chatContent: { paddingHorizontal: 10, paddingBottom: 10 },
   turnAckRow: {
     paddingHorizontal: 12,

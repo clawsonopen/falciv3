@@ -1,10 +1,11 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { TAROT_SPREADS } from '../data/tarotSpreads';
 import { getAssistantLabel } from '../config/constants';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TarotSpreadSelect'>;
 
@@ -14,7 +15,7 @@ export function TarotSpreadSelectScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Tarot Açılımı Seç</Text>
           <Text style={styles.headerMeta}>{assistantLabel}</Text>
@@ -40,7 +41,7 @@ export function TarotSpreadSelectScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           ))}
         </View>
-      </ScrollView>
+      </BrandedScrollView>
     </SafeAreaView>
   );
 }

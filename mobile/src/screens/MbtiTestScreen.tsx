@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { appendReplacingProfileTestResult, appendUserStatedTestResult } from '../services/profileMemoryService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MbtiTest'>;
@@ -411,7 +412,7 @@ export function MbtiTestScreen({ navigation, route }: Props) {
     const dimensions = dimensionMeaning(result.type);
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-        <ScrollView contentContainerStyle={styles.content}>
+        <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
           <View style={styles.resultPanel}>
             <Text style={styles.eyebrow}>MBTI sonucu</Text>
             <Text style={styles.resultType}>{result.type}</Text>
@@ -487,14 +488,14 @@ export function MbtiTestScreen({ navigation, route }: Props) {
               <Text style={styles.secondaryButtonText}>Testi Yeniden Çöz</Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </BrandedScrollView>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.headerPanel}>
           <Text style={styles.title}>MBTI Kişilik Testi</Text>
           <Text style={styles.meta}>32 soru, yaklaşık 12-15 dakika</Text>
@@ -536,7 +537,7 @@ export function MbtiTestScreen({ navigation, route }: Props) {
             {missingQuestionIds.length > 8 ? ` ve ${missingQuestionIds.length - 8} soru daha` : ''}
           </Text>
         ) : null}
-      </ScrollView>
+      </BrandedScrollView>
     </SafeAreaView>
   );
 }

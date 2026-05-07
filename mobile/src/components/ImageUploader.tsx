@@ -4,7 +4,8 @@
 // ============================================================
 
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, Alert, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, Modal } from 'react-native';
+import { BrandedConfirmModal } from './BrandedConfirmModal';
 import { pickImage, takePhoto } from '../services/imageService';
 
 interface ImageUploaderProps {
@@ -25,6 +26,7 @@ export function ImageUploader({
   hideLabel = false,
 }: ImageUploaderProps) {
   const [showSourceModal, setShowSourceModal] = useState(false);
+  const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
 
   const startSourcePicker = () => setShowSourceModal(true);
 
@@ -34,7 +36,7 @@ export function ImageUploader({
       const uri = await takePhoto();
       if (uri) onImageSelected(uri);
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Kamera acilamadi.');
+      setErrorModal({ visible: true, message: e?.message || 'Kamera açılamadı.' });
     }
   };
 
@@ -44,7 +46,7 @@ export function ImageUploader({
       const uri = await pickImage();
       if (uri) onImageSelected(uri);
     } catch (e: any) {
-      Alert.alert('Hata', e?.message || 'Galeri acilamadi.');
+      setErrorModal({ visible: true, message: e?.message || 'Galeri açılamadı.' });
     }
   };
 
@@ -66,7 +68,7 @@ export function ImageUploader({
         )}
         {imageUri && (
           <View style={styles.changeOverlay}>
-            <Text style={styles.changeText}>Degistir</Text>
+            <Text style={styles.changeText}>Değiştir</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -92,6 +94,15 @@ export function ImageUploader({
           </View>
         </View>
       </Modal>
+      <BrandedConfirmModal
+        visible={errorModal.visible}
+        title="Hata"
+        message={errorModal.message}
+        confirmLabel="Tamam"
+        cancelLabel={null}
+        onConfirm={() => setErrorModal({ visible: false, message: '' })}
+        onCancel={() => setErrorModal({ visible: false, message: '' })}
+      />
     </>
   );
 }

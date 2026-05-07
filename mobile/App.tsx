@@ -27,6 +27,9 @@ import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerolog
 import { TarotSpreadSelectScreen } from './src/screens/TarotSpreadSelectScreen';
 import { TarotReadingScreen } from './src/screens/TarotReadingScreen';
 import { MbtiTestScreen } from './src/screens/MbtiTestScreen';
+import { AstroRelationshipReadingScreen } from './src/screens/AstroRelationshipReadingScreen';
+import { SunCompatibilityScreen } from './src/screens/SunCompatibilityScreen';
+import { DaisyFortuneScreen } from './src/screens/DaisyFortuneScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
 import type { ReadingSummary } from './src/types/memory';
@@ -35,6 +38,8 @@ export type RootStackParamList = {
   Home: { freshStartToken?: number } | undefined;
   ProfileSettings: undefined;
   GeneralReadings: undefined;
+  SunCompatibility: undefined;
+  DaisyFortune: undefined;
   PersonalReadings: { devSettings: DevSettings } | undefined;
   PersonalProfileSelect: { devSettings: DevSettings };
   PersonalReadingTypeSelect: { devSettings: DevSettings; profileId: string };
@@ -63,6 +68,11 @@ export type RootStackParamList = {
   PersonalAstroReading: {
     profileId: string;
     assistantId: string;
+  };
+  AstroRelationshipReading: {
+    profileId: string;
+    assistantId: string;
+    mode: 'compatibility' | 'family';
   };
   PersonalBirthChart: {
     profileId: string;
@@ -113,6 +123,8 @@ export default function App() {
           <Stack.Screen name="Home" component={HomeScreen} options={{ title: APP_NAME }} />
           <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} options={{ title: 'Profil Ayarları' }} />
           <Stack.Screen name="GeneralReadings" component={GeneralReadingsScreen} options={{ title: 'Genel Fallar' }} />
+          <Stack.Screen name="SunCompatibility" component={SunCompatibilityScreen} options={{ title: 'Genel Burç Uyumu' }} />
+          <Stack.Screen name="DaisyFortune" component={DaisyFortuneScreen} options={{ title: 'Papatya Falı' }} />
           <Stack.Screen name="PersonalReadings" component={PersonalReadingsScreen} options={{ title: 'Kişiye Özel' }} />
           <Stack.Screen
             name="PersonalProfileSelect"
@@ -138,6 +150,11 @@ export default function App() {
             name="PersonalAstroReading"
             component={PersonalAstroReadingScreen}
             options={{ title: 'Kişiye Özel Astroloji' }}
+          />
+          <Stack.Screen
+            name="AstroRelationshipReading"
+            component={AstroRelationshipReadingScreen}
+            options={{ title: 'Çoklu Astroloji' }}
           />
           <Stack.Screen
             name="PersonalBirthChart"

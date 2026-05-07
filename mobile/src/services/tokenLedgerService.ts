@@ -5,7 +5,7 @@ const LEDGER_FILE = `${DATA_DIR}token-ledger.json`;
 
 export const DEFAULT_USD_TRY_RATE = 45.45;
 export const GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M = 0.1;
-export const GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M = 0.3;
+export const GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M = 0.4;
 
 export type PersonalTokenUsageRow = {
   key: string;

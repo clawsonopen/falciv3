@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, G, Line, Text as SvgText } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../../App';
 import { createBirthChartSnapshot, formatTimezoneForDisplay, hasRequiredAstroBirthInputs, type BirthChartSnapshot } from '../services/astroEngine';
 import { appendReadingDerivedTheme, appendReadingSummary, loadAccountState } from '../services/profileMemoryService';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { birthChartProfileFingerprint, loadBirthChartInterpretationSession } from '../services/birthChartInterpretationStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalBirthChart'>;
@@ -159,7 +160,7 @@ export function PersonalBirthChartScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}>
+      <BrandedScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.title}>{state.title || 'Doğum Haritası'}</Text>
           <BirthChartWheel chart={state.chart} />
@@ -183,7 +184,7 @@ export function PersonalBirthChartScreen({ route, navigation }: Props) {
             ))
           )}
         </View>
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={state.modal.visible}

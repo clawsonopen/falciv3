@@ -11,10 +11,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Picker } from '@react-native-picker/picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedPicker } from '../components/BrandedPicker';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { TURKEY_CITY_OPTIONS, TURKEY_DISTRICTS_BY_CITY } from '../data/turkeyLocations';
 import {
   createProfile,
@@ -474,7 +475,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <BrandedScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showScrollToTop>
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Profil Ayarları</Text>
             <Text style={styles.helperText}>Profili seçmek için tek dokun, düzenlemek için çift dokun.</Text>
@@ -531,17 +532,18 @@ export function ProfileSettingsScreen({ navigation }: Props) {
               </View>
             ) : null}
           </View>
-        </ScrollView>
+        </BrandedScrollView>
       </SafeAreaView>
 
       <Modal visible={profileModalVisible} animationType="slide" transparent onRequestClose={() => setProfileModalVisible(false)}>
         <View style={styles.modalBackdrop}>
           <KeyboardAvoidingView style={styles.modalSheet} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
             <SafeAreaView edges={['bottom']} style={styles.modalSafeArea}>
-              <ScrollView
+              <BrandedScrollView
                 contentContainerStyle={styles.modalContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
+                showScrollToTop
               >
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>{editingExistingProfile ? 'Profil Detayları' : 'Profil Oluştur'}</Text>
@@ -562,34 +564,25 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                 {!editingIsPrimary ? (
                   <>
                     <Text style={styles.inlineLabel}>Yakınlık derecesi</Text>
-                    <View style={styles.pickerShell}>
-                      <Picker
-                        selectedValue={profileDraft.relationshipPrimary}
-                        onValueChange={(value) => handleDraftChange('relationshipPrimary', value)}
-                        style={styles.picker}
-                      >
-                        {RELATIONSHIP_OPTIONS.filter((item) => item !== 'kendi').map((option) => (
-                          <Picker.Item key={option} label={labelForRelationship(option)} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={profileDraft.relationshipPrimary}
+                      onValueChange={(value) => handleDraftChange('relationshipPrimary', value)}
+                      options={RELATIONSHIP_OPTIONS.filter((item) => item !== 'kendi').map((option) => ({
+                        label: labelForRelationship(option),
+                        value: option,
+                      }))}
+                    />
                   </>
                 ) : null}
 
                 {profileDraft.relationshipPrimary === 'akraba' && !editingIsPrimary ? (
                   <>
                     <Text style={styles.inlineLabel}>Akrabalık tipi</Text>
-                    <View style={styles.pickerShell}>
-                      <Picker
-                        selectedValue={profileDraft.relationshipDetail}
-                        onValueChange={(value) => handleDraftChange('relationshipDetail', value)}
-                        style={styles.picker}
-                      >
-                        {RELATIVE_DETAILS.map((option) => (
-                          <Picker.Item key={option} label={labelForRelative(option)} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={profileDraft.relationshipDetail}
+                      onValueChange={(value) => handleDraftChange('relationshipDetail', value)}
+                      options={RELATIVE_DETAILS.map((option) => ({ label: labelForRelative(option), value: option }))}
+                    />
                   </>
                 ) : null}
 
@@ -607,65 +600,41 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                 ) : null}
 
                 <Text style={styles.inlineLabel}>Cinsiyet</Text>
-                <View style={styles.pickerShell}>
-                  <Picker
-                    selectedValue={profileDraft.gender}
-                    onValueChange={(value) => handleDraftChange('gender', value)}
-                    style={styles.picker}
-                  >
-                    {GENDER_OPTIONS.map((option) => (
-                      <Picker.Item key={option} label={labelForGender(option)} value={option} color="#000" />
-                    ))}
-                  </Picker>
-                </View>
+                <BrandedPicker
+                  selectedValue={profileDraft.gender}
+                  onValueChange={(value) => handleDraftChange('gender', value)}
+                  options={GENDER_OPTIONS.map((option) => ({ label: labelForGender(option), value: option }))}
+                />
 
                 <Text style={styles.inlineLabel}>Doğum tarihi</Text>
                 <Text style={styles.helperText}>Kişiye özel astroloji için tüm profillerde doğum tarihi ve doğum yeri zorunludur.</Text>
                 <View style={styles.wheelRow}>
                   <View style={styles.wheelColumn}>
                     <Text style={styles.wheelLabel}>Yıl</Text>
-                    <View style={styles.pickerShellCompact}>
-                      <Picker
-                        selectedValue={pickerValue(profileDraft.birthYear)}
-                        onValueChange={(value) => handleDraftChange('birthYear', value === 'sec' ? '' : value)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Yıl" value="sec" color="#000" />
-                        {YEAR_OPTIONS.map((option) => (
-                          <Picker.Item key={option} label={option} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={pickerValue(profileDraft.birthYear)}
+                      onValueChange={(value) => handleDraftChange('birthYear', value === 'sec' ? '' : value)}
+                      options={[{ label: 'Yıl', value: 'sec' }, ...YEAR_OPTIONS.map((option) => ({ label: option, value: option }))]}
+                      compact
+                    />
                   </View>
                   <View style={styles.wheelColumn}>
                     <Text style={styles.wheelLabel}>Ay</Text>
-                    <View style={styles.pickerShellCompact}>
-                      <Picker
-                        selectedValue={pickerValue(profileDraft.birthMonth)}
-                        onValueChange={(value) => handleDraftChange('birthMonth', value === 'sec' ? '' : value)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Ay" value="sec" color="#000" />
-                        {MONTH_OPTIONS.map((option) => (
-                          <Picker.Item key={option.value} label={option.label} value={option.value} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={pickerValue(profileDraft.birthMonth)}
+                      onValueChange={(value) => handleDraftChange('birthMonth', value === 'sec' ? '' : value)}
+                      options={[{ label: 'Ay', value: 'sec' }, ...MONTH_OPTIONS.map((option) => ({ label: option.label, value: option.value }))]}
+                      compact
+                    />
                   </View>
                   <View style={styles.wheelColumn}>
                     <Text style={styles.wheelLabel}>Gün</Text>
-                    <View style={styles.pickerShellCompact}>
-                      <Picker
-                        selectedValue={pickerValue(profileDraft.birthDay)}
-                        onValueChange={(value) => handleDraftChange('birthDay', value === 'sec' ? '' : value)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Gün" value="sec" color="#000" />
-                        {DAY_OPTIONS.map((option) => (
-                          <Picker.Item key={option} label={option} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={pickerValue(profileDraft.birthDay)}
+                      onValueChange={(value) => handleDraftChange('birthDay', value === 'sec' ? '' : value)}
+                      options={[{ label: 'Gün', value: 'sec' }, ...DAY_OPTIONS.map((option) => ({ label: option, value: option }))]}
+                      compact
+                    />
                   </View>
                 </View>
 
@@ -673,74 +642,48 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                 <View style={styles.wheelRow}>
                   <View style={styles.wheelColumn}>
                     <Text style={styles.wheelLabel}>Saat</Text>
-                    <View style={styles.pickerShellCompact}>
-                      <Picker
-                        selectedValue={pickerValue(profileDraft.birthHour)}
-                        onValueChange={(value) => handleDraftChange('birthHour', value === 'sec' ? '' : value)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Saat" value="sec" color="#000" />
-                        {HOUR_OPTIONS.map((option) => (
-                          <Picker.Item key={option} label={option} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={pickerValue(profileDraft.birthHour)}
+                      onValueChange={(value) => handleDraftChange('birthHour', value === 'sec' ? '' : value)}
+                      options={[{ label: 'Saat', value: 'sec' }, ...HOUR_OPTIONS.map((option) => ({ label: option, value: option }))]}
+                      compact
+                    />
                   </View>
                   <View style={styles.wheelColumn}>
                     <Text style={styles.wheelLabel}>Dakika</Text>
-                    <View style={styles.pickerShellCompact}>
-                      <Picker
-                        selectedValue={pickerValue(profileDraft.birthMinute)}
-                        onValueChange={(value) => handleDraftChange('birthMinute', value === 'sec' ? '' : value)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Dakika" value="sec" color="#000" />
-                        {MINUTE_OPTIONS.map((option) => (
-                          <Picker.Item key={option} label={option} value={option} color="#000" />
-                        ))}
-                      </Picker>
-                    </View>
+                    <BrandedPicker
+                      selectedValue={pickerValue(profileDraft.birthMinute)}
+                      onValueChange={(value) => handleDraftChange('birthMinute', value === 'sec' ? '' : value)}
+                      options={[{ label: 'Dakika', value: 'sec' }, ...MINUTE_OPTIONS.map((option) => ({ label: option, value: option }))]}
+                      compact
+                    />
                   </View>
                 </View>
 
                 <Text style={styles.inlineLabel}>Doğum yeri</Text>
-                <View style={styles.pickerShell}>
-                  <Picker
-                    selectedValue={pickerValue(profileDraft.birthCountry)}
+                <BrandedPicker
+                  selectedValue={pickerValue(profileDraft.birthCountry)}
+                  onValueChange={(value) => {
+                    handleDraftChange('birthCountry', value === 'sec' ? '' : value);
+                    handleDraftChange('birthCity', '');
+                    handleDraftChange('birthDistrict', '');
+                  }}
+                  options={[{ label: 'Ülke seç', value: 'sec' }, ...COUNTRY_OPTIONS.map((option) => ({ label: option, value: option }))]}
+                />
+                {isTurkeyBirthCountry ? (
+                  <BrandedPicker
+                    selectedValue={profileDraft.birthCity && turkeyCities.includes(profileDraft.birthCity) ? profileDraft.birthCity : 'sec'}
                     onValueChange={(value) => {
-                      handleDraftChange('birthCountry', value === 'sec' ? '' : value);
-                      handleDraftChange('birthCity', '');
+                      if (value === 'sec') {
+                        handleDraftChange('birthCity', '');
+                        handleDraftChange('birthDistrict', '');
+                        return;
+                      }
+                      handleDraftChange('birthCity', value);
                       handleDraftChange('birthDistrict', '');
                     }}
-                    style={styles.picker}
-                  >
-                    <Picker.Item label="Ülke seç" value="sec" color="#000" />
-                    {COUNTRY_OPTIONS.map((option) => (
-                      <Picker.Item key={option} label={option} value={option} color="#000" />
-                    ))}
-                  </Picker>
-                </View>
-                {isTurkeyBirthCountry ? (
-                  <View style={styles.pickerShell}>
-                    <Picker
-                      selectedValue={profileDraft.birthCity && turkeyCities.includes(profileDraft.birthCity) ? profileDraft.birthCity : 'sec'}
-                      onValueChange={(value) => {
-                        if (value === 'sec') {
-                          handleDraftChange('birthCity', '');
-                          handleDraftChange('birthDistrict', '');
-                          return;
-                        }
-                        handleDraftChange('birthCity', value);
-                        handleDraftChange('birthDistrict', '');
-                      }}
-                      style={styles.picker}
-                    >
-                      <Picker.Item label="Şehir seç" value="sec" color="#000" />
-                      {turkeyCities.map((option) => (
-                        <Picker.Item key={option} label={option} value={option} color="#000" />
-                      ))}
-                    </Picker>
-                  </View>
+                    options={[{ label: 'Şehir seç', value: 'sec' }, ...turkeyCities.map((option) => ({ label: option, value: option }))]}
+                  />
                 ) : (
                   <TextInput
                     style={styles.textInput}
@@ -752,31 +695,27 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                   />
                 )}
                 {isTurkeyBirthCountry && profileDraft.birthCity && selectedCityDistricts.length ? (
-                  <View style={styles.pickerShell}>
-                    <Picker
-                      selectedValue={
-                        profileDraft.birthDistrict
-                          ? districtIsKnown
-                            ? profileDraft.birthDistrict
-                            : DISTRICT_OTHER_VALUE
-                          : 'sec'
+                  <BrandedPicker
+                    selectedValue={
+                      profileDraft.birthDistrict
+                        ? districtIsKnown
+                          ? profileDraft.birthDistrict
+                          : DISTRICT_OTHER_VALUE
+                        : 'sec'
+                    }
+                    onValueChange={(value) => {
+                      if (value === 'sec') {
+                        handleDraftChange('birthDistrict', '');
+                        return;
                       }
-                      onValueChange={(value) => {
-                        if (value === 'sec') {
-                          handleDraftChange('birthDistrict', '');
-                          return;
-                        }
-                        handleDraftChange('birthDistrict', value);
-                      }}
-                      style={styles.picker}
-                    >
-                      <Picker.Item label="İlçe seç" value="sec" color="#000" />
-                      {selectedCityDistricts.map((option) => (
-                        <Picker.Item key={option} label={option} value={option} color="#000" />
-                      ))}
-                      <Picker.Item label="Diğer" value={DISTRICT_OTHER_VALUE} color="#000" />
-                    </Picker>
-                  </View>
+                      handleDraftChange('birthDistrict', value);
+                    }}
+                    options={[
+                      { label: 'İlçe seç', value: 'sec' },
+                      ...selectedCityDistricts.map((option) => ({ label: option, value: option })),
+                      { label: 'Diğer', value: DISTRICT_OTHER_VALUE },
+                    ]}
+                  />
                 ) : null}
                 {showDistrictFreeform ? (
                   <TextInput
@@ -810,7 +749,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                     <Text style={styles.deleteButtonText}>Profili Sil</Text>
                   </TouchableOpacity>
                 ) : null}
-              </ScrollView>
+              </BrandedScrollView>
             </SafeAreaView>
           </KeyboardAvoidingView>
         </View>

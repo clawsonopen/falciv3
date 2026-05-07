@@ -7,6 +7,7 @@ import { APP_NAME, getAssistantLabel } from '../config/constants';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { TokenUsage } from '../components/TokenUsage';
 import {
   applyMemoryAnalysisResult,
@@ -343,11 +344,13 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
           </View>
 
           <View style={[styles.panel, styles.readingPanel]}>
-            <ScrollView
+            <BrandedScrollView
               ref={readingScrollRef}
+              containerStyle={styles.readingScrollFrame}
               style={styles.readingScroll}
               contentContainerStyle={styles.readingScrollContent}
               nestedScrollEnabled
+              indicatorMode="box"
               onContentSizeChange={() => readingScrollRef.current?.scrollToEnd({ animated: true })}
             >
               {isLoadingProfile ? (
@@ -364,7 +367,7 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
                 ))
               )}
               {isSending ? <AssistantLoading compact /> : null}
-            </ScrollView>
+            </BrandedScrollView>
           </View>
 
           <View style={styles.readActionsBar}>
@@ -483,6 +486,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,130,82,0.18)',
   },
   readingPanel: { flex: 1, minHeight: 0 },
+  readingScrollFrame: { flex: 1 },
   readingScroll: { flex: 1 },
   readingScrollContent: { paddingBottom: 8 },
   questionPanel: { marginBottom: 0 },

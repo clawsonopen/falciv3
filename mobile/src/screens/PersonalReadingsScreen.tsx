@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { APP_NAME, DEFAULT_DEV_SETTINGS } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
@@ -298,7 +299,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kimin İçin Baktıracaksın?</Text>
           <Text style={styles.helperText}>Kişiye özel akışta önce profili seç, sonra aynı ekrandan fal tipine geç.</Text>
@@ -347,7 +348,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
             ))}
           </View>
         </View>
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={confirmVisible}

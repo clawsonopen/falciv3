@@ -1,9 +1,11 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { getAssistantLabel } from '../config/constants';
+import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { deleteReading, getAllReadingsForProfile, getReadingTypeLabel, loadAccountState } from '../services/profileMemoryService';
 import type { ReadingSummary } from '../types/memory';
 
@@ -12,6 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'History'>;
 export function HistoryScreen({ route, navigation }: Props) {
   const { profileId, profileName } = route.params;
   const [readings, setReadings] = useState<ReadingSummary[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<ReadingSummary | null>(null);
 
   const refresh = useCallback(() => {
     loadAccountState().then((state) => {
@@ -31,7 +34,7 @@ export function HistoryScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         {readings.length ? (
           readings.map((reading) => (
             <View key={reading.readingId} style={styles.card}>
@@ -56,23 +59,7 @@ export function HistoryScreen({ route, navigation }: Props) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.deletePill}
-                onPress={() =>
-                  Alert.alert(
-                    'Falı Sil',
-                    'Bu kaydı cihazından silmek istediğine emin misin?',
-                    [
-                      { text: 'Hayır, silme', style: 'cancel' },
-                      {
-                        text: 'Evet, sil',
-                        style: 'destructive',
-                        onPress: async () => {
-                          await deleteReading(reading.readingId);
-                          refresh();
-                        },
-                      },
-                    ],
-                  )
-                }
+                onPress={() => setDeleteTarget(reading)}
               >
                 <Text style={styles.deletePillText}>Sil</Text>
               </TouchableOpacity>
@@ -84,7 +71,22 @@ export function HistoryScreen({ route, navigation }: Props) {
             <Text style={styles.emptyText}>Bu profil için biten fallar ve test sonuçları burada listelenecek.</Text>
           </View>
         )}
-      </ScrollView>
+      </BrandedScrollView>
+      <BrandedConfirmModal
+        visible={Boolean(deleteTarget)}
+        title="Falı Sil"
+        message="Bu kaydı cihazından silmek istediğine emin misin?"
+        confirmLabel="Evet, Sil"
+        cancelLabel="Hayır, Silme"
+        onConfirm={async () => {
+          if (deleteTarget) {
+            await deleteReading(deleteTarget.readingId);
+            setDeleteTarget(null);
+            refresh();
+          }
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </SafeAreaView>
   );
 }

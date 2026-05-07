@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { loadAccountState, loadProfileMemoryBundle, loadProfileMemorySnippet } from '../services/profileMemoryService';
@@ -256,7 +257,7 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.card}>
           {renderBirthLine(snippet)}
           {bundle ? renderTestResults(bundle.userStated.observations) : null}
@@ -294,7 +295,7 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
             <Text style={styles.emptyText}>Yükleniyor...</Text>
           )}
         </View>
-      </ScrollView>
+      </BrandedScrollView>
     </SafeAreaView>
   );
 }

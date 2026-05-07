@@ -7,6 +7,7 @@ import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { TokenUsage } from '../components/TokenUsage';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
 import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
@@ -393,8 +394,9 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
       keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
     >
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView
+      <BrandedScrollView
         ref={pageScrollRef}
+        showScrollToTop
         contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
         onContentSizeChange={() => {
           if (isSendingQuestion) {
@@ -453,7 +455,13 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
 
         <View style={styles.panel}>
           <Text style={styles.sectionTitle}>Yorum</Text>
-          <ScrollView style={styles.readingScroll} contentContainerStyle={styles.readingScrollContent} nestedScrollEnabled>
+          <BrandedScrollView
+            containerStyle={styles.readingScrollFrame}
+            style={styles.readingScroll}
+            contentContainerStyle={styles.readingScrollContent}
+            nestedScrollEnabled
+            indicatorMode="box"
+          >
             {isLoading ? (
               <AssistantLoading label="Yorum hazırlanıyor" detail="Lütfen bekleyiniz. Ekranı kapatmayınız." />
             ) : text ? (
@@ -461,7 +469,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
             ) : (
               <Text style={styles.loading}>Temel sayı haritası veya aylık numeroloji seçip yorumu hazırlayabilirsin.</Text>
             )}
-          </ScrollView>
+          </BrandedScrollView>
           {text ? (
             <View style={styles.quickActions}>
               <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
@@ -549,7 +557,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           </View>
         ) : null}
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={infoModal.visible}
@@ -596,7 +604,8 @@ const styles = StyleSheet.create({
   helper: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 10 },
   sectionTitle: { color: '#E8C49A', fontSize: 15, fontWeight: '700', marginBottom: 8 },
   loading: { color: '#FFF5E8', fontSize: 14, lineHeight: 21 },
-  readingScroll: { maxHeight: 270 },
+  readingScrollFrame: { maxHeight: 270, flexGrow: 0 },
+  readingScroll: { flexGrow: 0 },
   readingScrollContent: { paddingBottom: 2 },
   readingText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   chatBubble: {

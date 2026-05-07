@@ -1,9 +1,11 @@
-﻿import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+﻿import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
+import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { getAssistantLabel } from '../config/constants';
 import { deleteReading, getReadingTypeLabel } from '../services/profileMemoryService';
 
@@ -11,6 +13,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ReadingDetail'>;
 
 export function ReadingDetailScreen({ route, navigation }: Props) {
   const { reading, profileName } = route.params;
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const mainText = (() => {
     const firstAssistantText = reading.transcript?.find((item) => item.role === 'assistant')?.text?.trim() || '';
     return firstAssistantText.length > reading.summary.length ? firstAssistantText : reading.summary;
@@ -31,26 +34,12 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
   })();
 
   const handleDelete = () => {
-    Alert.alert(
-      'Falı Sil',
-      'Bu fal kaydını cihazından silmek istediğine emin misin?',
-      [
-        { text: 'Hayır, silme', style: 'cancel' },
-        {
-          text: 'Evet, sil',
-          style: 'destructive',
-          onPress: async () => {
-            await deleteReading(reading.readingId);
-            navigation.goBack();
-          },
-        },
-      ],
-    );
+    setDeleteConfirmVisible(true);
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.metaCard}>
           <Text style={styles.assistant}>
             {reading.readingType === 'personality-test' ? 'Testler' : getAssistantLabel(reading.assistantId)}
@@ -82,7 +71,20 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
           <Text style={styles.deleteButtonText}>Bu Falı Sil</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </BrandedScrollView>
+      <BrandedConfirmModal
+        visible={deleteConfirmVisible}
+        title="Falı Sil"
+        message="Bu fal kaydını cihazından silmek istediğine emin misin?"
+        confirmLabel="Evet, Sil"
+        cancelLabel="Hayır, Silme"
+        onConfirm={async () => {
+          await deleteReading(reading.readingId);
+          setDeleteConfirmVisible(false);
+          navigation.goBack();
+        }}
+        onCancel={() => setDeleteConfirmVisible(false)}
+      />
     </SafeAreaView>
   );
 }

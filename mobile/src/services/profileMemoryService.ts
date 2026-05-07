@@ -592,7 +592,9 @@ export async function loadAccountState(): Promise<AccountState> {
         reading.readingType === 'birth-chart' ||
         reading.readingType === 'dream-interpretation' ||
         reading.readingType === 'personal-tarot' ||
-        reading.readingType === 'personality-test'
+        reading.readingType === 'personality-test' ||
+        reading.readingType === 'astro-compatibility' ||
+        reading.readingType === 'astro-family'
           ? reading.readingType
           : 'coffee',
       period:
@@ -610,7 +612,9 @@ export async function loadAccountState(): Promise<AccountState> {
         reading.readingType === 'birth-chart' ||
         reading.readingType === 'dream-interpretation' ||
         reading.readingType === 'personal-tarot' ||
-        reading.readingType === 'personality-test'
+        reading.readingType === 'personality-test' ||
+        reading.readingType === 'astro-compatibility' ||
+        reading.readingType === 'astro-family'
           ? undefined
           : reading.coffeeMode === 'ai-brew'
             ? 'ai-brew'
@@ -618,6 +622,7 @@ export async function loadAccountState(): Promise<AccountState> {
       surfacesRead: Array.isArray(reading.surfacesRead) ? reading.surfacesRead : [],
       tarotSpread: reading.tarotSpread,
       testResult: reading.testResult,
+      astroRelationship: reading.astroRelationship,
       createdAt: reading.createdAt || nowIso(),
       summary: reading.summary || reading.previewText || '',
       transcript: Array.isArray(reading.transcript)
@@ -798,27 +803,52 @@ async function pruneDanglingProfileReferences(state: AccountState): Promise<void
   const profileIds = new Set(state.profiles.map((profile) => profile.profileId));
   for (const profile of state.profiles) {
     await ensureProfileMemoryFiles(profile.profileId, state.accountId);
-    const current = await readJsonFile<UserStatedMemoryFile>(
-      userMemoryFile(profile.profileId),
-      emptyUserStatedMemory(profile.profileId, state.accountId),
-    );
-
-    const seen = new Set<string>();
-    const filtered = current.importantPeople.filter((person) => {
+    const pruneBundle = <T extends UserStatedMemoryFile | ReadingDerivedMemoryFile>(current: T): T => {
+      const seen = new Set<string>();
+      const importantPeople = current.importantPeople.filter((person) => {
       if (seen.has(person.id)) return false;
       seen.add(person.id);
       const referencedProfileId = extractReferencedProfileId(person.id);
       if (referencedProfileId && !profileIds.has(referencedProfileId)) return false;
       if (ASSISTANT_NAME_SET.has(normalizeForMatching(person.label))) return false;
       return true;
-    });
-
-    if (filtered.length !== current.importantPeople.length) {
-      await writeJsonFile(userMemoryFile(profile.profileId), {
-        ...current,
-        importantPeople: filtered,
-        updatedAt: nowIso(),
       });
+      const observations = current.observations
+        .map((observation) => {
+          const hadProfileEntity = observation.entities.some((entity) => Boolean(entity.profileId));
+          const entities = observation.entities.filter((entity) => !entity.profileId || profileIds.has(entity.profileId));
+          return { observation: { ...observation, entities }, hadProfileEntity };
+        })
+        .filter((item) => item.observation.entities.length || !item.hadProfileEntity)
+        .map((item) => item.observation);
+      return {
+        ...current,
+        importantPeople,
+        observations,
+      };
+    };
+
+    const currentUser = await readJsonFile<UserStatedMemoryFile>(
+      userMemoryFile(profile.profileId),
+      emptyUserStatedMemory(profile.profileId, state.accountId),
+    );
+    const currentReading = await readJsonFile<ReadingDerivedMemoryFile>(
+      readingMemoryFile(profile.profileId),
+      emptyReadingDerivedMemory(profile.profileId, state.accountId),
+    );
+    const nextUser = pruneBundle(currentUser);
+    const nextReading = pruneBundle(currentReading);
+    if (
+      nextUser.importantPeople.length !== currentUser.importantPeople.length ||
+      JSON.stringify(nextUser.observations) !== JSON.stringify(currentUser.observations)
+    ) {
+      await writeJsonFile(userMemoryFile(profile.profileId), { ...nextUser, updatedAt: nowIso() });
+    }
+    if (
+      nextReading.importantPeople.length !== currentReading.importantPeople.length ||
+      JSON.stringify(nextReading.observations) !== JSON.stringify(currentReading.observations)
+    ) {
+      await writeJsonFile(readingMemoryFile(profile.profileId), { ...nextReading, updatedAt: nowIso() });
     }
   }
 }
@@ -1736,7 +1766,11 @@ export async function deleteProfile(
     profiles: state.profiles.filter((profile) => profile.profileId !== profileId),
     readings:
       mode === 'profile-and-data'
-        ? state.readings.filter((reading) => reading.profileId !== profileId)
+        ? state.readings.filter(
+            (reading) =>
+              reading.profileId !== profileId &&
+              !reading.astroRelationship?.subjects.some((subject) => subject.profileId === profileId),
+          )
         : state.readings,
   };
 
@@ -1792,6 +1826,12 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
   }
   if (reading.readingType === 'personality-test') {
     return reading.testResult?.testName ? `Test - ${reading.testResult.testName}` : 'Kişilik Testi';
+  }
+  if (reading.readingType === 'astro-compatibility') {
+    return 'Astrolojik Uyum Analizi';
+  }
+  if (reading.readingType === 'astro-family') {
+    return 'Astrolojik Aile Okuması';
   }
   if (reading.readingType === 'palm') {
     return 'El Falı';

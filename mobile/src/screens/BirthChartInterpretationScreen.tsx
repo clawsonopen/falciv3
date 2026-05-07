@@ -8,6 +8,7 @@ import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { TokenUsage } from '../components/TokenUsage';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import {
   createBirthChartFollowUp,
   createBirthChartInterpretation,
@@ -411,11 +412,13 @@ export function BirthChartInterpretationScreen({ route, navigation }: Props) {
           ) : null}
 
           <View style={[styles.panel, styles.readingPanel]}>
-            <ScrollView
+            <BrandedScrollView
               ref={readingScrollRef}
+              containerStyle={styles.readingScrollFrame}
               style={styles.readingScroll}
               contentContainerStyle={styles.readingScrollContent}
               nestedScrollEnabled
+              indicatorMode="box"
               onContentSizeChange={() => {
                 if (isSendingQuestion) {
                   readingScrollRef.current?.scrollToEnd({ animated: true });
@@ -450,7 +453,7 @@ export function BirthChartInterpretationScreen({ route, navigation }: Props) {
                 </>
               ) : null}
               {session && !session.followUps.length && isSendingQuestion ? <AssistantLoading compact /> : null}
-            </ScrollView>
+            </BrandedScrollView>
           </View>
 
           {session ? (
@@ -590,6 +593,7 @@ const styles = StyleSheet.create({
   contextLabel: { marginTop: 4, color: 'rgba(255,255,255,0.58)', fontSize: 10, fontWeight: '700' },
   contextLockedText: { marginTop: 8, color: '#FFB3B3', fontSize: 12, lineHeight: 17 },
   readingPanel: { flex: 1, minHeight: 0 },
+  readingScrollFrame: { flex: 1 },
   readingScroll: { flex: 1 },
   readingScrollContent: { paddingBottom: 8 },
   questionPanel: { marginBottom: 0 },

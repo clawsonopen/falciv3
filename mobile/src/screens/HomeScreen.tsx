@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { APP_NAME, DEFAULT_DEV_SETTINGS } from '../config/constants';
 import { DevControls } from '../components/DevControls';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { loadAccountState } from '../services/profileMemoryService';
 import {
   DEFAULT_USD_TRY_RATE,
@@ -28,6 +29,8 @@ export function HomeScreen({ navigation }: Props) {
   const [personalUsageRows, setPersonalUsageRows] = useState<PersonalTokenUsageRow[]>([]);
   const [usdTryRate, setUsdTryRate] = useState(DEFAULT_USD_TRY_RATE.toFixed(2));
   const [appliedUsdTryRate, setAppliedUsdTryRate] = useState(DEFAULT_USD_TRY_RATE);
+  const [safetyK, setSafetyK] = useState('2.0');
+  const [appliedSafetyK, setAppliedSafetyK] = useState(2);
   const [isTokenPanelExpanded, setIsTokenPanelExpanded] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -52,6 +55,13 @@ export function HomeScreen({ navigation }: Props) {
     if (!decimalParts.length) return wholePart;
     return `${wholePart || '0'}.${decimalParts.join('').slice(0, 2)}`;
   }, []);
+  const sanitizeSafetyK = useCallback((value: string) => {
+    const normalized = value.replace(',', '.').replace(/[^0-9.]/g, '');
+    if (!normalized) return '';
+    const [wholePart, ...decimalParts] = normalized.split('.');
+    if (!decimalParts.length) return wholePart;
+    return `${wholePart || '0'}.${decimalParts.join('').slice(0, 1)}`;
+  }, []);
   const usageTotals = React.useMemo(
     () =>
       personalUsageRows.reduce(
@@ -71,6 +81,10 @@ export function HomeScreen({ navigation }: Props) {
   const updateUsdTryRate = useCallback(() => {
     setAppliedUsdTryRate(parsedUsdTryRate);
   }, [parsedUsdTryRate]);
+  const updateSafetyK = useCallback(() => {
+    const parsed = Number(safetyK.replace(',', '.'));
+    setAppliedSafetyK(Number.isFinite(parsed) && parsed >= 0 ? parsed : 2);
+  }, [safetyK]);
 
   useEffect(() => {
     void refresh();
@@ -85,7 +99,7 @@ export function HomeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <Text style={styles.title}>{APP_NAME}</Text>
         <Text style={styles.subtitle}>Hoş geldin. Aşağıdaki bölümlerden devam edebilirsin.</Text>
 
@@ -158,19 +172,35 @@ export function HomeScreen({ navigation }: Props) {
                 Model fiyatı: giriş ${GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token, çıkış $
                 {GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token.
               </Text>
-              <View style={styles.rateRow}>
-                <Text style={styles.rateLabel}>USD/TRY</Text>
-                <TextInput
-                  style={styles.rateInput}
-                  value={usdTryRate}
-                  onChangeText={(value) => setUsdTryRate(sanitizeUsdTryRate(value))}
-                  keyboardType="decimal-pad"
-                  placeholder="45.45"
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                />
-                <TouchableOpacity style={styles.rateUpdateButton} onPress={updateUsdTryRate}>
-                  <Text style={styles.rateUpdateButtonText}>Güncelle</Text>
-                </TouchableOpacity>
+              <View style={styles.rateControls}>
+                <View style={styles.rateRow}>
+                  <Text style={styles.rateLabel}>USD/TRY</Text>
+                  <TextInput
+                    style={styles.rateInput}
+                    value={usdTryRate}
+                    onChangeText={(value) => setUsdTryRate(sanitizeUsdTryRate(value))}
+                    keyboardType="decimal-pad"
+                    placeholder="45.45"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                  />
+                  <TouchableOpacity style={styles.rateUpdateButton} onPress={updateUsdTryRate}>
+                    <Text style={styles.rateUpdateButtonText}>Güncelle</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.rateRow}>
+                  <Text style={styles.rateLabel}>Safety K.</Text>
+                  <TextInput
+                    style={styles.safetyInput}
+                    value={safetyK}
+                    onChangeText={(value) => setSafetyK(sanitizeSafetyK(value))}
+                    keyboardType="decimal-pad"
+                    placeholder="2.0"
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                  />
+                  <TouchableOpacity style={styles.rateUpdateButton} onPress={updateSafetyK}>
+                    <Text style={styles.rateUpdateButtonText}>K ile Güncelle</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator>
                 <View style={styles.usageTable}>
@@ -266,6 +296,38 @@ export function HomeScreen({ navigation }: Props) {
                       </View>
                     );
                   })()}
+                  {(() => {
+                    const imageUsd = costUsd(usageTotals.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M) * appliedSafetyK;
+                    const textUsd = costUsd(usageTotals.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M) * appliedSafetyK;
+                    const outputUsd = costUsd(usageTotals.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M) * appliedSafetyK;
+                    const totalTokens = usageTotals.imageInputTokens + usageTotals.textInputTokens + usageTotals.outputTokens;
+                    const totalUsd = imageUsd + textUsd + outputUsd;
+                    const values = [
+                      'Simüle Toplam',
+                      `K x ${appliedSafetyK.toFixed(1)}`,
+                      fmtTokens(usageTotals.imageInputTokens),
+                      fmtUsd(imageUsd),
+                      fmtTry(imageUsd * appliedUsdTryRate),
+                      fmtTokens(usageTotals.textInputTokens),
+                      fmtUsd(textUsd),
+                      fmtTry(textUsd * appliedUsdTryRate),
+                      fmtTokens(usageTotals.outputTokens),
+                      fmtUsd(outputUsd),
+                      fmtTry(outputUsd * appliedUsdTryRate),
+                      fmtTokens(totalTokens),
+                      fmtUsd(totalUsd),
+                      fmtTry(totalUsd * appliedUsdTryRate),
+                    ];
+                    return (
+                      <View style={[styles.usageRow, styles.usageSafetyRow]}>
+                        {values.map((value, index) => (
+                          <Text key={`usage-safety-${index}`} style={[styles.usageCell, styles.usageSafetyCell]}>
+                            {value}
+                          </Text>
+                        ))}
+                      </View>
+                    );
+                  })()}
                 </View>
               </ScrollView>
             </>
@@ -276,7 +338,7 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.panelTitle}>Geliştirici Ayarları</Text>
           <DevControls settings={devSettings} onSettingsChange={setDevSettings} />
         </View>
-      </ScrollView>
+      </BrandedScrollView>
     </SafeAreaView>
   );
 }
@@ -321,10 +383,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,107,107,0.1)',
   },
   resetButtonText: { color: '#FFB3B3', fontSize: 12, fontWeight: '800' },
-  rateRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  rateLabel: { color: '#E8C49A', fontSize: 12, fontWeight: '800' },
+  rateControls: { gap: 8, marginBottom: 12 },
+  rateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rateLabel: { color: '#E8C49A', fontSize: 12, fontWeight: '800', width: 72 },
   rateInput: {
     minWidth: 96,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.34)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    color: '#FFF5E8',
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  safetyInput: {
+    width: 72,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.34)',
@@ -347,6 +421,7 @@ const styles = StyleSheet.create({
   usageRow: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.12)' },
   usageHeader: { backgroundColor: 'rgba(212,165,116,0.14)' },
   usageTotalRow: { backgroundColor: 'rgba(212,165,116,0.18)' },
+  usageSafetyRow: { backgroundColor: 'rgba(125,220,154,0.14)' },
   usageCell: {
     width: 106,
     minHeight: 38,
@@ -361,6 +436,7 @@ const styles = StyleSheet.create({
   },
   usageHeaderText: { color: '#E8C49A', fontWeight: '800' },
   usageTotalCell: { color: '#F6C38B', fontWeight: '900' },
+  usageSafetyCell: { color: '#BFF2D0', fontWeight: '900' },
   emptyUsageCell: { width: 320, color: 'rgba(255,255,255,0.62)' },
   primaryButton: {
     borderRadius: 14,

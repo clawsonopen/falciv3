@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { getAssistantLabel } from '../config/constants';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { TokenUsage } from '../components/TokenUsage';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
@@ -80,6 +81,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const [isSendingQuestion, setIsSendingQuestion] = useState(false);
   const [isRecordingQuestion, setIsRecordingQuestion] = useState(false);
   const [editorVisible, setEditorVisible] = useState(false);
+  const [selectionCollapsed, setSelectionCollapsed] = useState(false);
   const [speechMode, setSpeechMode] = useState<'idle' | 'playing' | 'paused'>('idle');
   const [infoModal, setInfoModal] = useState<{ visible: boolean; title: string; message: string }>({
     visible: false,
@@ -89,6 +91,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const speechRunRef = useRef(0);
   const questionBaseRef = useRef('');
   const pageScrollRef = useRef<ScrollView>(null);
+  const readingPanelYRef = useRef(0);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
   const normalizedTopicText = topicText.replace(/\s+/g, ' ').trim();
@@ -99,6 +102,10 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const isBusy = isLoading || isSendingQuestion;
   const hasPreparedReading = Boolean(text && period);
   const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading && (selection !== 'topic' || normalizedTopicText));
+
+  const showSelectionInfo = useCallback((title: string, message: string) => {
+    setInfoModal({ visible: true, title, message });
+  }, []);
 
   useEffect(() => {
     navigation.setOptions({
@@ -130,6 +137,10 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
           ? `personal-astro-topic-${reading.periodKey}-${Date.now()}`
           : `personal-astro-${selectedPeriod}-${reading.periodKey}`,
       });
+      setSelectionCollapsed(true);
+      setTimeout(() => {
+        pageScrollRef.current?.scrollTo({ y: Math.max(0, readingPanelYRef.current - 2), animated: true });
+      }, 120);
     },
     [],
   );
@@ -144,6 +155,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       setText('');
       setMeta(null);
       setReadingTheme(null);
+      setSelectionCollapsed(false);
       setFollowUps([]);
       setQuestionText('');
       try {
@@ -168,6 +180,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
     setText('');
     setMeta(null);
     setReadingTheme(null);
+    setSelectionCollapsed(false);
     setFollowUps([]);
     setQuestionText('');
     setTopicEditorVisible(true);
@@ -191,7 +204,11 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       });
       return;
     }
+    setSelectionCollapsed(true);
     setIsLoading(true);
+    setTimeout(() => {
+      pageScrollRef.current?.scrollTo({ y: Math.max(0, readingPanelYRef.current - 2), animated: true });
+    }, 120);
     try {
       const state = await loadAccountState();
       const profile = state.profiles.find((item) => item.profileId === profileId) || null;
@@ -461,8 +478,9 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
     >
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView
+      <BrandedScrollView
         ref={pageScrollRef}
+        showScrollToTop
         contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}
         onContentSizeChange={() => {
           if (isSendingQuestion) {
@@ -482,62 +500,108 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
           <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>{modeHeaderLabel}</Text>
           <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
         </View>
-        <View style={styles.panel}>
-          <Text style={styles.sectionTitle}>Dönem / Konu Seç</Text>
-          <View style={styles.periodRow}>
-            {(['daily', 'weekly', 'monthly', 'yearly'] as AstroPeriod[]).map((item) => {
-              const selected = selection === item;
-              return (
+        <View style={[styles.panel, selectionCollapsed && styles.selectionPanelCollapsed]}>
+          <TouchableOpacity
+            style={styles.selectionHeaderRow}
+            activeOpacity={0.82}
+            onPress={() => setSelectionCollapsed((current) => !current)}
+          >
+            <Text style={styles.sectionTitle}>Dönem / Konu Seç</Text>
+            <Text style={styles.expandButtonText}>{selectionCollapsed ? 'Aç' : 'Kapat'}</Text>
+          </TouchableOpacity>
+          {!selectionCollapsed ? (
+            <>
+              <View style={styles.periodRow}>
+                {(['daily', 'weekly', 'monthly', 'yearly'] as AstroPeriod[]).map((item) => {
+                  const selected = selection === item;
+                  return (
+                    <TouchableOpacity
+                      key={item}
+                      style={[styles.periodButton, selected && styles.periodButtonSelected, isBusy && styles.disabledAction]}
+                      onPress={() => void handleSelectPeriod(item)}
+                      onLongPress={() =>
+                        showSelectionInfo(
+                          PERIOD_LABELS[item],
+                          'Kişinin doğum haritası ile seçtiği dönemdeki gökyüzü etkileri seçilen profile özel yorumlanır.',
+                        )
+                      }
+                      disabled={isBusy}
+                    >
+                      <Text style={[styles.periodButtonText, selected && styles.periodButtonTextSelected]}>
+                        {PERIOD_LABELS[item]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
                 <TouchableOpacity
-                  key={item}
-                  style={[styles.periodButton, selected && styles.periodButtonSelected, isBusy && styles.disabledAction]}
-                  onPress={() => void handleSelectPeriod(item)}
+                  style={[styles.periodButton, selection === 'topic' && styles.periodButtonSelected, isBusy && styles.disabledAction]}
+                  onPress={handleSelectTopic}
+                  onLongPress={() =>
+                    showSelectionInfo(
+                      'Belli Bir Konu',
+                      'Kişinin doğum haritası ile seçtiği konuya denk gelen gökyüzü etkileri seçilen profile özel yorumlanır.',
+                    )
+                  }
                   disabled={isBusy}
                 >
-                  <Text style={[styles.periodButtonText, selected && styles.periodButtonTextSelected]}>
-                    {PERIOD_LABELS[item]}
-                  </Text>
+                  <Text style={[styles.periodButtonText, selection === 'topic' && styles.periodButtonTextSelected]}>Belli Bir Konu</Text>
                 </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[styles.periodButton, selection === 'topic' && styles.periodButtonSelected, isBusy && styles.disabledAction]}
-              onPress={handleSelectTopic}
-              disabled={isBusy}
-            >
-              <Text style={[styles.periodButtonText, selection === 'topic' && styles.periodButtonTextSelected]}>Belli Bir Konu</Text>
-            </TouchableOpacity>
-          </View>
-          {selection === 'topic' ? (
+                <TouchableOpacity
+                  style={[styles.periodButton, isBusy && styles.disabledAction]}
+                  onPress={() => navigation.navigate('AstroRelationshipReading', { profileId, assistantId, mode: 'compatibility' })}
+                  onLongPress={() =>
+                    showSelectionInfo('İlişki Uyumu', 'İki kişinin doğum verileriyle detaylı sinastri analizi yapılır.')
+                  }
+                  disabled={isBusy}
+                >
+                  <Text style={styles.astroModeTitle}>İlişki Uyumu</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.periodButton, isBusy && styles.disabledAction]}
+                  onPress={() => navigation.navigate('AstroRelationshipReading', { profileId, assistantId, mode: 'family' })}
+                  onLongPress={() =>
+                    showSelectionInfo('Aile Okuması', 'Aile bireylerinin doğum verileriyle ortak ritim analizi yapılır.')
+                  }
+                  disabled={isBusy}
+                >
+                  <Text style={styles.astroModeTitle}>Aile Okuması</Text>
+                </TouchableOpacity>
+              </View>
+              {selection === 'topic' ? (
             <TouchableOpacity style={styles.topicPromptBox} activeOpacity={0.9} onPress={() => setTopicEditorVisible(true)}>
               <Text style={styles.topicPromptLabel}>Yorumlanacak konu</Text>
               <Text style={[styles.topicPromptText, !normalizedTopicText && styles.topicPromptPlaceholder]}>
                 {normalizedTopicText || 'Aklında yorumlanmasını istediğin konu, soru ya da durum var mı?'}
               </Text>
             </TouchableOpacity>
+              ) : null}
+            </>
           ) : null}
+        </View>
+        <View style={styles.floatingActionRow}>
           <TouchableOpacity
-            style={[styles.refreshButton, !canPrepareReading && styles.disabledAction]}
+            style={[styles.floatingPrepareButton, !canPrepareReading && styles.disabledAction]}
             onPress={() => void loadReading()}
             disabled={!canPrepareReading}
           >
-            <Text style={styles.refreshButtonText}>
-              {hasPreparedReading
-                ? 'Yorum Hazır'
-                : selection === 'topic'
-                  ? normalizedTopicText
-                    ? 'Konu Yorumunu Hazırla'
-                    : 'Önce Konuyu Yaz'
-                  : period
-                    ? 'Yorumu Hazırla'
-                    : 'Önce Dönem / Konu Seç'}
-            </Text>
+            <Text style={styles.floatingPrepareText}>Yorumla</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.panel}>
+        <View
+          style={styles.panel}
+          onLayout={(event) => {
+            readingPanelYRef.current = event.nativeEvent.layout.y;
+          }}
+        >
           <Text style={styles.sectionTitle}>Yorum</Text>
-          <ScrollView style={styles.readingScroll} contentContainerStyle={styles.readingScrollContent} nestedScrollEnabled>
+          <BrandedScrollView
+            containerStyle={styles.readingScrollFrame}
+            style={styles.readingScroll}
+            contentContainerStyle={styles.readingScrollContent}
+            nestedScrollEnabled
+            indicatorMode="box"
+          >
             {isLoading ? (
               <AssistantLoading label="Yorum hazırlanıyor" detail="Lütfen bekleyiniz. Ekranı kapatmayınız." />
             ) : text ? (
@@ -550,7 +614,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
                 Güneş: {meta.sign} | Yükselen: {meta.risingSign || 'Doğum saati gerekli'} | Zaman dilimi: {formatTimezoneForDisplay(meta.timezone)}
               </Text>
             ) : null}
-          </ScrollView>
+          </BrandedScrollView>
           {text ? (
             <View style={styles.quickActions}>
               <TouchableOpacity style={styles.secondaryAction} onPress={handlePhoneRead}>
@@ -614,13 +678,14 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
               </KeyboardAvoidingView>
             </Modal>
             <View style={styles.quickActions}>
-              <TouchableOpacity
+              <Pressable
                 style={[styles.holdTalkAction, isRecordingQuestion && styles.holdTalkActionRecording]}
                 onPressIn={() => void handleQuestionRecordStart()}
                 onPressOut={() => void handleQuestionRecordStop()}
+                onResponderTerminate={() => void handleQuestionRecordStop()}
               >
                 <Text style={styles.holdTalkActionText}>{isRecordingQuestion ? 'Bırakınca Yaz' : 'Basılı Tut Konuş'}</Text>
-              </TouchableOpacity>
+              </Pressable>
               <TouchableOpacity
                 style={[styles.primaryAction, (!questionText.trim() || isSendingQuestion) && styles.disabledAction]}
                 onPress={() => void handleSendQuestion()}
@@ -638,7 +703,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           </View>
         ) : null}
-      </ScrollView>
+      </BrandedScrollView>
 
       <Modal visible={topicEditorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setTopicEditorVisible(false)}>
         <KeyboardAvoidingView
@@ -679,7 +744,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
         title={infoModal.title}
         message={infoModal.message}
         confirmLabel="Tamam"
-        cancelLabel="Kapat"
+        cancelLabel={null}
         onConfirm={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
         onCancel={() => setInfoModal({ visible: false, title: APP_NAME, message: '' })}
       />
@@ -715,11 +780,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.18)',
   },
+  selectionPanelCollapsed: { paddingVertical: 12 },
+  selectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  expandButtonText: { color: '#F6C38B', fontSize: 12, fontWeight: '900' },
   title: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 6 },
   helper: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginBottom: 10 },
   sectionTitle: { color: '#E8C49A', fontSize: 15, fontWeight: '700', marginBottom: 8 },
   loading: { color: '#FFF5E8', fontSize: 14 },
-  readingScroll: { maxHeight: 270 },
+  readingScrollFrame: { maxHeight: 340, flexGrow: 0 },
+  readingScroll: { flexGrow: 0 },
   readingScrollContent: { paddingBottom: 2 },
   readingText: { color: '#FFF5E8', fontSize: 15, lineHeight: 22 },
   meta: { marginTop: 12, color: 'rgba(212,165,116,0.8)', fontSize: 12 },
@@ -867,22 +936,24 @@ const styles = StyleSheet.create({
   },
   endButtonText: { color: '#FFF5E8', fontSize: 13, fontWeight: '800' },
   disabledAction: { opacity: 0.55 },
-  periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  periodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8, marginBottom: 8 },
   periodButton: {
-    flexGrow: 1,
-    flexBasis: '30%',
-    borderRadius: 12,
+    width: '31.6%',
+    minHeight: 38,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(168,130,82,0.3)',
-    backgroundColor: 'rgba(0,0,0,0.15)',
-    paddingVertical: 10,
+    borderColor: 'rgba(168,130,82,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   periodButtonSelected: {
     borderColor: '#D4A574',
     backgroundColor: 'rgba(212,165,116,0.16)',
   },
-  periodButtonText: { color: '#E8C49A', fontSize: 12, fontWeight: '700' },
+  periodButtonText: { color: '#E8C49A', fontSize: 12, fontWeight: '800', textAlign: 'center' },
   periodButtonTextSelected: { color: '#FFF5E8' },
   topicPromptBox: {
     borderRadius: 12,
@@ -906,6 +977,31 @@ const styles = StyleSheet.create({
   topicPromptPlaceholder: {
     color: 'rgba(255,255,255,0.42)',
   },
+  astroModeRow: { gap: 6, marginBottom: 8 },
+  astroModeButton: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  astroModeTitle: { color: '#E8C49A', fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  floatingActionRow: {
+    alignItems: 'flex-end',
+    marginTop: -6,
+    marginBottom: 12,
+    paddingRight: 2,
+  },
+  floatingPrepareButton: {
+    minWidth: 118,
+    borderRadius: 12,
+    backgroundColor: '#D4A574',
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  floatingPrepareText: { color: '#14141E', fontSize: 13, fontWeight: '900' },
   refreshButton: {
     borderRadius: 12,
     backgroundColor: '#D4A574',

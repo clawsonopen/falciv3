@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, ScrollView, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, Animated, Easing } from 'react-native';
 import Svg, { 
   Defs, 
   Rect, 
@@ -10,6 +10,7 @@ import Svg, {
   LinearGradient,
   Stop
 } from 'react-native-svg';
+import { BrandedScrollView } from './BrandedScrollView';
 import IChingSymbol from './IChingSymbol';
 
 interface IChingCardProps {
@@ -103,15 +104,15 @@ const IChingCard: React.FC<IChingCardProps> = ({
           </View>
 
           <View style={styles.scrollContent}>
-            <ScrollView 
+            <BrandedScrollView
+              indicatorMode="box"
               style={{ flex: 1 }} 
               contentContainerStyle={styles.scrollContainer}
-              showsVerticalScrollIndicator={false}
             >
               <Text style={styles.messageText}>
                 {data.text.split('\n\n').slice(1).join('\n\n')}
               </Text>
-            </ScrollView>
+            </BrandedScrollView>
 
             {/* Alt Gradyan (Fade) */}
             <View style={styles.gradientOverlay} pointerEvents="none">

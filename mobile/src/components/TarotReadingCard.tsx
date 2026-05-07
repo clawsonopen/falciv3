@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, ScrollView, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, Animated, Easing } from 'react-native';
 import Svg, { 
   Rect, 
   Path, 
@@ -9,6 +9,7 @@ import Svg, {
   LinearGradient,
   Stop
 } from 'react-native-svg';
+import { BrandedScrollView } from './BrandedScrollView';
 import { TarotRevealCard } from './TarotRevealCard';
 
 interface TarotReadingCardProps {
@@ -75,15 +76,15 @@ const TarotReadingCard: React.FC<TarotReadingCardProps> = ({
           </View>
 
           <View style={styles.scrollContent}>
-            <ScrollView 
+            <BrandedScrollView
+              indicatorMode="box"
               style={{ flex: 1 }} 
               contentContainerStyle={styles.scrollContainer}
-              showsVerticalScrollIndicator={false}
             >
               <Text style={styles.messageText}>
                 {text}
               </Text>
-            </ScrollView>
+            </BrandedScrollView>
             
             {/* Alt Gradyan (Fade) */}
             <View style={styles.gradientOverlay} pointerEvents="none">

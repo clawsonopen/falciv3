@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground, ScrollView } from 'react-native';
+import { View, StyleSheet, Dimensions, Platform, Text, ImageBackground } from 'react-native';
 import Svg, { 
   Defs, 
   Rect, 
@@ -7,6 +7,7 @@ import Svg, {
   G,
   Circle
 } from 'react-native-svg';
+import { BrandedScrollView } from './BrandedScrollView';
 
 interface RuneCardProps {
   rune: { path: string; keyword: string; message: string; runeName: string };
@@ -58,15 +59,15 @@ const RuneCard: React.FC<RuneCardProps> = ({
           </View>
 
           <View style={styles.scrollArea}>
-            <ScrollView 
+            <BrandedScrollView
+              indicatorMode="box"
               style={{ flex: 1 }} 
               contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
               nestedScrollEnabled={true}
             >
               <Text style={styles.messageLabel}>TAŞIN MESAJI:</Text>
               <Text style={styles.messageText}>{rune.message}</Text>
-            </ScrollView>
+            </BrandedScrollView>
           </View>
         </View>
       </ImageBackground>

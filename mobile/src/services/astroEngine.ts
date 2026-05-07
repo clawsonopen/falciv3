@@ -24,6 +24,23 @@ export type AstroReadingResult = {
   };
 };
 
+export type AstroRelationshipMode = 'compatibility' | 'family';
+export type AstroCompatibilityContext =
+  | 'genel'
+  | 'ask'
+  | 'is'
+  | 'ev-arkadasligi'
+  | 'dostluk'
+  | 'komsuluk'
+  | 'aile'
+  | 'diger';
+
+export type AstroRelationshipSubject = {
+  profile: SubjectProfile;
+  roleLabel?: string | null;
+  source: 'saved' | 'temporary';
+};
+
 function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
   const items = snippet?.relevantObservations || [];
   if (!items.length) return '';
@@ -822,6 +839,194 @@ function buildCompactAstroPayload(
   };
 }
 
+function withFallbackBirthLocation(profile: SubjectProfile): SubjectProfile {
+  const country = profile.birth.location.country?.trim() || 'Türkiye';
+  const cityOrRegion = profile.birth.location.cityOrRegion?.trim() || 'İstanbul';
+  return {
+    ...profile,
+    birth: {
+      ...profile.birth,
+      time: profile.birth.timeKnown ? profile.birth.time : null,
+      timeKnown: Boolean(profile.birth.timeKnown && profile.birth.time),
+      location: {
+        ...profile.birth.location,
+        country,
+        cityOrRegion,
+        district: profile.birth.location.district?.trim() || null,
+      },
+    },
+  };
+}
+
+function astroSubjectRelationshipLabel(profile: SubjectProfile, fallback?: string | null) {
+  if (fallback?.trim()) return fallback.trim();
+  if (profile.relationshipPrimary === 'evcil_hayvan') return profile.relationshipFreeform || 'evcil hayvan';
+  if (profile.relationshipPrimary === 'akraba') return profile.relationshipFreeform || profile.relationshipDetail || 'akraba';
+  return profile.relationshipPrimary;
+}
+
+function subjectPrecisionFlags(original: SubjectProfile) {
+  return {
+    dateKnown: Boolean(original.birth.date),
+    timeKnown: Boolean(original.birth.timeKnown && original.birth.time),
+    placeKnown: Boolean(original.birth.location.country && original.birth.location.cityOrRegion),
+  };
+}
+
+function buildSynastryAspects(
+  left: BirthChartSnapshot,
+  right: BirthChartSnapshot,
+): Array<{ from: string; to: string; aspect: string; orb: number; theme: string }> {
+  const aspectDefs = [
+    { aspect: 'Kavuşum', angle: 0, orb: 7, theme: 'çok güçlü temas' },
+    { aspect: 'Altmışlık', angle: 60, orb: 4, theme: 'akış ve destek' },
+    { aspect: 'Kare', angle: 90, orb: 5, theme: 'gerilim ve gelişim alanı' },
+    { aspect: 'Üçgen', angle: 120, orb: 5, theme: 'doğal uyum' },
+    { aspect: 'Karşıt', angle: 180, orb: 6, theme: 'çekim ve kutuplaşma' },
+  ];
+  const priority = new Set(['Güneş', 'Ay', 'Merkür', 'Venüs', 'Mars', 'Satürn']);
+  const hits: Array<{ from: string; to: string; aspect: string; orb: number; theme: string; score: number }> = [];
+  for (const a of left.planets.filter((planet) => priority.has(planet.name))) {
+    for (const b of right.planets.filter((planet) => priority.has(planet.name))) {
+      const delta = aspectDelta(a.longitude, b.longitude);
+      const hit = aspectDefs.find((aspect) => Math.abs(delta - aspect.angle) <= aspect.orb);
+      if (!hit) continue;
+      const tightness = hit.orb - Math.abs(delta - hit.angle);
+      const luminaryBoost = a.name === 'Güneş' || a.name === 'Ay' || b.name === 'Güneş' || b.name === 'Ay' ? 2 : 0;
+      hits.push({
+        from: a.name,
+        to: b.name,
+        aspect: hit.aspect,
+        orb: Number(Math.abs(delta - hit.angle).toFixed(1)),
+        theme: hit.theme,
+        score: tightness + luminaryBoost,
+      });
+    }
+  }
+  return hits.sort((a, b) => b.score - a.score || a.orb - b.orb).slice(0, 14).map(({ score: _score, ...item }) => item);
+}
+
+function buildRelationshipAstroContext(subjects: AstroRelationshipSubject[]) {
+  return subjects.map((subject) => {
+    if (!subject.profile.birth.date) {
+      throw new Error(`${subject.profile.displayName} için doğum tarihi gerekli.`);
+    }
+    const fallbackProfile = withFallbackBirthLocation(subject.profile);
+    const location = resolveAstroLocation(fallbackProfile.birth.location);
+    if (!location) {
+      throw new Error(`${subject.profile.displayName} için doğum yeri çözümlenemedi.`);
+    }
+    const chart = buildLocalBirthChartSnapshot(fallbackProfile);
+    return {
+      source: subject.source,
+      roleLabel: astroSubjectRelationshipLabel(subject.profile, subject.roleLabel),
+      profile: subject.profile,
+      fallbackProfile,
+      chart,
+      locationPrecision: location.precision,
+      precision: subjectPrecisionFlags(subject.profile),
+      compact: {
+        displayName: subject.profile.displayName,
+        relationshipLabel: astroSubjectRelationshipLabel(subject.profile, subject.roleLabel),
+        isPet: subject.profile.relationshipPrimary === 'evcil_hayvan',
+        source: subject.source,
+        precision: subjectPrecisionFlags(subject.profile),
+        sunSign: chart.sign,
+        moonSign: chart.moonSign,
+        risingSign: chart.ascendant,
+        planets: chart.planets.map((planet) => ({
+          name: planet.name,
+          sign: planet.sign,
+          degree: Number(planet.degree.toFixed(1)),
+          house: planet.house,
+          retrograde: planet.retrograde,
+        })),
+        points: (chart.points || []).map((point) => ({
+          name: point.name,
+          sign: point.sign,
+          degree: Number(point.degree.toFixed(1)),
+          house: point.house,
+        })),
+        natalAspects: chart.aspects,
+      },
+    };
+  });
+}
+
+function relationshipModeLabel(mode: AstroRelationshipMode) {
+  return mode === 'family' ? 'astrolojik aile okuması' : 'astrolojik uyum analizi';
+}
+
+function buildRelationshipPrompt(params: {
+  mode: AstroRelationshipMode;
+  assistantId: string;
+  assistantLabel: string;
+  subjects: ReturnType<typeof buildRelationshipAstroContext>;
+  compatibilityContext?: AstroCompatibilityContext | string | null;
+  memorySnippet?: ProfileMemorySnippet | null;
+}) {
+  const personaContext = assistantPersonaContext(params.assistantId);
+  const memoryContext = formatAstroAvoidanceMemory(params.memorySnippet);
+  const synastry =
+    params.mode === 'compatibility' && params.subjects.length >= 2
+      ? buildSynastryAspects(params.subjects[0].chart, params.subjects[1].chart)
+      : [];
+  const familyPairs =
+    params.mode === 'family'
+      ? params.subjects.flatMap((left, leftIndex) =>
+          params.subjects.slice(leftIndex + 1).map((right) => ({
+            pair: `${left.profile.displayName} - ${right.profile.displayName}`,
+            aspects: buildSynastryAspects(left.chart, right.chart).slice(0, 6),
+          })),
+        )
+      : [];
+  const hasPet = params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan');
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı Türkçe konuşan kişisel astrologsun.`,
+    'Yalnızca verilen doğum verileri, gezegen yerleşimleri ve sinastri/aile haritası bağlamıyla konuş.',
+    'Kahve, fincan, telve, el çizgisi, tarot veya kart dili kullanma.',
+    'Teknik astrolojiyi boğmadan açıkla; Güneş, Ay, Merkür, Venüs, Mars, Satürn, Ay düğümleri ve yükselen/ev bilgisi varsa ilişki dinamiğine çevir.',
+    'Doğum saati veya yer bilgisi eksikse bunu yalnızca belirsizlik payı olarak bil; şehir, ilçe, koordinat veya varsayılan konum adlarını asla söyleme.',
+    hasPet ? 'Evcil hayvanlar aile bireyidir; pet olan özneyi romantik, cinsel veya yetişkin insan ilişkisi diliyle yorumlama.' : '',
+    'Kesin kader hükmü verme; uyumu potansiyel, ritim, ihtiyaç, gerilim ve gelişim alanı olarak anlat.',
+  ].filter(Boolean).join(' ');
+  const userText = [
+    `Okuma tipi: ${relationshipModeLabel(params.mode)}`,
+    params.compatibilityContext ? `Uyum bağlamı: ${params.compatibilityContext}` : '',
+    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    memoryContext ? `Hafıza ve tekrar koruması:\n${memoryContext}` : '',
+    `Kişiler JSON:\n${JSON.stringify(params.subjects.map((subject) => subject.compact))}`,
+    synastry.length ? `Ana sinastri açıları JSON:\n${JSON.stringify(synastry)}` : '',
+    familyPairs.length ? `Aile içi ikili temaslar JSON:\n${JSON.stringify(familyPairs)}` : '',
+    params.mode === 'compatibility'
+      ? [
+          'Detaylı astrolojik uyum analizi yaz.',
+          'İlk paragrafta iki tarafın ilişki ritmini net özetle.',
+          'Sonra duygusal uyum, iletişim/zihin, çekim/enerji, güven-sorumluluk, çatışma tetikleri ve birlikte büyüme alanlarını ayrı kısa paragraflarla işle.',
+          'Uyum bağlamı aşk değilse romantik varsayım yapma; iş, dostluk, ev arkadaşlığı, komşuluk veya genel bağlam neyse ona göre dil kur.',
+          'İki kişinin doğum verilerindeki eksikler varsa yorumun güven aralığını abartmadan koru; eksik şehir/ilçe adı söyleme.',
+          'Yaklaşık 1200-1500 token içinde tamamla; son cümleyi bitir.',
+        ].join(' ')
+      : [
+          'Detaylı astrolojik aile okuması yaz.',
+          'İlk paragrafta ailenin genel duygusal iklimini ve ortak ritmini özetle.',
+          'Sonra her aile üyesinin sistem içindeki ihtiyacını, güçlü tarafını ve hassasiyetini doğum verisine göre anlat.',
+          'Ardından ikili dinamiklerde destek/gerilim noktalarını ve ev içi denge önerilerini ver.',
+          'Pet varsa onu ailenin duygusal düzenleyicisi, alışkanlık ritmi ve bağ kurma biçimi olarak yorumla; insan gibi sorumluluk yükleme.',
+          'Eksik doğum saatlerini yalnızca hassasiyet sınırı olarak dikkate al; şehir/ilçe adı veya varsayılan konum söyleme.',
+          'Yaklaşık 1500-1800 token içinde tamamla; son cümleyi bitir.',
+        ].join(' '),
+  ].filter(Boolean).join('\n\n');
+  return {
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens: params.mode === 'family' ? 2400 : 2000,
+    },
+  };
+}
+
 export async function createBirthChartSnapshot(profile: SubjectProfile): Promise<BirthChartSnapshot> {
   const fingerprint = profileFingerprint(profile);
   const cached = await loadBirthChartFromCache(profile.profileId, fingerprint);
@@ -1407,6 +1612,118 @@ export async function createPersonalAstroFollowUp(params: {
     assistantId: params.assistantId,
     domain: 'astro',
     seed: `${params.profileName}:${params.period}:${params.question}`,
+    forceClosing: data.finishReason === 'MAX_TOKENS',
+  });
+  return { text, modelName: data.model, usage: data.usage };
+}
+
+export async function createAstroRelationshipReading(params: {
+  mode: AstroRelationshipMode;
+  subjects: AstroRelationshipSubject[];
+  assistantId: string;
+  assistantLabel: string;
+  compatibilityContext?: AstroCompatibilityContext | string | null;
+  memorySnippet?: ProfileMemorySnippet | null;
+}): Promise<AstroReadingResult> {
+  if (params.mode === 'compatibility' && params.subjects.length !== 2) {
+    throw new Error('Uyum analizi için iki kişi seçmelisin.');
+  }
+  if (params.mode === 'family' && params.subjects.length < 2) {
+    throw new Error('Aile okuması için en az iki aile bireyi seçmelisin.');
+  }
+  const subjectContext = buildRelationshipAstroContext(params.subjects);
+  const data = await generateGeminiTextDirect(
+    buildRelationshipPrompt({
+      mode: params.mode,
+      assistantId: params.assistantId,
+      assistantLabel: params.assistantLabel,
+      subjects: subjectContext,
+      compatibilityContext: params.compatibilityContext,
+      memorySnippet: params.memorySnippet,
+    }),
+  );
+  const seed = `${params.mode}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}:${params.compatibilityContext || ''}`;
+  const text = completeWithPersonaClosing({
+    text: cleanGeneratedTurkishText(data.text),
+    assistantId: params.assistantId,
+    domain: 'astro',
+    seed,
+    forceClosing: data.finishReason === 'MAX_TOKENS',
+  });
+  return {
+    text,
+    sign: params.mode === 'family' ? 'Aile' : 'Uyum',
+    timezoneUsed: 'Çoklu doğum verisi',
+    periodKey: todayIsoDate(),
+    precisionNote: subjectContext.some((subject) => !subject.precision.timeKnown || !subject.precision.placeKnown)
+      ? 'Bazı doğum saati veya doğum yeri bilgileri eksik olduğu için yükselen, evler ve zaman hassasiyetli temaslar daha temkinli yorumlandı.'
+      : undefined,
+    cached: false,
+    modelName: data.model,
+    usage: data.usage,
+  };
+}
+
+export async function createAstroRelationshipFollowUp(params: {
+  mode: AstroRelationshipMode;
+  subjects: AstroRelationshipSubject[];
+  assistantId: string;
+  assistantLabel: string;
+  compatibilityContext?: AstroCompatibilityContext | string | null;
+  readingText: string;
+  question: string;
+  previousFollowUps?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  memorySnippet?: ProfileMemorySnippet | null;
+}): Promise<{ text: string; modelName?: string; usage: { inputTokens: number; outputTokens: number; totalTokens: number } }> {
+  const subjectContext = buildRelationshipAstroContext(params.subjects);
+  const personaContext = assistantPersonaContext(params.assistantId);
+  const relevantMemory = formatRelevantMemory(params.memorySnippet);
+  const previousFollowUpText = (params.previousFollowUps || [])
+    .filter((message) => message.text.trim())
+    .slice(-8)
+    .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text.trim()}`)
+    .join('\n');
+  const pairData =
+    params.mode === 'compatibility' && subjectContext.length >= 2
+      ? buildSynastryAspects(subjectContext[0].chart, subjectContext[1].chart)
+      : subjectContext.flatMap((left, index) =>
+          subjectContext.slice(index + 1).map((right) => ({
+            pair: `${left.profile.displayName} - ${right.profile.displayName}`,
+            aspects: buildSynastryAspects(left.chart, right.chart).slice(0, 5),
+          })),
+        );
+  const systemText = [
+    `Sen ${params.assistantLabel} adlı Türkçe konuşan kişisel astrologsun.`,
+    'Cevabı yalnızca bu oturumdaki astrolojik uyum/aile okuması, verilen doğum verileri ve son soru üzerinden ver.',
+    'Kahve, fincan, telve, tarot, kart, el çizgisi veya görsel dili kullanma.',
+    'Pet bir özne varsa onu aile bireyi olarak ele al; romantik veya cinsel ilişki dili kurma.',
+    'Önceki cevaplarla çelişme, son soruya doğrudan cevap ver.',
+  ].join(' ');
+  const userText = [
+    `Okuma tipi: ${relationshipModeLabel(params.mode)}`,
+    params.compatibilityContext ? `Uyum bağlamı: ${params.compatibilityContext}` : '',
+    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
+    `Kişiler JSON:\n${JSON.stringify(subjectContext.map((subject) => subject.compact))}`,
+    `İlişki/aile temasları JSON:\n${JSON.stringify(pairData)}`,
+    `Ana yorum:\n${params.readingText}`,
+    previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
+    `Kullanıcının sorusu:\n${params.question}`,
+    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta doğum verisi/sinastri bağından 1-2 gerekçe ve uygulanabilir kısa öneri olsun. Yaklaşık 180-260 token içinde tamamla.',
+  ].filter(Boolean).join('\n\n');
+  const data = await generateGeminiTextDirect({
+    system_instruction: { parts: [{ text: systemText }] },
+    contents: [{ role: 'user', parts: [{ text: userText }] }],
+    generationConfig: {
+      temperature: 0.68,
+      maxOutputTokens: 760,
+    },
+  });
+  const text = completeWithPersonaClosing({
+    text: cleanGeneratedTurkishText(data.text),
+    assistantId: params.assistantId,
+    domain: 'astro',
+    seed: `${params.mode}:${params.question}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}`,
     forceClosing: data.finishReason === 'MAX_TOKENS',
   });
   return { text, modelName: data.model, usage: data.usage };

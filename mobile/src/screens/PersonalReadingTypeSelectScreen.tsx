@@ -1,9 +1,10 @@
 ﻿import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalReadingTypeSelect'>;
 
@@ -71,7 +72,7 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>3. Fal Tipi Seçimi</Text>
           <Text style={styles.helperText}>Fal tipini seç. Devam butonunda markalı onay penceresi açılır.</Text>
@@ -108,7 +109,7 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
             <Text style={styles.blockedHint}>Bu fal tipi yakında aktif olacak.</Text>
           ) : null}
         </View>
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={confirmVisible}

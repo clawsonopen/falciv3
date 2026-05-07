@@ -8,6 +8,7 @@ import { getTarotSpread } from '../data/tarotSpreads';
 import { TAROT_FRONT_IMAGE_MAP } from '../data/tarotImageMap';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import { TokenUsage } from '../components/TokenUsage';
 import {
@@ -491,11 +492,13 @@ export function TarotReadingScreen({ route, navigation }: Props) {
           ) : null}
 
           <View style={[styles.panel, styles.readingPanel]}>
-            <ScrollView
+            <BrandedScrollView
               ref={readingScrollRef}
+              containerStyle={styles.readingScrollFrame}
               style={styles.readingScroll}
               contentContainerStyle={styles.readingScrollContent}
               nestedScrollEnabled
+              indicatorMode="box"
               onContentSizeChange={() => {
                 if (isSendingQuestion) readingScrollRef.current?.scrollToEnd({ animated: true });
               }}
@@ -518,7 +521,7 @@ export function TarotReadingScreen({ route, navigation }: Props) {
                 ))
               )}
               {isSendingQuestion ? <AssistantLoading compact /> : null}
-            </ScrollView>
+            </BrandedScrollView>
           </View>
 
           <View style={styles.readActionsBar}>
@@ -795,7 +798,8 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   readingPanel: { minHeight: 420 },
-  readingScroll: { minHeight: 380 },
+  readingScrollFrame: { minHeight: 380, flexGrow: 0 },
+  readingScroll: { flexGrow: 0 },
   readingScrollContent: { paddingBottom: 8 },
   emptyReadingText: { color: 'rgba(255,255,255,0.68)', fontSize: 14, lineHeight: 21 },
   chatBubble: { marginBottom: 10, borderRadius: 12, borderWidth: 1, padding: 12 },

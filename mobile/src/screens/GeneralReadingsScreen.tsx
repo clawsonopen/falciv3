@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
+import { BrandedScrollView } from '../components/BrandedScrollView';
 import type { SubjectProfile } from '../types/memory';
 import { getPrimaryProfile, loadAccountState } from '../services/profileMemoryService';
 import { createDailyGeneralReading, type GeneralDivinationType } from '../services/divinationEngine';
@@ -35,7 +36,7 @@ import GeneralAstroCard from '../components/GeneralAstroCard';
 type Props = NativeStackScreenProps<RootStackParamList, 'GeneralReadings'>;
 
 type GeneralReadingItem = {
-  id: GeneralDivinationType | 'astro-daily' | 'astro-weekly' | 'astro-monthly';
+  id: GeneralDivinationType | 'astro-daily' | 'astro-weekly' | 'astro-monthly' | 'sun-compatibility' | 'daisy-fortune';
   title: string;
   description: string;
   isPaid: boolean;
@@ -203,6 +204,20 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         description: 'Ayın genel gündemi. 3 aylık ve yıllık bu bölümde yer almaz.',
         isPaid: false,
         refreshLabel: `Ayın son günü yenilenir (${monthLabel()})`,
+      },
+      {
+        id: 'sun-compatibility',
+        title: 'Genel Burç Uyumu',
+        description: 'İki Güneş burcuna göre aşk, iş, ev, dostluk ve komşuluk uyumu. LLM kullanılmaz.',
+        isPaid: false,
+        refreshLabel: 'Sınırsız ücretsiz',
+      },
+      {
+        id: 'daisy-fortune',
+        title: 'Papatya ile Hızlı EVET/HAYIR Falı',
+        description: 'Aklındaki soru için yaprakları tek tek kopararak hızlı evet/hayır yanıtı.',
+        isPaid: false,
+        refreshLabel: 'Sınırsız ücretsiz',
       },
       {
         id: 'fortune-cookie',
@@ -472,6 +487,14 @@ export function GeneralReadingsScreen({ navigation }: Props) {
 
   const handleGeneralReadingPress = useCallback(
     (item: GeneralReadingItem) => {
+      if (item.id === 'sun-compatibility') {
+        navigation.navigate('SunCompatibility');
+        return;
+      }
+      if (item.id === 'daisy-fortune') {
+        navigation.navigate('DaisyFortune');
+        return;
+      }
       if (!selectedProfile) {
         setInfoAction('profile');
         setInfoModal({
@@ -485,12 +508,12 @@ export function GeneralReadingsScreen({ navigation }: Props) {
       setPendingItem(item);
       setConfirmVisible(true);
     },
-    [selectedProfile],
+    [navigation, selectedProfile],
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]}> 
+      <BrandedScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kimin İçin Baktıracaksın?</Text>
           <Text style={styles.helperText}>Genel okumalar daha kısa ve daha geneldir; yükselen veya ay burcu hesaba katılmaz.</Text>
@@ -531,7 +554,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
             ))}
           </View>
         </View>
-      </ScrollView>
+      </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={confirmVisible}

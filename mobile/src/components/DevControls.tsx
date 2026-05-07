@@ -12,9 +12,9 @@ import {
   ScrollView,
 } from 'react-native';
 import Slider from '@react-native-community/slider';
-import { Picker } from '@react-native-picker/picker';
 import type { DevSettings } from '../types';
 import { AVAILABLE_VOICES } from '../config/constants';
+import { BrandedPicker } from './BrandedPicker';
 
 interface DevControlsProps {
   settings: DevSettings;
@@ -99,18 +99,11 @@ export function DevControls({ settings, onSettingsChange }: DevControlsProps) {
 
           <View style={styles.control}>
             <Text style={styles.label}>TTS Ses:</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={settings.ttsVoiceName}
-                onValueChange={(itemValue) => update({ ttsVoiceName: itemValue })}
-                style={styles.picker}
-                dropdownIconColor="#D4A574"
-              >
-                {AVAILABLE_VOICES.map((voice) => (
-                  <Picker.Item label={voice.label} value={voice.id} key={voice.id} color="#000" />
-                ))}
-              </Picker>
-            </View>
+            <BrandedPicker
+              selectedValue={settings.ttsVoiceName}
+              onValueChange={(itemValue) => update({ ttsVoiceName: itemValue })}
+              options={AVAILABLE_VOICES.map((voice) => ({ label: voice.label, value: voice.id }))}
+            />
           </View>
 
           <View style={styles.control}>
@@ -211,17 +204,6 @@ const styles = StyleSheet.create({
     color: 'rgba(212, 165, 116, 0.4)',
     width: 20,
     textAlign: 'center',
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: 'rgba(168, 130, 82, 0.2)',
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    overflow: 'hidden',
-  },
-  picker: {
-    color: '#D4A574',
-    height: 50,
   },
   textInput: {
     borderWidth: 1,

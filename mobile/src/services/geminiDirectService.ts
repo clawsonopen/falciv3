@@ -1,105 +1,63 @@
 import { AGENT_API_URL } from '../config/constants';
 
-type GeminiKeyResponse = {
+type GeminiProxyResponse = {
   ok?: boolean;
-  apiKey?: string;
+  text?: string;
   model?: string;
+  finishReason?: string | null;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    rawInputTokens?: number;
+    rawOutputTokens?: number;
+    rawTotalTokens?: number;
+    tokenSafetyMultiplier?: number;
+  };
   error?: string;
+  retryAfterSeconds?: number;
 };
 
-type GeminiGenerateResponse = {
-  candidates?: Array<{
-    finishReason?: string;
-    content?: {
-      parts?: Array<{ text?: string }>;
-    };
-  }>;
-  usageMetadata?: {
-    promptTokenCount?: number;
-    candidatesTokenCount?: number;
-    totalTokenCount?: number;
-  };
-  error?: {
-    message?: string;
-  };
-};
-
-let cachedKey: { apiKey: string; model: string; fetchedAt: number } | null = null;
-
-async function fetchGeminiKey(timeoutMs = 8000) {
-  if (cachedKey && Date.now() - cachedKey.fetchedAt < 10 * 60 * 1000) {
-    return cachedKey;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  let response: Response;
-
-  try {
-    response = await fetch(`${AGENT_API_URL}/gemini-api-key`, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: controller.signal,
-    });
-  } catch (err: any) {
-    const message =
-      err?.name === 'AbortError'
-        ? 'Yorum anahtarı alınamadı. Anahtar servisi yanıt vermiyor.'
-        : 'Yorum anahtarı alınamadı. Anahtar servisine ulaşılamıyor.';
-    const error = new Error(message) as Error & { status?: number };
-    error.status = 0;
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-
-  const data = (await response.json().catch(() => ({}))) as GeminiKeyResponse;
-  if (!response.ok || !data.apiKey) {
-    const error = new Error(data.error || 'Yorum anahtarı alınamadı.') as Error & { status?: number };
-    error.status = response.status;
-    throw error;
-  }
-
-  cachedKey = {
-    apiKey: data.apiKey,
-    model: data.model || 'gemini-2.5-flash-lite',
-    fetchedAt: Date.now(),
-  };
-  return cachedKey;
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function generateGeminiTextDirect(payload: Record<string, unknown>, timeoutMs = 45000) {
-  const { apiKey, model } = await fetchGeminiKey();
+function normalizeUsage(data: GeminiProxyResponse) {
+  return {
+    inputTokens: Number(data.usage?.inputTokens || 0),
+    outputTokens: Number(data.usage?.outputTokens || 0),
+    totalTokens: Number(data.usage?.totalTokens || 0),
+  };
+}
+
+async function postGeminiProxy(payload: Record<string, unknown>, timeoutMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    const response = await fetch(`${AGENT_API_URL}/gemini-generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    const data = (await response.json().catch(() => ({}))) as GeminiGenerateResponse;
-    if (!response.ok) {
-      const error = new Error(data.error?.message || 'Yorum yanıtı alınamadı.') as Error & { status?: number };
+    const data = (await response.json().catch(() => ({}))) as GeminiProxyResponse;
+    if (!response.ok || !data.ok) {
+      const error = new Error(data.error || 'Yorum yanıtı alınamadı.') as Error & {
+        status?: number;
+        retryAfterSeconds?: number;
+      };
       error.status = response.status;
+      error.retryAfterSeconds = data.retryAfterSeconds;
       throw error;
     }
-    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
-    if (!text) {
+    if (!data.text?.trim()) {
       throw new Error('Yorum kapısı boş yanıt döndürdü.');
     }
-    return {
-      text,
-      model,
-      finishReason: data.candidates?.[0]?.finishReason || null,
-      usage: {
-        inputTokens: Number(data.usageMetadata?.promptTokenCount || 0),
-        outputTokens: Number(data.usageMetadata?.candidatesTokenCount || 0),
-        totalTokens: Number(data.usageMetadata?.totalTokenCount || 0),
-      },
-    };
+    return data;
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('Yorum yanıtı zamanında alınamadı. Birazdan yeniden deneyelim.');
@@ -107,5 +65,30 @@ export async function generateGeminiTextDirect(payload: Record<string, unknown>,
     throw err;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+export async function generateGeminiTextDirect(payload: Record<string, unknown>, timeoutMs = 45000) {
+  try {
+    const data = await postGeminiProxy(payload, timeoutMs);
+    return {
+      text: data.text!.trim(),
+      model: data.model || 'gemini-2.5-flash-lite',
+      finishReason: data.finishReason || null,
+      usage: normalizeUsage(data),
+    };
+  } catch (err: any) {
+    const retryAfterSeconds = Number(err?.retryAfterSeconds || 0);
+    if (err?.status === 429 && retryAfterSeconds > 0 && retryAfterSeconds <= 60) {
+      await sleep(retryAfterSeconds * 1000);
+      const data = await postGeminiProxy(payload, timeoutMs);
+      return {
+        text: data.text!.trim(),
+        model: data.model || 'gemini-2.5-flash-lite',
+        finishReason: data.finishReason || null,
+        usage: normalizeUsage(data),
+      };
+    }
+    throw err;
   }
 }

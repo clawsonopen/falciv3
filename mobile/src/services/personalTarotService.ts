@@ -235,7 +235,7 @@ function buildBaseSystem(params: {
       '- Kullanıcı soru/niyet yazdıysa genel tarot yorumu yapıp soruyu sona bırakma; kartları sorunun cevabına hizmet edecek şekilde bağla.',
       '- Kartların dizilim içindeki ilişkisini kur; tek tek kart listesi gibi kopuk anlatma.',
       '- Kesin kehanet, korkutucu felaket, ölüm, ağır hastalık veya garanti finans dili kullanma.',
-      '- Yanıt başlıksız, listesiz, sohbet gibi akan düz yazı olsun.',
+      '- Yanıt başlıksız, listesiz, sohbet gibi akan düz yazı olsun. Markdown, yıldızlı vurgu, emoji, ikon veya dekoratif sembol kullanma.',
       '- Ana açılım yorumunda hedef uzunluk spread büyüklüğüne göre doyurucu olsun; 1 kart kısa, 10 kart kapsamlı ama nefessiz olmasın.',
       '- Takip sorularında önce son soruya cevap ver, sonra kart ve pozisyon bağlamından gerekçe ekle.',
       '- Oturum boyunca aynı spread, aynı kartlar ve aynı profil bağlamı korunmalı.',

@@ -10,6 +10,7 @@ import Svg, {
   RadialGradient,
   G
 } from 'react-native-svg';
+import { formatReadableText } from './SelectableFormattedText';
 
 interface MagicSphereCardProps {
   data: { text: string; sign: string };
@@ -92,11 +93,11 @@ const MagicSphereCard: React.FC<MagicSphereCardProps> = ({
 
         {/* İçerik Düzeni */}
         <View style={styles.content}>
-          <Text style={styles.mainText}>{data.text}</Text>
+          <Text style={styles.mainText}>{formatReadableText(data.text)}</Text>
 
           <View style={styles.signBox}>
             <Text style={styles.signTitle}>KÜRENİN İŞARETLERİ</Text>
-            <Text style={styles.signText}>{data.sign}</Text>
+            <Text style={styles.signText}>{formatReadableText(data.sign)}</Text>
           </View>
         </View>
       </ImageBackground>

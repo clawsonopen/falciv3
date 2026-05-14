@@ -9,15 +9,38 @@ type Props = {
 
 const TOPIC_START_RE = /^(aşk|ilişki|ilişkiler|kalp|aile|ev|hane|iş|kariyer|para|maddi|finans|sağlık|beden|ruh|duygu|zihin|öneri|tavsiye|sonuç|yakın gelecek|önümüzdeki|bu dönemde|bu ay|bu hafta|bugün)\b/i;
 const TOPIC_SHIFT_RE = /\b(ilişki|aşk|kalp|aile|hane|kariyer|iş|para|maddi|finans|sağlık|beden|ruh hali|duygu|zihin|öneri|tavsiye|yakın gelecek|sonuç)\b/i;
+const ORDINAL_DOT_TOKEN = '__ORDINAL_DOT__';
+const DECORATIVE_SYMBOL_RE =
+  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{200D}\u{FE0E}\u{FE0F}]/gu;
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+const MARKDOWN_EMPHASIS_RE = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3/g;
+const MARKDOWN_LIST_MARKER_RE = /^[ \t]*(?:[-*+•◦‣▪▫]|\d+[.)])\s+/gm;
+
+function sanitizeDisplayText(text: string) {
+  return (text || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[^\n]*\n?/g, '').replace(/```/g, ''))
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(MARKDOWN_LINK_RE, '$1')
+    .replace(MARKDOWN_LIST_MARKER_RE, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(MARKDOWN_EMPHASIS_RE, (_match, _strongMark, strongText, _emMark, emText) => strongText || emText || '')
+    .replace(/[*_~]{1,3}/g, '')
+    .replace(DECORATIVE_SYMBOL_RE, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
 
 function sentencesOf(text: string) {
-  const protectedText = text.replace(/(\b\d{1,2})\.(\s*)(?=(ev|evde|evin|eve|evden|evler|evleri)\b)/gi, (_match, number, space) => {
-    return `${number}__ORDINAL_DOT__${space}`;
-  });
+  const protectedText = text.replace(
+    /(\b\d{1,2})\.(\s*)(?=(?:haftası|haftanın|hafta|günü|gün|ayın|ay|yarısı|yarı|çeyrek|evde|evin|eve|evden|evler|evleri|ev|adım|aşama|faz|dönem|kapı|sayı|gibi)(?=$|[\s,;:)\]]))/giu,
+    (_match, number, space) => `${number}${ORDINAL_DOT_TOKEN}${space}`,
+  );
   return (
     protectedText
       .match(/[^.!?…]+[.!?…]+(?:["'”’)]*)|[^.!?…]+$/g)
-      ?.map((item) => item.replace(/__ORDINAL_DOT__/g, '.').trim())
+      ?.map((item) => item.replace(new RegExp(ORDINAL_DOT_TOKEN, 'g'), '.').trim())
       .filter(Boolean) || []
   );
 }
@@ -53,7 +76,7 @@ function splitLongParagraph(paragraph: string) {
 }
 
 export function formatReadableText(text: string) {
-  const source = text.replace(/\r\n/g, '\n').trim();
+  const source = sanitizeDisplayText(text);
   if (!source) return '';
   return source
     .split(/\n{2,}/)

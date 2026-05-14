@@ -12,6 +12,7 @@ import Svg, {
 } from 'react-native-svg';
 import { BrandedScrollView } from './BrandedScrollView';
 import IChingSymbol from './IChingSymbol';
+import { formatReadableText } from './SelectableFormattedText';
 
 interface IChingCardProps {
   data: {
@@ -110,7 +111,7 @@ const IChingCard: React.FC<IChingCardProps> = ({
               contentContainerStyle={styles.scrollContainer}
             >
               <Text style={styles.messageText}>
-                {data.text.split('\n\n').slice(1).join('\n\n')}
+                {formatReadableText(data.text.split('\n\n').slice(1).join('\n\n'))}
               </Text>
             </BrandedScrollView>
 

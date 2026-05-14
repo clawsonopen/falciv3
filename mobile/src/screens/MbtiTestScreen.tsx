@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { BrandedScrollView } from '../components/BrandedScrollView';
 import { appendReplacingProfileTestResult, appendUserStatedTestResult } from '../services/profileMemoryService';
+import { PERSONALITY_TESTS, type PersonalityTestDefinition, type PersonalityTestId } from '../data/personalityTests';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MbtiTest'>;
 
@@ -12,6 +13,12 @@ type MbtiQuestion = {
   id: number;
   left: string;
   right: string;
+};
+
+type GenericResult = {
+  type: string;
+  scores: Record<string, number>;
+  percentages: Record<string, number>;
 };
 
 const QUESTIONS: MbtiQuestion[] = [
@@ -342,7 +349,201 @@ function dimensionMeaning(type: string) {
   return [introExtro, sensingIntuition, feelingThinking, judgingPerceiving];
 }
 
-export function MbtiTestScreen({ navigation, route }: Props) {
+function calculateGenericResult(test: PersonalityTestDefinition, answers: Record<number, number>): GenericResult {
+  const totals: Record<string, number> = {};
+  const counts: Record<string, number> = {};
+  test.questions.forEach((question) => {
+    const raw = answers[question.id] || 3;
+    const value = question.reverse ? 6 - raw : raw;
+    totals[question.dimension] = (totals[question.dimension] || 0) + value;
+    counts[question.dimension] = (counts[question.dimension] || 0) + 1;
+  });
+  const percentages = Object.fromEntries(
+    Object.entries(totals).map(([key, total]) => [key, Math.round((total / ((counts[key] || 1) * 5)) * 100)]),
+  );
+  const type = test.resultOrder.reduce((best, key) => {
+    if (!best) return key;
+    return (percentages[key] || 0) > (percentages[best] || 0) ? key : best;
+  }, '');
+  return { type, scores: totals, percentages };
+}
+
+function GenericPersonalityTestScreen({
+  navigation,
+  profileId,
+  test,
+}: {
+  navigation: Props['navigation'];
+  profileId: string;
+  test: PersonalityTestDefinition;
+}) {
+  const [answers, setAnswers] = useState<Record<number, number>>({});
+  const [showResult, setShowResult] = useState(false);
+  const [savedResultType, setSavedResultType] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const answeredCount = Object.keys(answers).length;
+  const missingQuestionIds = test.questions.filter((question) => typeof answers[question.id] !== 'number').map((question) => question.id);
+  const result = useMemo(() => calculateGenericResult(test, answers), [answers, test]);
+  const resultDetail = test.results[result.type];
+
+  const setAnswer = (questionId: number, value: number) => {
+    setAnswers((current) => ({ ...current, [questionId]: value }));
+  };
+
+  const saveAndShowResult = async () => {
+    if (answeredCount < test.questions.length || isSaving || !resultDetail) return;
+    const dimensionSummary = test.resultOrder
+      .map((key) => `${test.dimensions[key]} ${result.percentages[key] || 0}%`)
+      .join(', ');
+    const summary = `${test.title} sonucu: ${resultDetail.title}. ${resultDetail.description} Boyutlar: ${dimensionSummary}.`;
+    setIsSaving(true);
+    try {
+      if (savedResultType !== result.type) {
+        const nextState = await appendReplacingProfileTestResult({
+          profileId,
+          assistantId: 'testler',
+          readingType: 'personality-test',
+          surfacesRead: [],
+          summary,
+          testResult: {
+            testId: test.id,
+            testName: test.title,
+            resultCode: resultDetail.code,
+            resultTitle: resultDetail.title,
+            dimensions: result.percentages,
+          },
+          transcript: [
+            {
+              role: 'assistant',
+              text: summary,
+              timestamp: Date.now(),
+            },
+          ],
+        });
+        const readingId = nextState.readings[0]?.readingId;
+        await appendUserStatedTestResult({
+          profileId,
+          readingId: readingId || `${Date.now()}`,
+          testId: test.id,
+          testName: test.title,
+          resultCode: resultDetail.code,
+          resultTitle: resultDetail.title,
+          summary,
+        });
+        setSavedResultType(result.type);
+      }
+      setShowResult(true);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (showResult && answeredCount === test.questions.length && resultDetail) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
+          <View style={styles.resultPanel}>
+            <Text style={styles.eyebrow}>Test sonucu</Text>
+            <Text style={styles.resultName}>{resultDetail.title}</Text>
+            <Text style={styles.resultText}>{resultDetail.description}</Text>
+            <View style={styles.detailStack}>
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailTitle}>Güçlü Yanların</Text>
+                <Text style={styles.detailText}>{resultDetail.strengths}</Text>
+              </View>
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailTitle}>Gelişim Alanı</Text>
+                <Text style={styles.detailText}>{resultDetail.growth}</Text>
+              </View>
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailTitle}>İlişkilerde</Text>
+                <Text style={styles.detailText}>{resultDetail.relationships}</Text>
+              </View>
+              <View style={styles.detailBlock}>
+                <Text style={styles.detailTitle}>Sana İyi Gelen Ritim</Text>
+                <Text style={styles.detailText}>{resultDetail.rhythm}</Text>
+              </View>
+            </View>
+            <View style={styles.scoreGrid}>
+              {test.resultOrder.map((key) => (
+                <Text key={key} style={styles.scoreText}>
+                  {test.dimensions[key]}: {result.percentages[key] || 0}%
+                </Text>
+              ))}
+            </View>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.goBack()}>
+              <Text style={styles.primaryButtonText}>Kişiye Özel Sayfasına Dön</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setAnswers({});
+                setShowResult(false);
+                setSavedResultType(null);
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Testi Yeniden Çöz</Text>
+            </TouchableOpacity>
+          </View>
+        </BrandedScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
+        <View style={styles.headerPanel}>
+          <Text style={styles.title}>{test.title}</Text>
+          <Text style={styles.meta}>{test.meta}</Text>
+          <Text style={styles.helper}>{test.intro} Doğru ya da yanlış cevap yok; son haftalardaki doğal eğilimini işaretle.</Text>
+          <Text style={styles.progress}>{answeredCount} / {test.questions.length}</Text>
+        </View>
+
+        {test.questions.map((question) => (
+          <View
+            key={question.id}
+            style={[styles.questionCard, typeof answers[question.id] === 'number' && styles.questionCardAnswered]}
+          >
+            <Text style={styles.questionNumber}>{question.id}. soru</Text>
+            <Text style={styles.questionText}>{question.text}</Text>
+            <FivePointSlider value={answers[question.id]} onChange={(value) => setAnswer(question.id, value)} />
+            <View style={styles.scaleLabelRow}>
+              <Text style={styles.scaleLabel}>{test.lowLabel}</Text>
+              <Text style={styles.scaleLabel}>Ortada</Text>
+              <Text style={styles.scaleLabel}>{test.highLabel}</Text>
+            </View>
+          </View>
+        ))}
+
+        <TouchableOpacity
+          style={[styles.primaryButton, answeredCount < test.questions.length && styles.primaryButtonDisabled]}
+          disabled={answeredCount < test.questions.length}
+          onPress={() => void saveAndShowResult()}
+        >
+          <Text style={styles.primaryButtonText}>{isSaving ? 'Kaydediliyor...' : 'Sonucu Göster'}</Text>
+        </TouchableOpacity>
+        {missingQuestionIds.length ? (
+          <Text style={styles.missingText}>
+            Eksik sorular: {missingQuestionIds.slice(0, 8).join(', ')}
+            {missingQuestionIds.length > 8 ? ` ve ${missingQuestionIds.length - 8} soru daha` : ''}
+          </Text>
+        ) : null}
+      </BrandedScrollView>
+    </SafeAreaView>
+  );
+}
+
+export function MbtiTestScreen(props: Props) {
+  const testId = props.route.params.testId || 'mbti';
+  const genericTest = testId !== 'mbti' ? PERSONALITY_TESTS[testId as PersonalityTestId] : null;
+  if (genericTest) {
+    return <GenericPersonalityTestScreen navigation={props.navigation} profileId={props.route.params.profileId} test={genericTest} />;
+  }
+  return <MbtiOnlyTestScreen {...props} />;
+}
+
+function MbtiOnlyTestScreen({ navigation, route }: Props) {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [showResult, setShowResult] = useState(false);
   const [savedResultType, setSavedResultType] = useState<string | null>(null);

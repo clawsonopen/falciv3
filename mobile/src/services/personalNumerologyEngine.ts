@@ -619,6 +619,7 @@ function buildGeminiPayload(params: {
   const systemText = [
     `Sen ${params.assistantLabel} adlı falcısın; kişiye özel numerolojiyi bu falcının aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
     'Use only the provided on-device numerology JSON. Do not mention general divination numerology cards.',
+    'Markdown biçimlendirmesi, yıldızlı vurgu, madde imi, numaralı liste, emoji, ikon veya dekoratif sembol üretme.',
     'Numeroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; sayılar, profil ve dönem akışı üzerinden konuş.',
     'Persona sesi teknik numeroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili falcıya ait olmalı. Kendini tanıtma.',
     'Use profile and prior reading data as silent background unless the user explicitly asks about the source. Keep the address mode consistent throughout the answer.',

@@ -11,6 +11,7 @@ import Svg, {
   G,
   Text as SvgText
 } from 'react-native-svg';
+import { formatReadableText } from './SelectableFormattedText';
 
 interface FortuneCookieCardProps {
   data: { text: string; sign: string };
@@ -109,11 +110,11 @@ const FortuneCookieCard: React.FC<FortuneCookieCardProps> = ({
              </Svg>
           </View>
 
-          <Text style={styles.mainText}>{data.text}</Text>
+          <Text style={styles.mainText}>{formatReadableText(data.text)}</Text>
 
           <View style={styles.signBox}>
             <Text style={styles.signTitle}>GÜNÜN UĞURLU ÜÇLEMESİ</Text>
-            <Text style={styles.signText}>{data.sign}</Text>
+            <Text style={styles.signText}>{formatReadableText(data.sign)}</Text>
           </View>
         </View>
       </ImageBackground>

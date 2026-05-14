@@ -8,6 +8,7 @@ import Svg, {
   Stop
 } from 'react-native-svg';
 import { BrandedScrollView } from './BrandedScrollView';
+import { formatReadableText } from './SelectableFormattedText';
 
 interface InspirationCardProps {
   text: string;
@@ -77,7 +78,7 @@ const InspirationCard: React.FC<InspirationCardProps> = ({
               contentContainerStyle={styles.scrollContainer}
             >
               <Text style={styles.messageText}>
-                {text}
+                {formatReadableText(text)}
               </Text>
             </BrandedScrollView>
             

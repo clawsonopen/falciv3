@@ -173,31 +173,31 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
       {
         id: 'compatibility',
         title: 'Uyumluluk Testi',
-        meta: 'Yakında',
+        meta: '20 soru, yaklaşık 7-9 dakika',
         description: 'İki kişinin iletişim, beklenti, ritim ve ilişki ihtiyaçlarının nerede örtüştüğünü gösterir.',
       },
       {
         id: 'big-five',
         title: 'Beş Faktör Testi',
-        meta: 'Yakında',
+        meta: '25 soru, yaklaşık 8-10 dakika',
         description: 'Dışadönüklük, uyumluluk, sorumluluk, duygusal denge ve açıklık eğilimlerini ölçer.',
       },
       {
         id: 'attachment',
         title: 'Bağlanma Stili Testi',
-        meta: 'Yakında',
+        meta: '20 soru, yaklaşık 7-9 dakika',
         description: 'Yakın ilişkilerde güven, mesafe, kaygı ve ihtiyaç ifade etme kalıplarını anlamaya yardım eder.',
       },
       {
         id: 'values',
         title: 'Değerler Pusulası',
-        meta: 'Yakında',
+        meta: '20 soru, yaklaşık 7-9 dakika',
         description: 'Hayatta neyi öncelediğini, kararlarını hangi değerlerin yönlendirdiğini görünür kılar.',
       },
       {
         id: 'coping-style',
         title: 'Stresle Başa Çıkma Testi',
-        meta: 'Yakında',
+        meta: '20 soru, yaklaşık 7-9 dakika',
         description: 'Zorlanınca kaçınma, çözüm arama, destek isteme ya da içe çekilme eğilimlerini çıkarır.',
       },
     ],
@@ -281,17 +281,9 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         });
         return;
       }
-      if (item.id === 'mbti') {
-        navigation.navigate('MbtiTest', {
-          profileId: selectedProfile.profileId,
-        });
-        return;
-      }
-      setInfoAction(null);
-      setInfoModal({
-        visible: true,
-        title: 'Yakında',
-        message: `${item.title} çok yakında aktif olacak.`,
+      navigation.navigate('MbtiTest', {
+        profileId: selectedProfile.profileId,
+        testId: item.id,
       });
     },
     [navigation, selectedProfile],

@@ -10,6 +10,7 @@ import Svg, {
   Circle
 } from 'react-native-svg';
 import { BrandedScrollView } from './BrandedScrollView';
+import { formatReadableText } from './SelectableFormattedText';
 
 interface GeneralAstroCardProps {
   title: string;
@@ -46,7 +47,7 @@ const GeneralAstroCard: React.FC<GeneralAstroCardProps> = ({
 
   // Metni paragraflara ayırıp başlıkları kalınlaştıran yardımcı fonksiyon
   const renderFormattedText = (rawText: string) => {
-    const lines = rawText.split('\n');
+    const lines = formatReadableText(rawText).split('\n');
     return lines.map((line, index) => {
       const trimmed = line.trim();
       if (!trimmed) return <View key={`space-${index}`} style={{ height: 12 }} />;

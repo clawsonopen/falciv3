@@ -99,6 +99,7 @@ export type RootStackParamList = {
   };
   MbtiTest: {
     profileId: string;
+    testId?: 'mbti' | 'compatibility' | 'big-five' | 'attachment' | 'values' | 'coping-style';
   };
   Session: { config: SessionConfig };
   History: { profileId: string; profileName: string };
@@ -189,7 +190,17 @@ export default function App() {
           <Stack.Screen
             name="MbtiTest"
             component={MbtiTestScreen}
-            options={{ title: 'MBTI Kişilik Testi' }}
+            options={({ route }) => {
+              const titles = {
+                mbti: 'MBTI Kişilik Testi',
+                compatibility: 'Uyumluluk Testi',
+                'big-five': 'Beş Faktör Testi',
+                attachment: 'Bağlanma Stili Testi',
+                values: 'Değerler Pusulası',
+                'coping-style': 'Stresle Başa Çıkma Testi',
+              };
+              return { title: titles[route.params.testId || 'mbti'] };
+            }}
           />
           <Stack.Screen
             name="Session"

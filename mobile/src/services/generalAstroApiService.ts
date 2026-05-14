@@ -83,7 +83,7 @@ function buildGeneralAstroPayload(params: {
   const signLabel = SIGN_TR[params.sign];
   const periodLabel = PERIOD_TR[params.period];
   const systemText =
-    'Sen Türkçe yazan bir genel astroloji yorumcususun. Yanıtı kısa, akıcı ve kullanıcıya dönük yaz; kesin kehanet, sağlık/finans garantisi ve korkutucu dil kullanma.';
+    'Sen Türkçe yazan bir genel astroloji yorumcususun. Yanıtı kısa, akıcı ve kullanıcıya dönük yaz; kesin kehanet, sağlık/finans garantisi ve korkutucu dil kullanma. Markdown, yıldızlı vurgu, madde imi, emoji, ikon veya dekoratif sembol kullanma.';
   const userText = [
     `Profil adı: ${params.profile.displayName}`,
     `Güneş burcu: ${signLabel}`,

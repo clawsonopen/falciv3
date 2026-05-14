@@ -9,18 +9,22 @@ import { BrandedScrollView } from '../components/BrandedScrollView';
 import {
   APP_NAME,
   DEFAULT_DEV_SETTINGS,
+  FORTUNE_MODELS,
   applyAssistantPreset,
   getAssistantLabel,
   getAssistantPreset,
 } from '../config/constants';
 import { getPrimaryProfile, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
-import { getTokenLedgerSnapshot } from '../services/tokenLedgerService';
+import { getModelTokenPrices, getTokenLedgerSnapshot } from '../services/tokenLedgerService';
 import type { AccountState } from '../types/memory';
 import type { DevSettings } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PersonalReadingSetup'>;
 
 export function PersonalReadingSetupScreen({ navigation, route }: Props) {
+  const readingType = route.params?.preselectedReadingType || 'coffee';
+  const assistantId = route.params?.preselectedAssistantId || DEFAULT_DEV_SETTINGS.assistantId;
+  const baseDevSettings = route.params?.preselectedDevSettings || DEFAULT_DEV_SETTINGS;
   const [state, setState] = useState<AccountState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [coffeeMode, setCoffeeMode] = useState<'upload' | 'ai-brew'>('upload');
@@ -35,14 +39,21 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
   const [pendingMemoryAnalysisTokens, setPendingMemoryAnalysisTokens] = useState(0);
   const [memoryAnalysisInFlight, setMemoryAnalysisInFlight] = useState(0);
   const [totalMemoryAnalysisCost, setTotalMemoryAnalysisCost] = useState({ input: 0, output: 0 });
+  const [selectedModelName, setSelectedModelName] = useState(baseDevSettings.modelName || 'gemini-2.5-flash-lite');
   const [infoModal, setInfoModal] = useState({ visible: false, title: APP_NAME, message: '' });
 
-  const readingType = route.params?.preselectedReadingType || 'coffee';
-  const assistantId = route.params?.preselectedAssistantId || DEFAULT_DEV_SETTINGS.assistantId;
-  const baseDevSettings = route.params?.preselectedDevSettings || DEFAULT_DEV_SETTINGS;
   const devSettings: DevSettings = useMemo(
-    () => applyAssistantPreset(baseDevSettings, assistantId),
-    [assistantId, baseDevSettings],
+    () => {
+      const model = FORTUNE_MODELS.find((item) => item.name === selectedModelName) || FORTUNE_MODELS[0];
+      return {
+        ...applyAssistantPreset(baseDevSettings, assistantId),
+        modelProvider: model.provider,
+        modelName: model.name,
+        inputPrice: getModelTokenPrices(model.name).inputPriceUsdPerM,
+        outputPrice: getModelTokenPrices(model.name).outputPriceUsdPerM,
+      };
+    },
+    [assistantId, baseDevSettings, selectedModelName],
   );
 
   const assistantLabel = getAssistantLabel(devSettings.assistantId);
@@ -144,6 +155,7 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
             <Text style={styles.summaryText}>Profil: {selectedProfile?.displayName || '-'}</Text>
             <Text style={styles.summaryText}>Fal Tipi: {readingType === 'coffee' ? 'Kahve Falı' : 'El / Pati Falı'}</Text>
             <Text style={styles.summaryText}>Falcı: {assistantLabel}</Text>
+            <Text style={styles.summaryText}>Model: {FORTUNE_MODELS.find((item) => item.name === devSettings.modelName)?.label || devSettings.modelName}</Text>
           </View>
 
           {(pendingRejectedUploads > 0 ||
@@ -180,6 +192,22 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>{readingType === 'coffee' ? 'Kahve Falına Başla' : 'El Falına Başla'}</Text>
             <Text style={styles.assistantBlurb}>{assistantPreset.tagline}</Text>
+
+            <Text style={styles.inlineLabel}>Model</Text>
+            <View style={styles.modelRow}>
+              {FORTUNE_MODELS.map((model) => (
+                <TouchableOpacity
+                  key={model.name}
+                  style={[styles.modelCard, selectedModelName === model.name && styles.modeCardSelected]}
+                  onPress={() => setSelectedModelName(model.name)}
+                >
+                  <Text style={styles.modeTitle}>{model.label}</Text>
+                  <Text style={styles.modeText}>
+                    {model.name === 'gpt-5-nano' ? 'Ayrı OpenAI prompt builder ile deneysel akış.' : 'Mevcut Gemini akışı aynen korunur.'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
 
             {readingType === 'coffee' ? (
               <>
@@ -321,6 +349,16 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   inlineLabel: { color: '#D4A574', fontSize: 13, fontWeight: '600', marginBottom: 6 },
+  modelRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  modelCard: {
+    flex: 1,
+    minHeight: 86,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.18)',
+  },
   modeRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   modeCard: {
     flex: 1,

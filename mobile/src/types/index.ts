@@ -25,7 +25,18 @@ export interface SessionConfig {
   devSettings: DevSettings;
 }
 
+export type FortuneModelProvider = 'gemini' | 'openai' | 'together' | 'publicai';
+export type FortuneModelName =
+  | 'gemini-2.5-flash-lite'
+  | 'gpt-5-nano'
+  | 'google/gemma-3n-E4B-it'
+  | 'utter-project/EuroLLM-22B-Instruct-2512';
+
 export interface DevSettings {
+  /** Selected AI model provider */
+  modelProvider: FortuneModelProvider;
+  /** Selected AI model name */
+  modelName: FortuneModelName;
   /** Selected assistant persona id */
   assistantId: string;
   /** Gemini temperature (0.0 - 2.0) */

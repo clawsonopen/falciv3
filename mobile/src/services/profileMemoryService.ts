@@ -5,6 +5,8 @@ import type {
   ChartPrecision,
   MemoryCategoryCandidate,
   MemoryObservation,
+  UsedSpecificityEventMemory,
+  UsedSurfaceCueMemory,
   ProfileGender,
   ProfileMemoryBundle,
   ProfileMemorySnippet,
@@ -142,6 +144,8 @@ function emptyReadingDerivedMemory(profileId: string, accountId: string): Readin
     emotionalPatterns: [],
     observations: [],
     categoryCandidates: [],
+    usedLifeEvents: [],
+    usedSurfaceCues: [],
     assistantAffinity: {},
     updatedAt: nowIso(),
   };
@@ -211,6 +215,12 @@ function withMemoryDefaults<T extends UserStatedMemoryFile | ReadingDerivedMemor
     observations: memory.observations || [],
     categoryCandidates: memory.categoryCandidates || [],
     assistantAffinity: memory.assistantAffinity || {},
+    ...(memory.source === 'reading-derived'
+      ? {
+          usedLifeEvents: (memory as ReadingDerivedMemoryFile).usedLifeEvents || [],
+          usedSurfaceCues: (memory as ReadingDerivedMemoryFile).usedSurfaceCues || [],
+        }
+      : {}),
   };
 }
 
@@ -401,6 +411,50 @@ function dampenReadingDerivedMemory<T extends ReadingDerivedMemoryFile>(memory: 
       confidence: Math.min(item.confidence, 0.38),
     })),
   };
+}
+
+function mergeUsedLifeEvents(
+  current: UsedSpecificityEventMemory[] = [],
+  incoming: Array<{ group: string; label: string }> = [],
+) {
+  const now = nowIso();
+  const next = [...current];
+  for (const item of incoming) {
+    const group = String(item.group || '').trim();
+    const label = String(item.label || '').trim();
+    if (!group || !label) continue;
+    const existingIndex = next.findIndex((entry) => entry.group === group && entry.label === label);
+    const existing = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      group,
+      label,
+      usedAt: now,
+      count: (existing?.count || 0) + 1,
+    });
+  }
+  return next.slice(-120);
+}
+
+function mergeUsedSurfaceCues(
+  current: UsedSurfaceCueMemory[] = [],
+  incoming: string[] = [],
+) {
+  const now = nowIso();
+  const next = [...current];
+  for (const raw of incoming) {
+    const cue = String(raw || '').trim();
+    if (!cue) continue;
+    const existingIndex = next.findIndex((entry) => entry.cue === cue);
+    const existing = existingIndex >= 0 ? next[existingIndex] : null;
+    if (existingIndex >= 0) next.splice(existingIndex, 1);
+    next.push({
+      cue,
+      usedAt: now,
+      count: (existing?.count || 0) + 1,
+    });
+  }
+  return next.slice(-120);
 }
 
 function categoryCandidateKey(group: string, subgroup: string) {
@@ -1423,6 +1477,8 @@ export async function loadProfileMemorySnippet(
     readingPatterns: bundle.readingDerived.emotionalPatterns.map((item) => item.label).slice(0, 3),
     readingObservations,
     readingCategoryCandidates: bundle.readingDerived.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
+    usedLifeEvents: bundle.readingDerived.usedLifeEvents || [],
+    usedSurfaceCues: bundle.readingDerived.usedSurfaceCues || [],
     relevantObservations,
   };
 }
@@ -1653,6 +1709,31 @@ export async function appendReadingDerivedTheme(
         salience: 0.28,
       },
     ]),
+    updatedAt: nowIso(),
+  };
+  await writeJsonFile(readingMemoryFile(profileId), nextReadingMemory);
+}
+
+export async function appendReadingSpecificityUsage(
+  profileId: string,
+  usage: {
+    events?: Array<{ group: string; label: string }>;
+    cues?: string[];
+  },
+): Promise<void> {
+  if (!usage.events?.length && !usage.cues?.length) return;
+  const state = await loadAccountState();
+  await ensureProfileMemoryFiles(profileId, state.accountId);
+  const currentReadingMemory = withMemoryDefaults(
+    await readJsonFile<ReadingDerivedMemoryFile>(
+      readingMemoryFile(profileId),
+      emptyReadingDerivedMemory(profileId, state.accountId),
+    ),
+  ) as ReadingDerivedMemoryFile;
+  const nextReadingMemory: ReadingDerivedMemoryFile = {
+    ...currentReadingMemory,
+    usedLifeEvents: mergeUsedLifeEvents(currentReadingMemory.usedLifeEvents || [], usage.events || []),
+    usedSurfaceCues: mergeUsedSurfaceCues(currentReadingMemory.usedSurfaceCues || [], usage.cues || []),
     updatedAt: nowIso(),
   };
   await writeJsonFile(readingMemoryFile(profileId), nextReadingMemory);

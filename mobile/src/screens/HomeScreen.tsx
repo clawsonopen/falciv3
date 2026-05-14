@@ -9,8 +9,8 @@ import { BrandedScrollView } from '../components/BrandedScrollView';
 import { loadAccountState } from '../services/profileMemoryService';
 import {
   DEFAULT_USD_TRY_RATE,
-  GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M,
-  GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M,
+  MODEL_TOKEN_PRICES_USD_PER_M,
+  getModelTokenPrices,
   getTokenLedgerSnapshot,
   resetPendingLedgerOncePerLaunch,
   resetPersonalTokenUsage,
@@ -169,8 +169,15 @@ export function HomeScreen({ navigation }: Props) {
                 </TouchableOpacity>
               </View>
               <Text style={styles.panelText}>
-                Model fiyatı: giriş ${GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token, çıkış $
-                {GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M.toFixed(2)} / 1M token.
+                Model fiyatları satırdaki modele göre uygulanır: Gemini giriş $
+                {MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'].inputPriceUsdPerM.toFixed(2)} / çıkış $
+                {MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'].outputPriceUsdPerM.toFixed(2)}, Gemma giriş $
+                {MODEL_TOKEN_PRICES_USD_PER_M['google/gemma-3n-E4B-it'].inputPriceUsdPerM.toFixed(2)} / çıkış $
+                {MODEL_TOKEN_PRICES_USD_PER_M['google/gemma-3n-E4B-it'].outputPriceUsdPerM.toFixed(2)}, GPT-5 nano giriş $
+                {MODEL_TOKEN_PRICES_USD_PER_M['gpt-5-nano'].inputPriceUsdPerM.toFixed(2)} / çıkış $
+                {MODEL_TOKEN_PRICES_USD_PER_M['gpt-5-nano'].outputPriceUsdPerM.toFixed(2)}, EuroLLM giriş $
+                {MODEL_TOKEN_PRICES_USD_PER_M['utter-project/EuroLLM-22B-Instruct-2512'].inputPriceUsdPerM.toFixed(2)} / çıkış $
+                {MODEL_TOKEN_PRICES_USD_PER_M['utter-project/EuroLLM-22B-Instruct-2512'].outputPriceUsdPerM.toFixed(2)} / 1M token.
               </Text>
               <View style={styles.rateControls}>
                 <View style={styles.rateRow}>
@@ -228,9 +235,10 @@ export function HomeScreen({ navigation }: Props) {
                   </View>
                   {personalUsageRows.length ? (
                     personalUsageRows.map((row) => {
-                      const imageUsd = costUsd(row.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                      const textUsd = costUsd(row.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                      const outputUsd = costUsd(row.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M);
+                      const prices = getModelTokenPrices(row.modelName);
+                      const imageUsd = costUsd(row.imageInputTokens, prices.inputPriceUsdPerM);
+                      const textUsd = costUsd(row.textInputTokens, prices.inputPriceUsdPerM);
+                      const outputUsd = costUsd(row.outputTokens, prices.outputPriceUsdPerM);
                       const totalTokens = row.imageInputTokens + row.textInputTokens + row.outputTokens;
                       const totalUsd = imageUsd + textUsd + outputUsd;
                       const values = [
@@ -265,9 +273,20 @@ export function HomeScreen({ navigation }: Props) {
                     </View>
                   )}
                   {(() => {
-                    const imageUsd = costUsd(usageTotals.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                    const textUsd = costUsd(usageTotals.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M);
-                    const outputUsd = costUsd(usageTotals.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M);
+                    const pricedTotals = personalUsageRows.reduce(
+                      (totals, row) => {
+                        const prices = getModelTokenPrices(row.modelName);
+                        return {
+                          imageUsd: totals.imageUsd + costUsd(row.imageInputTokens, prices.inputPriceUsdPerM),
+                          textUsd: totals.textUsd + costUsd(row.textInputTokens, prices.inputPriceUsdPerM),
+                          outputUsd: totals.outputUsd + costUsd(row.outputTokens, prices.outputPriceUsdPerM),
+                        };
+                      },
+                      { imageUsd: 0, textUsd: 0, outputUsd: 0 },
+                    );
+                    const imageUsd = pricedTotals.imageUsd;
+                    const textUsd = pricedTotals.textUsd;
+                    const outputUsd = pricedTotals.outputUsd;
                     const totalTokens = usageTotals.imageInputTokens + usageTotals.textInputTokens + usageTotals.outputTokens;
                     const totalUsd = imageUsd + textUsd + outputUsd;
                     const values = [
@@ -297,9 +316,20 @@ export function HomeScreen({ navigation }: Props) {
                     );
                   })()}
                   {(() => {
-                    const imageUsd = costUsd(usageTotals.imageInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M) * appliedSafetyK;
-                    const textUsd = costUsd(usageTotals.textInputTokens, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M) * appliedSafetyK;
-                    const outputUsd = costUsd(usageTotals.outputTokens, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M) * appliedSafetyK;
+                    const pricedTotals = personalUsageRows.reduce(
+                      (totals, row) => {
+                        const prices = getModelTokenPrices(row.modelName);
+                        return {
+                          imageUsd: totals.imageUsd + costUsd(row.imageInputTokens, prices.inputPriceUsdPerM),
+                          textUsd: totals.textUsd + costUsd(row.textInputTokens, prices.inputPriceUsdPerM),
+                          outputUsd: totals.outputUsd + costUsd(row.outputTokens, prices.outputPriceUsdPerM),
+                        };
+                      },
+                      { imageUsd: 0, textUsd: 0, outputUsd: 0 },
+                    );
+                    const imageUsd = pricedTotals.imageUsd * appliedSafetyK;
+                    const textUsd = pricedTotals.textUsd * appliedSafetyK;
+                    const outputUsd = pricedTotals.outputUsd * appliedSafetyK;
                     const totalTokens = usageTotals.imageInputTokens + usageTotals.textInputTokens + usageTotals.outputTokens;
                     const totalUsd = imageUsd + textUsd + outputUsd;
                     const values = [

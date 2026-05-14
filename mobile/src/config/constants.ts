@@ -9,6 +9,13 @@ export const APP_NAME = 'Falcı Ailesi Sezuşgiller';
 /** Agent backend API base URL */
 export const AGENT_API_URL = 'http://192.168.1.76:8080';
 
+export const FORTUNE_MODELS = [
+  { provider: 'gemini', name: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
+  { provider: 'openai', name: 'gpt-5-nano', label: 'GPT-5 nano' },
+  { provider: 'together', name: 'google/gemma-3n-E4B-it', label: 'Gemma 3n E4B' },
+  { provider: 'publicai', name: 'utter-project/EuroLLM-22B-Instruct-2512', label: 'EuroLLM 22B' },
+] as const;
+
 /** Image compression settings */
 export const IMAGE_MAX_DIMENSION = 768;
 export const IMAGE_QUALITY = 0.5; // JPEG quality 0-1
@@ -110,6 +117,8 @@ export function applyAssistantPreset(
 
 /** Default dev settings */
 export const DEFAULT_DEV_SETTINGS: DevSettings = {
+  modelProvider: 'gemini',
+  modelName: 'gemini-2.5-flash-lite',
   assistantId: 'durdane-hanim',
   temperature: 0.8,
   thinkingBudget: 0,

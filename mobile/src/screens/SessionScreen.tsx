@@ -55,6 +55,7 @@ const PHOTO_RETRY_MESSAGE =
 function visibleStartupError(raw?: string | null) {
   const text = (raw || '').trim();
   if (!text) return PHOTO_RETRY_MESSAGE;
+  if (/OpenAI|Together|PublicAI/i.test(text)) return text;
   return /Gemini|HTTP|JSON|RuntimeError|Traceback|candidate|classifier|generateContent|API|token|exception|returned/i.test(
     text,
   )
@@ -155,10 +156,11 @@ export function SessionScreen({ route, navigation }: Props) {
       .catch((err) => {
         if (isCancelled) return;
         const retryMessage = isRetryableLlmError(err) ? getRetryLaterMessage(retryKindForSession(config), config.profileId) : null;
+        const isProviderError = Boolean(err?.isOpenAIError || err?.isTogetherError || /OpenAI|Together|PublicAI/i.test(err?.message || ''));
         setStartupError({
-          title: retryMessage?.title || 'Fotoğrafı bir daha seçelim',
+          title: retryMessage?.title || (isProviderError ? 'Model Yanıtı Alınamadı' : 'Fotoğrafı bir daha seçelim'),
           message: retryMessage?.message || visibleStartupError(err?.message),
-          isRetry: Boolean(retryMessage),
+          isRetry: Boolean(retryMessage || isProviderError),
         });
       });
 

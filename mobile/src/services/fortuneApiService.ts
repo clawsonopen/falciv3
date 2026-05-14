@@ -1,6 +1,13 @@
 import type { DevSettings } from '../types';
 import type { ProfileMemorySnippet } from '../types/memory';
 import { generateGeminiTextDirect } from './geminiDirectService';
+import { buildGpt5NanoFortunePrompt } from './gpt5NanoFortunePromptBuilder';
+import { buildGemmaFortunePrompt } from './gemmaFortunePromptBuilder';
+import { generateOpenAITextDirect } from './openaiDirectService';
+import { generatePublicAiTextDirect } from './publicAiDirectService';
+import { generateTogetherTextDirect } from './togetherDirectService';
+import { validateGemmaCoffeeImages, validateGemmaPalmImage } from './gemmaImageValidationService';
+import type { SpecificityUsage } from './fortuneSpecificityBank';
 import { buildFortunePrompt, type CoffeeMode, type FortuneImages, type FortuneMessage as BuilderFortuneMessage, type FortuneReadingType } from './fortunePromptBuilder';
 
 export type FortuneMessage = BuilderFortuneMessage;
@@ -21,6 +28,8 @@ interface FortuneRequest {
 
 export interface FortuneReplyResult {
   text: string;
+  modelName?: string;
+  specificityUsage?: SpecificityUsage;
   usage: {
     inputTokens: number;
     outputTokens: number;
@@ -43,6 +52,83 @@ function addUsage(total: GeminiUsage, usage?: Partial<GeminiUsage>) {
   total.inputTokens += Number(usage?.inputTokens || 0);
   total.outputTokens += Number(usage?.outputTokens || 0);
   total.totalTokens += Number(usage?.totalTokens || 0);
+}
+
+function firstPromptText(input: unknown) {
+  const first = Array.isArray(input) ? input[0] : null;
+  if (!first || typeof first !== 'object') return '';
+  const content = (first as { content?: unknown }).content;
+  if (!Array.isArray(content)) return '';
+  const firstContent = content[0];
+  if (!firstContent || typeof firstContent !== 'object') return '';
+  return String((firstContent as { text?: unknown }).text || '');
+}
+
+function imageContentForTogether(images: FortuneImages, validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null) {
+  const content: Array<Record<string, unknown>> = [];
+  const includeCup = Boolean(images.cup && (!validatedSurfaces?.length || validatedSurfaces.includes('cup')));
+  const includeSaucer = Boolean(images.saucer && (!validatedSurfaces?.length || validatedSurfaces.includes('saucer')));
+  const includePalm = Boolean(images.palm && (!validatedSurfaces?.length || validatedSurfaces.includes('palm')));
+  if (includeCup && images.cup) {
+    content.push({ type: 'text', text: 'Fincan içi görseli:' });
+    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.cup}` } });
+  }
+  if (includeSaucer && images.saucer) {
+    content.push({ type: 'text', text: 'Kahve tabağı görseli:' });
+    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.saucer}` } });
+  }
+  if (includePalm && images.palm) {
+    content.push({ type: 'text', text: 'El veya pati görseli:' });
+    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.palm}` } });
+  }
+  return content;
+}
+
+function gemmaValidationNote(
+  readingType: FortuneReadingType,
+  coffeeMode: CoffeeMode | undefined,
+  validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null,
+) {
+  if (!validatedSurfaces?.length) return '';
+  if (readingType === 'coffee' && (coffeeMode || 'upload') === 'upload') {
+    if (validatedSurfaces.includes('cup') && validatedSurfaces.includes('saucer')) {
+      return 'Gemma görsel kontrolü tamamlandı: fincan içi ve kahve tabağı doğrulandı, telve veya kahve izi görüldü. Yalnızca bu doğrulanmış kahve yüzeylerine göre yorum yap.';
+    }
+    if (validatedSurfaces.includes('cup')) {
+      return 'Gemma görsel kontrolü tamamlandı: yalnızca fincan içi doğrulandı, telve veya kahve izi görüldü. Tabak görmüş gibi konuşma.';
+    }
+    if (validatedSurfaces.includes('saucer')) {
+      return 'Gemma görsel kontrolü tamamlandı: yalnızca kahve tabağı doğrulandı, telve veya kahve izi görüldü. Fincan içi görmüş gibi konuşma.';
+    }
+  }
+  if (readingType === 'palm' && validatedSurfaces.includes('palm')) {
+    return 'Gemma görsel kontrolü tamamlandı: el veya pati görseli bu fal türü için doğrulandı. Başka bir nesne görmüş gibi yorum yapma.';
+  }
+  return '';
+}
+
+function textOnlyValidationNote(
+  providerLabel: string,
+  readingType: FortuneReadingType,
+  coffeeMode: CoffeeMode | undefined,
+  validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null,
+) {
+  if (!validatedSurfaces?.length) return '';
+  if (readingType === 'coffee' && (coffeeMode || 'upload') === 'upload') {
+    if (validatedSurfaces.includes('cup') && validatedSurfaces.includes('saucer')) {
+      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü fincan içi ve kahve tabağını doğruladı; telve veya kahve izi görüldü. Spesifik şekil uydurma, yalnızca doğrulanmış fincan+tabak yüzeyleri üzerinden temkinli ve doğal yorum yap.`;
+    }
+    if (validatedSurfaces.includes('cup')) {
+      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü yalnızca fincan içini doğruladı; telve veya kahve izi görüldü. Tabak görmüş gibi konuşma, spesifik şekil uydurma.`;
+    }
+    if (validatedSurfaces.includes('saucer')) {
+      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü yalnızca kahve tabağını doğruladı; telve veya kahve izi görüldü. Fincan içi görmüş gibi konuşma, spesifik şekil uydurma.`;
+    }
+  }
+  if (readingType === 'palm' && validatedSurfaces.includes('palm')) {
+    return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü el/pati görselini doğruladı. Başka bir nesne görmüş gibi konuşma, çizgi ve form yorumunu temkinli kur.`;
+  }
+  return '';
 }
 
 function friendlyApiMessage(raw?: string | null) {
@@ -342,6 +428,9 @@ function sanitizeGenderedAddress(text: string, memorySnippet: ProfileMemorySnipp
 
 function sanitizeAffectionateRepetition(text: string) {
   return (text || '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\b(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b/gi, 'bu kişilik izi')
     .replace(/\b(canım|tatlım|güzelim|evladım|yavrum)([\s,;:]+\1\b)+/giu, '$1')
     .replace(/\b(canım|tatlım|güzelim|evladım|yavrum),?\s+([^.?!]{0,80}?)\b\1\b/giu, '$1, $2')
     .replace(/\s+([,.!?])/g, '$1')
@@ -388,6 +477,17 @@ function stripUnaskedPaceTheme(text: string, messages: FortuneMessage[]) {
   return kept.length >= Math.max(2, Math.floor(sentences.length * 0.55)) ? kept.join(' ').trim() : text;
 }
 
+function stripFollowUpReopeners(text: string) {
+  const sentences = (text || '').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (!sentences.length) return text;
+  const openerPattern =
+    /\b(hoş\s*geldin|hoş\s*gelmişsin|bakalım|bakıyorum|hemen\s+bak|telven|fincanına\s+bak|falına\s+bak|yeniden\s+bak|baştan\s+aç|genel\s+enerji)\b/i;
+  while (sentences.length > 1 && openerPattern.test(sentences[0])) {
+    sentences.shift();
+  }
+  return sentences.join(' ').trim() || text;
+}
+
 function cleanFortuneText(params: {
   text: string;
   closingSentence: string;
@@ -396,12 +496,14 @@ function cleanFortuneText(params: {
   devSettings: DevSettings;
   sessionId: string;
   readingType: FortuneReadingType;
+  isFollowUp?: boolean;
 }) {
   const lastUserText = [...params.messages].reverse().find((message) => message.role !== 'assistant')?.text || '';
   const aligned = trimMisalignedTail(params.text, lastUserText);
   const noAstroLeak = stripExplicitAstroLeaks(aligned, params.readingType);
   const noPaceLoop = stripUnaskedPaceTheme(noAstroLeak, params.messages);
-  const withClosing = appendClosing(noPaceLoop, params.closingSentence);
+  const noReopener = params.isFollowUp ? stripFollowUpReopeners(noPaceLoop) : noPaceLoop;
+  const withClosing = appendClosing(noReopener, params.closingSentence);
   const addressed = sanitizeGenderedAddress(withClosing, params.memorySnippet, params.devSettings);
   const nonRomantic = stripRomanticForNonRomanticRelations(addressed, params.memorySnippet);
   const noRepeat = sanitizeAffectionateRepetition(nonRomantic);
@@ -460,6 +562,184 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
   const usage = emptyUsage();
   const images = body.images || {};
   try {
+    if (body.devSettings.modelProvider === 'together' && body.devSettings.modelName === 'google/gemma-3n-E4B-it') {
+      let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
+      let palmValidation: { isInnerPalm?: boolean; handVisibleEnough?: boolean } | null = null;
+      if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
+        const result = await validateGemmaCoffeeImages(images);
+        addUsage(usage, result.usage);
+        validatedSurfaces = result.surfaces;
+      } else if (!body.isFollowUp && body.readingType === 'palm') {
+        const result = await validateGemmaPalmImage(images, body.memorySnippet);
+        addUsage(usage, result.usage);
+        validatedSurfaces = ['palm'];
+        palmValidation = result.validation;
+      }
+
+      const prompt = buildGemmaFortunePrompt({
+        sessionId: body.sessionId,
+        devSettings: body.devSettings,
+        profileName: body.profileName,
+        readingType: body.readingType,
+        coffeeMode: body.coffeeMode || 'upload',
+        memorySnippet: body.memorySnippet,
+        messages: body.messages,
+        images,
+        isFollowUp: body.isFollowUp,
+        validatedSurfaces,
+        palmValidation,
+      });
+      const userText = prompt.userText;
+      const validationNote = gemmaValidationNote(body.readingType, body.coffeeMode, validatedSurfaces);
+      const userTextWithValidation = [userText, validationNote].filter(Boolean).join('\n\n');
+      const imageContent =
+        body.isFollowUp || (body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew')
+          ? []
+          : imageContentForTogether(images, validatedSurfaces);
+      const response = await generateTogetherTextDirect({
+        provider: 'together',
+        model: 'google/gemma-3n-E4B-it',
+        messages: [
+          { role: 'system', content: prompt.systemInstruction },
+          { role: 'user', content: imageContent.length ? [{ type: 'text', text: userTextWithValidation }, ...imageContent] : userTextWithValidation },
+        ],
+        max_tokens: body.isFollowUp ? 360 : 3000,
+        reasoning: { enabled: true },
+      });
+      addUsage(usage, response.usage);
+      const cleanedText =
+        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
+          ? response.text
+          : cleanFortuneText({
+              text: response.text,
+              closingSentence: prompt.closingSentence,
+              messages: body.messages,
+              memorySnippet: body.memorySnippet,
+              devSettings: body.devSettings,
+              sessionId: body.sessionId,
+              readingType: body.readingType,
+              isFollowUp: body.isFollowUp,
+            });
+      return {
+        text: cleanedText,
+        modelName: response.model,
+        specificityUsage: prompt.specificityUsage,
+        usage,
+      };
+    }
+
+    if (body.devSettings.modelProvider === 'publicai' && body.devSettings.modelName === 'utter-project/EuroLLM-22B-Instruct-2512') {
+      let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
+      let palmValidation: { isInnerPalm?: boolean; handVisibleEnough?: boolean } | null = null;
+      if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
+        const result = await validateGemmaCoffeeImages(images);
+        addUsage(usage, result.usage);
+        validatedSurfaces = result.surfaces;
+      } else if (!body.isFollowUp && body.readingType === 'palm') {
+        const result = await validateGemmaPalmImage(images, body.memorySnippet);
+        addUsage(usage, result.usage);
+        validatedSurfaces = ['palm'];
+        palmValidation = result.validation;
+      }
+
+      const prompt = buildGemmaFortunePrompt({
+        sessionId: body.sessionId,
+        devSettings: body.devSettings,
+        profileName: body.profileName,
+        readingType: body.readingType,
+        coffeeMode: body.coffeeMode || 'upload',
+        memorySnippet: body.memorySnippet,
+        messages: body.messages,
+        images,
+        isFollowUp: body.isFollowUp,
+        validatedSurfaces,
+        palmValidation,
+      });
+      const validationNote = textOnlyValidationNote('EuroLLM', body.readingType, body.coffeeMode, validatedSurfaces);
+      const userText = [prompt.userText, validationNote].filter(Boolean).join('\n\n');
+      const response = await generatePublicAiTextDirect({
+        provider: 'publicai',
+        model: 'utter-project/EuroLLM-22B-Instruct-2512',
+        messages: [
+          { role: 'system', content: prompt.systemInstruction },
+          { role: 'user', content: userText },
+        ],
+        max_tokens: body.isFollowUp ? 360 : 2200,
+        temperature: 0.8,
+        top_p: 0.9,
+      });
+      addUsage(usage, response.usage);
+      const cleanedText =
+        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
+          ? response.text
+          : cleanFortuneText({
+              text: response.text,
+              closingSentence: prompt.closingSentence,
+              messages: body.messages,
+              memorySnippet: body.memorySnippet,
+              devSettings: body.devSettings,
+              sessionId: body.sessionId,
+              readingType: body.readingType,
+              isFollowUp: body.isFollowUp,
+            });
+      return {
+        text: cleanedText,
+        modelName: response.model,
+        specificityUsage: prompt.specificityUsage,
+        usage,
+      };
+    }
+
+    if (body.devSettings.modelProvider === 'openai' && body.devSettings.modelName === 'gpt-5-nano') {
+      const prompt = buildGpt5NanoFortunePrompt({
+        sessionId: body.sessionId,
+        devSettings: body.devSettings,
+        profileName: body.profileName,
+        readingType: body.readingType,
+        coffeeMode: body.coffeeMode || 'upload',
+        memorySnippet: body.memorySnippet,
+        messages: body.messages,
+        images,
+        isFollowUp: body.isFollowUp,
+      });
+      const response = await generateOpenAITextDirect({
+        provider: 'openai',
+        model: 'gpt-5-nano',
+        instructions: prompt.developerMessage,
+        input: prompt.input,
+        text: {
+          format: { type: 'text' },
+          verbosity: 'high',
+        },
+        reasoning: {
+          effort: 'medium',
+          summary: 'auto',
+        },
+        store: true,
+        max_output_tokens: body.isFollowUp ? 2500 : 6000,
+      });
+      addUsage(usage, response.usage);
+      const cleanedText =
+        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
+          ? response.text
+          : cleanFortuneText({
+              text: response.text,
+              closingSentence: prompt.closingSentence,
+              messages: body.messages,
+              memorySnippet: body.memorySnippet,
+              devSettings: body.devSettings,
+              sessionId: body.sessionId,
+              readingType: body.readingType,
+              isFollowUp: body.isFollowUp,
+            });
+      return {
+        text: cleanedText,
+        modelName: response.model,
+        specificityUsage: prompt.specificityUsage,
+        usage,
+      };
+    }
+
     let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
     let palmValidation: PalmClassification | null = null;
     if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
@@ -510,11 +790,51 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
         devSettings: body.devSettings,
         sessionId: body.sessionId,
         readingType: body.readingType,
+        isFollowUp: body.isFollowUp,
       }),
+      modelName: response.model,
+      specificityUsage: prompt.specificityUsage,
       usage,
     };
   } catch (err: any) {
+    if (err?.isGemmaImageValidation) {
+      addUsage(usage, err.tokenUsage);
+      throw jsonPayloadError(err?.message || FRIENDLY_FALLBACK, usage);
+    }
     if (err?.isImageValidation) throw err;
+    if (err?.isOpenAIError) {
+      const error = new Error(err?.message || 'OpenAI yorum yanıtı alınamadı.') as Error & {
+        isOpenAIError?: boolean;
+        tokenUsage?: GeminiUsage;
+        status?: number;
+      };
+      error.isOpenAIError = true;
+      error.status = err?.status;
+      error.tokenUsage = usage;
+      throw error;
+    }
+    if (err?.isTogetherError) {
+      const error = new Error(err?.message || 'Together yorum yanıtı alınamadı.') as Error & {
+        isTogetherError?: boolean;
+        tokenUsage?: GeminiUsage;
+        status?: number;
+      };
+      error.isTogetherError = true;
+      error.status = err?.status;
+      error.tokenUsage = usage;
+      throw error;
+    }
+    if (err?.isPublicAiError) {
+      const error = new Error(err?.message || 'PublicAI yorum yanıtı alınamadı.') as Error & {
+        isPublicAiError?: boolean;
+        tokenUsage?: GeminiUsage;
+        status?: number;
+      };
+      error.isPublicAiError = true;
+      error.status = err?.status;
+      error.tokenUsage = usage;
+      throw error;
+    }
     const error = new Error(friendlyApiMessage(err?.message)) as Error & {
       tokenUsage?: GeminiUsage;
       isImageValidation?: boolean;

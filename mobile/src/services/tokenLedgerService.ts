@@ -7,6 +7,22 @@ export const DEFAULT_USD_TRY_RATE = 45.45;
 export const GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M = 0.1;
 export const GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M = 0.4;
 
+export type ModelTokenPrices = {
+  inputPriceUsdPerM: number;
+  outputPriceUsdPerM: number;
+};
+
+export const MODEL_TOKEN_PRICES_USD_PER_M: Record<string, ModelTokenPrices> = {
+  'gemini-2.5-flash-lite': { inputPriceUsdPerM: 0.1, outputPriceUsdPerM: 0.4 },
+  'google/gemma-3n-E4B-it': { inputPriceUsdPerM: 0.06, outputPriceUsdPerM: 0.12 },
+  'gpt-5-nano': { inputPriceUsdPerM: 0.05, outputPriceUsdPerM: 0.4 },
+  'utter-project/EuroLLM-22B-Instruct-2512': { inputPriceUsdPerM: 0.1, outputPriceUsdPerM: 0.2 },
+};
+
+export function getModelTokenPrices(modelName?: string | null): ModelTokenPrices {
+  return MODEL_TOKEN_PRICES_USD_PER_M[modelName || ''] || MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'];
+}
+
 export type PersonalTokenUsageRow = {
   key: string;
   modelName: string;

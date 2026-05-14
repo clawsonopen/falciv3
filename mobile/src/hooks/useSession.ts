@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SessionConfig, SessionState, ChatMessage } from '../types';
 import { compressImage } from '../services/imageService';
 import { getFortuneReply, type FortuneMessage } from '../services/fortuneApiService';
-import { appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
+import { appendReadingSpecificityUsage, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import {
   addPendingInputTokens,
   addPersonalTokenUsage,
@@ -19,6 +19,14 @@ function looksLikeQuestion(text: string): boolean {
 }
 
 const GEMINI_IMAGE_TOKENS_768 = 258;
+
+function modelNameForConfig(config: SessionConfig, fallback?: string) {
+  return fallback || config.devSettings.modelName || 'gemini-2.5-flash-lite';
+}
+
+function isExternalProviderModel(config: SessionConfig) {
+  return config.devSettings.modelProvider === 'openai' || config.devSettings.modelProvider === 'together' || config.devSettings.modelProvider === 'publicai';
+}
 
 function readingNameForConfig(config: SessionConfig) {
   if (config.readingType === 'palm') return 'El Falı';
@@ -192,6 +200,9 @@ export function useSession() {
           images: imagesRef.current,
         });
         addMessage('assistant', text.text);
+        if (text.specificityUsage?.events?.length || text.specificityUsage?.cues?.length) {
+          await appendReadingSpecificityUsage(config.profileId, text.specificityUsage).catch(() => {});
+        }
         const imageInputTokens = Math.min(
           text.usage.inputTokens || 0,
           estimateImageInputTokens(config, imagesRef.current, Boolean(options?.isFollowUp)),
@@ -207,7 +218,7 @@ export function useSession() {
           },
         }));
         await addPersonalTokenUsage({
-          modelName: 'gemini-2.5-flash-lite',
+          modelName: modelNameForConfig(config, text.modelName),
           readingName: readingNameForConfig(config),
           imageInputTokens,
           textInputTokens,
@@ -223,7 +234,7 @@ export function useSession() {
             estimateImageInputTokens(config, imagesRef.current, Boolean(options?.isFollowUp)),
           );
           await addPersonalTokenUsage({
-            modelName: 'gemini-2.5-flash-lite',
+            modelName: modelNameForConfig(config),
             readingName: `${readingNameForConfig(config)} - Hata/Validasyon`,
             imageInputTokens,
             textInputTokens: Math.max(0, failedInputTokens - imageInputTokens),
@@ -263,10 +274,12 @@ export function useSession() {
       if (config.palmImageUri) images.palm = (await compressImage(config.palmImageUri)).base64;
       imagesRef.current = images;
 
-      const [pendingInputDebt, rejectedUploadCount] = await Promise.all([
-        consumePendingInputTokens().catch(() => 0),
-        consumeRejectedUploadAttempts().catch(() => 0),
-      ]);
+      const [pendingInputDebt, rejectedUploadCount] = isExternalProviderModel(config)
+        ? [0, 0]
+        : await Promise.all([
+            consumePendingInputTokens().catch(() => 0),
+            consumeRejectedUploadAttempts().catch(() => 0),
+          ]);
       setState((s) => ({
         ...s,
         status: 'active',

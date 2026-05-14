@@ -154,6 +154,19 @@ export interface AssistantBondMemory {
   notes: string[];
 }
 
+export interface UsedSpecificityEventMemory {
+  group: string;
+  label: string;
+  usedAt: string;
+  count: number;
+}
+
+export interface UsedSurfaceCueMemory {
+  cue: string;
+  usedAt: string;
+  count: number;
+}
+
 export interface BaseProfileMemoryFile {
   profileId: string;
   accountId: string;
@@ -172,6 +185,8 @@ export interface UserStatedMemoryFile extends BaseProfileMemoryFile {
 
 export interface ReadingDerivedMemoryFile extends BaseProfileMemoryFile {
   source: 'reading-derived';
+  usedLifeEvents?: UsedSpecificityEventMemory[];
+  usedSurfaceCues?: UsedSurfaceCueMemory[];
 }
 
 export interface ProfileMemoryBundle {
@@ -310,5 +325,7 @@ export interface ProfileMemorySnippet {
   readingPatterns: string[];
   readingObservations: MemoryObservation[];
   readingCategoryCandidates: MemoryCategoryCandidate[];
+  usedLifeEvents?: UsedSpecificityEventMemory[];
+  usedSurfaceCues?: UsedSurfaceCueMemory[];
   relevantObservations: MemoryObservation[];
 }

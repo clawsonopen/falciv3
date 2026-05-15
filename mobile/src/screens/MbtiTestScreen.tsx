@@ -21,6 +21,26 @@ type GenericResult = {
   percentages: Record<string, number>;
 };
 
+const TEST_SELECTION: Array<{
+  id: 'mbti' | PersonalityTestId;
+  title: string;
+  meta: string;
+  description: string;
+}> = [
+  {
+    id: 'mbti',
+    title: 'MBTI Kişilik Testi',
+    meta: '32 soru, yaklaşık 12-15 dakika',
+    description: 'Karar alma, enerji toplama ve dünyayı algılama biçimini 16 kişilik tipi üzerinden tanır.',
+  },
+  ...Object.values(PERSONALITY_TESTS).map((test) => ({
+    id: test.id,
+    title: test.title,
+    meta: test.meta,
+    description: test.intro,
+  })),
+];
+
 const QUESTIONS: MbtiQuestion[] = [
   { id: 1, left: 'Günlük işlerimde liste yaparım', right: 'Günlük işlerimde hafızama güvenirim' },
   { id: 2, left: 'Yeni bir bilgiye önce şüpheyle yaklaşırım', right: 'Yeni bir bilgiye önce inanmak isterim' },
@@ -535,12 +555,48 @@ function GenericPersonalityTestScreen({
 }
 
 export function MbtiTestScreen(props: Props) {
-  const testId = props.route.params.testId || 'mbti';
+  const testId = props.route.params.testId;
+  if (!testId) {
+    return <PersonalityTestSelectScreen navigation={props.navigation} profileId={props.route.params.profileId} />;
+  }
   const genericTest = testId !== 'mbti' ? PERSONALITY_TESTS[testId as PersonalityTestId] : null;
   if (genericTest) {
     return <GenericPersonalityTestScreen navigation={props.navigation} profileId={props.route.params.profileId} test={genericTest} />;
   }
   return <MbtiOnlyTestScreen {...props} />;
+}
+
+function PersonalityTestSelectScreen({
+  navigation,
+  profileId,
+}: {
+  navigation: Props['navigation'];
+  profileId: string;
+}) {
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
+        <View style={styles.headerPanel}>
+          <Text style={styles.title}>Testler</Text>
+          <Text style={styles.helper}>Profilin kişilik, bağlanma, değerler, uyum ve başa çıkma eğilimlerini anlamak için bir test seç.</Text>
+        </View>
+        <View style={styles.testGrid}>
+          {TEST_SELECTION.map((test) => (
+            <TouchableOpacity
+              key={test.id}
+              style={styles.testCard}
+              activeOpacity={0.84}
+              onPress={() => navigation.navigate('MbtiTest', { profileId, testId: test.id })}
+            >
+              <Text style={styles.testCardTitle}>{test.title.toLocaleUpperCase('tr-TR')}</Text>
+              <Text style={styles.testCardMeta}>{test.meta}</Text>
+              <Text style={styles.testCardDescription}>{test.description}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </BrandedScrollView>
+    </SafeAreaView>
+  );
 }
 
 function MbtiOnlyTestScreen({ navigation, route }: Props) {
@@ -870,6 +926,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.16)',
+  },
+  testGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  testCard: {
+    width: '48.5%',
+    minHeight: 132,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.2)',
+    backgroundColor: 'rgba(0,0,0,0.16)',
+    padding: 12,
+    justifyContent: 'space-between',
+  },
+  testCardTitle: {
+    color: '#FFF5E8',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    marginBottom: 6,
+  },
+  testCardMeta: {
+    color: '#F6C38B',
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 14,
+    marginBottom: 6,
+  },
+  testCardDescription: {
+    color: 'rgba(212,165,116,0.72)',
+    fontSize: 10,
+    lineHeight: 15,
   },
   detailTitle: { color: '#E8C49A', fontSize: 13, fontWeight: '900', marginBottom: 6 },
   detailText: { color: 'rgba(255,255,255,0.78)', fontSize: 13, lineHeight: 20 },

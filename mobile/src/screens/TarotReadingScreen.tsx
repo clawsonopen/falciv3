@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
+import { FOLLOW_UP_QUESTION_MAX_CHARS, FOLLOW_UP_QUESTION_MIN_CHARS, normalizeLimitedInput, OPTIONAL_READING_TOPIC_MAX_CHARS } from '../config/llmTokenPolicy';
 import { getTarotSpread } from '../data/tarotSpreads';
 import { TAROT_FRONT_IMAGE_MAP } from '../data/tarotImageMap';
 import { AssistantLoading } from '../components/AssistantLoading';
@@ -191,7 +192,12 @@ export function TarotReadingScreen({ route, navigation }: Props) {
       if (initialIntent) {
         await appendUserConversationMemory(profileId, initialIntent).catch(() => {});
       }
-      const memorySnippet = await loadProfileMemorySnippet(state, profileId).catch(() => null);
+      const memoryState = initialIntent ? await loadAccountState().catch(() => state) : state;
+      const memorySnippet = await loadProfileMemorySnippet(
+        memoryState,
+        profileId,
+        initialIntent ? { semanticQuery: initialIntent } : undefined,
+      ).catch(() => null);
       const result = await createPersonalTarotReading({
         profile,
         assistantId,
@@ -271,8 +277,8 @@ export function TarotReadingScreen({ route, navigation }: Props) {
   }, [latestReadableText, speechMode]);
 
   const handleSendQuestion = useCallback(async () => {
-    const question = questionText.replace(/\s+/g, ' ').trim();
-    if (!question || !readingText || isSendingQuestion) return;
+    const question = normalizeLimitedInput(questionText, FOLLOW_UP_QUESTION_MAX_CHARS);
+    if (question.length < FOLLOW_UP_QUESTION_MIN_CHARS || !readingText || isSendingQuestion) return;
     const userMessage = makeMessage('user', question);
     const previousFollowUps: TarotFollowUpMessage[] = messages.map(({ role, text }) => ({ role, text }));
     setMessages((current) => [...current, userMessage]);
@@ -477,8 +483,9 @@ export function TarotReadingScreen({ route, navigation }: Props) {
                 style={styles.intentInput}
                 value={initialQuestion}
                 onChangeText={setInitialQuestion}
-                placeholder="Aklında bir soru, açılımda yorumlanmasını istediğin bir konu, durum vb. var mı? Boş da bırakabilirsin."
+                placeholder="Aklında bir soru, açılımda yorumlanmasını istediğin bir konu, durum vb. varsa buraya yazabilirsin. Aklında bir şey yoksa boş da bırakabilirsin."
                 placeholderTextColor="rgba(255,255,255,0.38)"
+                maxLength={OPTIONAL_READING_TOPIC_MAX_CHARS}
                 multiline
               />
               <TouchableOpacity
@@ -536,7 +543,7 @@ export function TarotReadingScreen({ route, navigation }: Props) {
           <View style={[styles.panel, styles.questionPanel]}>
             <TouchableOpacity style={styles.questionInput} activeOpacity={0.88} onPress={() => readingText && setEditorVisible(true)}>
               <Text style={[styles.composePreviewText, !questionText.trim() && styles.composePreviewPlaceholder]}>
-                {questionText.trim() || 'Bu tarot açılımıyla ilgili ne sormak istersin?'}
+                {questionText.trim() || 'Bu tarot açılımıyla ilgili bir soru veya konu yazabilirsin. Aklında bir şey yoksa boş da bırakabilirsin.'}
               </Text>
             </TouchableOpacity>
             <Modal visible={editorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditorVisible(false)}>
@@ -551,7 +558,8 @@ export function TarotReadingScreen({ route, navigation }: Props) {
                     style={styles.editorInput}
                     value={questionText}
                     onChangeText={setQuestionText}
-                    placeholder="Sorunu buradan düzenleyebilirsin..."
+                    maxLength={FOLLOW_UP_QUESTION_MAX_CHARS}
+                    placeholder="Sorunu veya konunu buradan düzenleyebilirsin. Aklında bir şey yoksa boş da bırakabilirsin."
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     multiline
                     autoFocus
@@ -594,7 +602,7 @@ export function TarotReadingScreen({ route, navigation }: Props) {
               onPress={() => void persistReadingAndEnd()}
               disabled={isSendingQuestion || isLoading || !readingText}
             >
-              <Text style={styles.endButtonText}>Fal Bitir</Text>
+              <Text style={styles.endButtonText}>Okumayı Bitir</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

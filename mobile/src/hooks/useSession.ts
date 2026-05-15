@@ -20,17 +20,13 @@ function looksLikeQuestion(text: string): boolean {
 
 const GEMINI_IMAGE_TOKENS_768 = 258;
 
-function modelNameForConfig(config: SessionConfig, fallback?: string) {
-  return fallback || config.devSettings.modelName || 'gemini-2.5-flash-lite';
-}
-
-function isExternalProviderModel(config: SessionConfig) {
-  return config.devSettings.modelProvider === 'openai' || config.devSettings.modelProvider === 'together' || config.devSettings.modelProvider === 'publicai';
+function modelNameForConfig(fallback?: string) {
+  return fallback || 'gemini-2.5-flash-lite';
 }
 
 function readingNameForConfig(config: SessionConfig) {
-  if (config.readingType === 'palm') return 'El Falı';
-  return config.coffeeMode === 'ai-brew' ? 'Kahve Falı - Benim Yerime İç' : 'Kahve Falı';
+  if (config.readingType === 'palm') return 'El Okuması';
+  return config.coffeeMode === 'ai-brew' ? 'Kahve Yorumu - Benim Yerime İç' : 'Kahve Yorumu';
 }
 
 function estimateImageInputTokens(config: SessionConfig, images: { cup?: string; saucer?: string; palm?: string }, isFollowUp: boolean) {
@@ -132,13 +128,18 @@ export function useSession() {
   const buildSeedMessage = useCallback((config: SessionConfig, rejectedUploadCount: number): string => {
     const retryNotice =
       rejectedUploadCount > 0
-        ? `Bu faldan önce bu oturum için ${rejectedUploadCount} kez yanlış görsel denemesi yapıldı ve kredi hesabına dahil edildi. Yoruma bunu kısa bir arka plan notu olarak dahil et ama ana odağı falda tut.`
+        ? `Bu okumadan önce bu oturum için ${rejectedUploadCount} kez yanlış görsel denemesi yapıldı ve kredi hesabına dahil edildi. Yoruma bunu kısa bir arka plan notu olarak dahil et ama ana odağı okumada tut.`
         : '';
+    const focusQuestion = config.focusQuestion?.replace(/\s+/g, ' ').trim() || '';
+    const focusNotice = focusQuestion
+      ? `Kullanıcının yorumlanmasını istediği konu/soru: ${focusQuestion}. Bu konu ana eksendir; görseli ve hafıza bağlamını bu soruyla ilişkili olduğu ölçüde yorumla.`
+      : '';
 
     if (config.coffeeMode === 'ai-brew') {
       const target = config.profileIsSelf ? 'Benim için' : `${config.profileName} için`;
       return [
-        `${target} benim yerime bir kahve içilmiş gibi fala başla.`,
+        `${target} benim yerime bir kahve içilmiş gibi yoruma başla.`,
+        focusNotice,
         'Gerçek görsel yok; seçili profilin hafızası ve önceki temaları varsa onlardan sezgisel destek al.',
         'İlk yorumu doğal ve dolu dolu aç.',
         retryNotice,
@@ -149,7 +150,7 @@ export function useSession() {
 
     if (config.readingType === 'palm') {
       const target = config.profileIsSelf ? 'Benim' : `${config.profileName} için`;
-      return [`${target} avuç içi fotoğrafını gönderdim. El falımı başlat lütfen.`, retryNotice]
+      return [`${target} avuç içi fotoğrafını gönderdim. El yorumumu başlat lütfen.`, focusNotice, retryNotice]
         .filter(Boolean)
         .join(' ');
     }
@@ -160,7 +161,8 @@ export function useSession() {
     const surfaces = hasCup && hasSaucer ? 'fincan içi ve tabak' : hasSaucer ? 'tabak' : 'fincan içi';
     return [
       `${target} ${surfaces} görsellerini gönderdim.`,
-      'Falıma başla lütfen.',
+      focusNotice,
+      'Yorumuma başla lütfen.',
       retryNotice,
     ]
       .filter(Boolean)
@@ -198,6 +200,7 @@ export function useSession() {
           messages: toFortuneMessages(nextMessages),
           isFollowUp: Boolean(options?.isFollowUp),
           images: imagesRef.current,
+          focusQuestion: config.focusQuestion,
         });
         addMessage('assistant', text.text);
         if (text.specificityUsage?.events?.length || text.specificityUsage?.cues?.length) {
@@ -218,7 +221,7 @@ export function useSession() {
           },
         }));
         await addPersonalTokenUsage({
-          modelName: modelNameForConfig(config, text.modelName),
+          modelName: modelNameForConfig(text.modelName),
           readingName: readingNameForConfig(config),
           imageInputTokens,
           textInputTokens,
@@ -234,7 +237,7 @@ export function useSession() {
             estimateImageInputTokens(config, imagesRef.current, Boolean(options?.isFollowUp)),
           );
           await addPersonalTokenUsage({
-            modelName: modelNameForConfig(config),
+            modelName: modelNameForConfig(),
             readingName: `${readingNameForConfig(config)} - Hata/Validasyon`,
             imageInputTokens,
             textInputTokens: Math.max(0, failedInputTokens - imageInputTokens),
@@ -258,7 +261,7 @@ export function useSession() {
   const startSession = useCallback(
     async (config: SessionConfig) => {
       configRef.current = config;
-      sessionIdRef.current = `falci-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      sessionIdRef.current = `okuma-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setState((s) => ({
         ...s,
         status: 'connecting',
@@ -274,12 +277,10 @@ export function useSession() {
       if (config.palmImageUri) images.palm = (await compressImage(config.palmImageUri)).base64;
       imagesRef.current = images;
 
-      const [pendingInputDebt, rejectedUploadCount] = isExternalProviderModel(config)
-        ? [0, 0]
-        : await Promise.all([
-            consumePendingInputTokens().catch(() => 0),
-            consumeRejectedUploadAttempts().catch(() => 0),
-          ]);
+      const [pendingInputDebt, rejectedUploadCount] = await Promise.all([
+        consumePendingInputTokens().catch(() => 0),
+        consumeRejectedUploadAttempts().catch(() => 0),
+      ]);
       setState((s) => ({
         ...s,
         status: 'active',

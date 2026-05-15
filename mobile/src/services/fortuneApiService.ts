@@ -1,14 +1,10 @@
 import type { DevSettings } from '../types';
 import type { ProfileMemorySnippet } from '../types/memory';
 import { generateGeminiTextDirect } from './geminiDirectService';
-import { buildGpt5NanoFortunePrompt } from './gpt5NanoFortunePromptBuilder';
-import { buildGemmaFortunePrompt } from './gemmaFortunePromptBuilder';
-import { generateOpenAITextDirect } from './openaiDirectService';
-import { generatePublicAiTextDirect } from './publicAiDirectService';
-import { generateTogetherTextDirect } from './togetherDirectService';
-import { validateGemmaCoffeeImages, validateGemmaPalmImage } from './gemmaImageValidationService';
+import { PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS, PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS } from '../config/llmTokenPolicy';
 import type { SpecificityUsage } from './fortuneSpecificityBank';
 import { buildFortunePrompt, type CoffeeMode, type FortuneImages, type FortuneMessage as BuilderFortuneMessage, type FortuneReadingType } from './fortunePromptBuilder';
+import { appendHealthProfessionalReminder, sanitizePublicReadingLanguage, stripPersonaSelfIntroduction } from './personaClosingService';
 
 export type FortuneMessage = BuilderFortuneMessage;
 
@@ -20,6 +16,7 @@ interface FortuneRequest {
   profileIsSelf?: boolean;
   readingType: FortuneReadingType;
   coffeeMode?: CoffeeMode;
+  focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
   messages: FortuneMessage[];
   isFollowUp?: boolean;
@@ -42,7 +39,7 @@ type GeminiUsage = FortuneReplyResult['usage'];
 const PHOTO_RETRY_MESSAGE =
   'Fotoğraf şu an net okunamadı canım. Işığı biraz artırıp telveyi ya da avuç içini daha yakından göstererek yeniden deneyelim.';
 const FRIENDLY_FALLBACK =
-  'Bu fotoğraf bu fal türü için uygun görünmüyor canım. Uygun fal türünü seçip fotoğrafı yeniden yükleyelim.';
+  'Bu fotoğraf bu okuma türü için uygun görünmüyor canım. Uygun okuma türünü seçip fotoğrafı yeniden yükleyelim.';
 
 function emptyUsage(): GeminiUsage {
   return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -52,83 +49,6 @@ function addUsage(total: GeminiUsage, usage?: Partial<GeminiUsage>) {
   total.inputTokens += Number(usage?.inputTokens || 0);
   total.outputTokens += Number(usage?.outputTokens || 0);
   total.totalTokens += Number(usage?.totalTokens || 0);
-}
-
-function firstPromptText(input: unknown) {
-  const first = Array.isArray(input) ? input[0] : null;
-  if (!first || typeof first !== 'object') return '';
-  const content = (first as { content?: unknown }).content;
-  if (!Array.isArray(content)) return '';
-  const firstContent = content[0];
-  if (!firstContent || typeof firstContent !== 'object') return '';
-  return String((firstContent as { text?: unknown }).text || '');
-}
-
-function imageContentForTogether(images: FortuneImages, validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null) {
-  const content: Array<Record<string, unknown>> = [];
-  const includeCup = Boolean(images.cup && (!validatedSurfaces?.length || validatedSurfaces.includes('cup')));
-  const includeSaucer = Boolean(images.saucer && (!validatedSurfaces?.length || validatedSurfaces.includes('saucer')));
-  const includePalm = Boolean(images.palm && (!validatedSurfaces?.length || validatedSurfaces.includes('palm')));
-  if (includeCup && images.cup) {
-    content.push({ type: 'text', text: 'Fincan içi görseli:' });
-    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.cup}` } });
-  }
-  if (includeSaucer && images.saucer) {
-    content.push({ type: 'text', text: 'Kahve tabağı görseli:' });
-    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.saucer}` } });
-  }
-  if (includePalm && images.palm) {
-    content.push({ type: 'text', text: 'El veya pati görseli:' });
-    content.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${images.palm}` } });
-  }
-  return content;
-}
-
-function gemmaValidationNote(
-  readingType: FortuneReadingType,
-  coffeeMode: CoffeeMode | undefined,
-  validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null,
-) {
-  if (!validatedSurfaces?.length) return '';
-  if (readingType === 'coffee' && (coffeeMode || 'upload') === 'upload') {
-    if (validatedSurfaces.includes('cup') && validatedSurfaces.includes('saucer')) {
-      return 'Gemma görsel kontrolü tamamlandı: fincan içi ve kahve tabağı doğrulandı, telve veya kahve izi görüldü. Yalnızca bu doğrulanmış kahve yüzeylerine göre yorum yap.';
-    }
-    if (validatedSurfaces.includes('cup')) {
-      return 'Gemma görsel kontrolü tamamlandı: yalnızca fincan içi doğrulandı, telve veya kahve izi görüldü. Tabak görmüş gibi konuşma.';
-    }
-    if (validatedSurfaces.includes('saucer')) {
-      return 'Gemma görsel kontrolü tamamlandı: yalnızca kahve tabağı doğrulandı, telve veya kahve izi görüldü. Fincan içi görmüş gibi konuşma.';
-    }
-  }
-  if (readingType === 'palm' && validatedSurfaces.includes('palm')) {
-    return 'Gemma görsel kontrolü tamamlandı: el veya pati görseli bu fal türü için doğrulandı. Başka bir nesne görmüş gibi yorum yapma.';
-  }
-  return '';
-}
-
-function textOnlyValidationNote(
-  providerLabel: string,
-  readingType: FortuneReadingType,
-  coffeeMode: CoffeeMode | undefined,
-  validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null,
-) {
-  if (!validatedSurfaces?.length) return '';
-  if (readingType === 'coffee' && (coffeeMode || 'upload') === 'upload') {
-    if (validatedSurfaces.includes('cup') && validatedSurfaces.includes('saucer')) {
-      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü fincan içi ve kahve tabağını doğruladı; telve veya kahve izi görüldü. Spesifik şekil uydurma, yalnızca doğrulanmış fincan+tabak yüzeyleri üzerinden temkinli ve doğal yorum yap.`;
-    }
-    if (validatedSurfaces.includes('cup')) {
-      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü yalnızca fincan içini doğruladı; telve veya kahve izi görüldü. Tabak görmüş gibi konuşma, spesifik şekil uydurma.`;
-    }
-    if (validatedSurfaces.includes('saucer')) {
-      return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü yalnızca kahve tabağını doğruladı; telve veya kahve izi görüldü. Fincan içi görmüş gibi konuşma, spesifik şekil uydurma.`;
-    }
-  }
-  if (readingType === 'palm' && validatedSurfaces.includes('palm')) {
-    return `${providerLabel} metin modeli olduğu için görseli doğrudan görmüyor. Ayrı görsel kontrolü el/pati görselini doğruladı. Başka bir nesne görmüş gibi konuşma, çizgi ve form yorumunu temkinli kur.`;
-  }
-  return '';
 }
 
 function friendlyApiMessage(raw?: string | null) {
@@ -156,7 +76,7 @@ function inlineImage(base64: string) {
 }
 
 async function generateJson<T>(payload: Record<string, unknown>, fallback: T): Promise<{ parsed: T; usage: GeminiUsage }> {
-  const response = await generateGeminiTextDirect(payload);
+  const response = await generateGeminiTextDirect(payload, 45000, { usageMode: 'raw' });
   try {
     return { parsed: JSON.parse(response.text) as T, usage: response.usage };
   } catch {
@@ -219,7 +139,7 @@ async function classifyCoffeeImage(imageData: string) {
           parts: [
             {
               text:
-                'Bu görseli kahve falı yüzeyi olarak sınıflandır. containsCup = fincan içi net görünüyorsa true. containsSaucer = kahve tabağı veya tabak yüzeyi net görünüyorsa true. Aynı görselde ikisi birden varsa ikisini de true yap. hasCoffeeGrounds = fincan veya tabakta kahve telvesi/kalıntısı/leke/akıntı/damla varsa true; bir damla telve bile true. Tamamen temiz, telvesiz fincan veya tabakta false. isCoffeeRelevant = görsel kahve falıyla alakalıysa true. suggestedReadingType = görsel daha çok avuç içi ise palm, kahveye uygunsa coffee, hiçbiri değilse none.',
+                'Bu görseli kahve yorumu yüzeyi olarak sınıflandır. containsCup = fincan içi net görünüyorsa true. containsSaucer = kahve tabağı veya tabak yüzeyi net görünüyorsa true. Aynı görselde ikisi birden varsa ikisini de true yap. hasCoffeeGrounds = fincan veya tabakta kahve telvesi/kalıntısı/leke/akıntı/damla varsa true; bir damla telve bile true. Tamamen temiz, telvesiz fincan veya tabakta false. isCoffeeRelevant = görsel kahve yorumuyla alakalıysa true. suggestedReadingType = görsel daha çok avuç içi ise palm, kahveye uygunsa coffee, hiçbiri değilse none.',
             },
             inlineImage(imageData),
           ],
@@ -256,8 +176,8 @@ async function validateCoffeeImages(images: FortuneImages) {
       suggestedPalm = suggestedPalm || result.suggestedReadingType === 'palm';
       throw jsonPayloadError(
         suggestedPalm
-          ? "Bu kare kahve telvesinden çok avuç içi gibi görünüyor. İstersen El Falı'na geçip aynı fotoğrafla devam edebilirsin."
-          : 'Bu kare kahve falı için uygun görünmüyor canım. Telveyi net gösteren fincan içi ya da tabak fotoğrafı yüklersen birlikte devam ederiz.',
+          ? "Bu kare kahve telvesinden çok avuç içi gibi görünüyor. İstersen el okumasına geçip aynı fotoğrafla devam edebilirsin."
+          : 'Bu kare kahve yorumu için uygun görünmüyor canım. Telveyi net gösteren fincan içi ya da tabak fotoğrafı yüklersen birlikte devam ederiz.',
         usage,
       );
     }
@@ -271,8 +191,8 @@ async function validateCoffeeImages(images: FortuneImages) {
   if (!surfaces.length) {
     throw jsonPayloadError(
       sawCoffeeSurfaceWithoutGrounds
-        ? 'Bu fincan veya tabakta telve görünmüyor canım. Kahve falı için en azından küçük bir telve izi, damla ya da akıntı görünmeli.'
-        : 'Kahve falı için uygun bir fincan içi veya tabak görseli bulamadım canım. Telveyi daha net gösteren bir kareyle yeniden deneyelim.',
+        ? 'Bu fincan veya tabakta telve görünmüyor canım. Kahve yorumu için en azından küçük bir telve izi, damla ya da akıntı görünmeli.'
+        : 'Kahve yorumu için uygun bir fincan içi veya tabak görseli bulamadım canım. Telveyi daha net gösteren bir kareyle yeniden deneyelim.',
       usage,
     );
   }
@@ -352,7 +272,7 @@ function speciesTr(species?: string | null, fallback?: string | null) {
 async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileMemorySnippet | null) {
   const image = images.palm;
   const usage = emptyUsage();
-  if (!image) throw jsonPayloadError('El falı için fotoğraf gerekli.', usage);
+  if (!image) throw jsonPayloadError('El okuması için fotoğraf gerekli.', usage);
   let result: PalmClassification;
   try {
     const classified = await classifyPalmImage(image);
@@ -367,15 +287,15 @@ async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileM
     const expectedSpecies = normalizePetSpecies(memorySnippet?.petSpecies);
     const expectedLabel = speciesTr(expectedSpecies, memorySnippet?.petSpecies);
     if (!isAnimalPawVisual(result)) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati falı istemiştin fakat ${loadedLabel} yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
+      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
     }
     if (expectedSpecies && result.animalSpecies !== expectedSpecies) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati falı istemiştin; profil ${expectedLabel} olarak kayıtlı fakat ${speciesTr(result.animalSpecies)} patisi yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
+      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin; profil ${expectedLabel} olarak kayıtlı fakat ${speciesTr(result.animalSpecies)} patisi yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
     }
     return { validation: result, usage };
   }
   if (!isHumanHandVisual(result)) {
-    throw jsonPayloadError(`El falı istemiştin fakat ${loadedLabel} yükledin. Lütfen avuç içi fotoğrafı yükle.`, usage);
+    throw jsonPayloadError(`El okuması istemiştin fakat ${loadedLabel} yükledin. Lütfen avuç içi fotoğrafı yükle.`, usage);
   }
   return { validation: result, usage };
 }
@@ -410,6 +330,7 @@ function canUseFamilyAddress(devSettings: DevSettings, memorySnippet?: ProfileMe
 }
 
 function sanitizeGenderedAddress(text: string, memorySnippet: ProfileMemorySnippet | null | undefined, devSettings: DevSettings) {
+  if (memorySnippet?.relationshipPrimary === 'evcil_hayvan') return text;
   const feminineTerms: Record<string, string> = { 'güzel kızım': 'güzel evladım', kızım: 'evladım', 'güzel kız': 'güzel evlat' };
   const masculineTerms: Record<string, string> = { 'güzel oğlum': 'güzel evladım', oğlum: 'evladım', 'güzel oğlan': 'güzel evlat' };
   const familyTerms: Record<string, string> = { yavrum: 'canım', evladım: 'canım', 'güzel evladım': 'canım' };
@@ -481,7 +402,7 @@ function stripFollowUpReopeners(text: string) {
   const sentences = (text || '').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
   if (!sentences.length) return text;
   const openerPattern =
-    /\b(hoş\s*geldin|hoş\s*gelmişsin|bakalım|bakıyorum|hemen\s+bak|telven|fincanına\s+bak|falına\s+bak|yeniden\s+bak|baştan\s+aç|genel\s+enerji)\b/i;
+    /\b(hoş\s*geldin|hoş\s*gelmişsin|bakalım|bakıyorum|hemen\s+bak|telven|fincanına\s+bak|yorumuna\s+bak|yeniden\s+bak|baştan\s+aç|genel\s+enerji)\b/i;
   while (sentences.length > 1 && openerPattern.test(sentences[0])) {
     sentences.shift();
   }
@@ -497,8 +418,10 @@ function cleanFortuneText(params: {
   sessionId: string;
   readingType: FortuneReadingType;
   isFollowUp?: boolean;
+  focusQuestion?: string | null;
 }) {
   const lastUserText = [...params.messages].reverse().find((message) => message.role !== 'assistant')?.text || '';
+  const userHealthSource = [params.focusQuestion || '', lastUserText].join(' ');
   const aligned = trimMisalignedTail(params.text, lastUserText);
   const noAstroLeak = stripExplicitAstroLeaks(aligned, params.readingType);
   const noPaceLoop = stripUnaskedPaceTheme(noAstroLeak, params.messages);
@@ -507,7 +430,12 @@ function cleanFortuneText(params: {
   const addressed = sanitizeGenderedAddress(withClosing, params.memorySnippet, params.devSettings);
   const nonRomantic = stripRomanticForNonRomanticRelations(addressed, params.memorySnippet);
   const noRepeat = sanitizeAffectionateRepetition(nonRomantic);
-  return diversifyTimeNumbers(noRepeat, params.sessionId);
+  const publicSafe = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(noRepeat));
+  const healthSafe = appendHealthProfessionalReminder(publicSafe, {
+    userText: userHealthSource,
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+  });
+  return diversifyTimeNumbers(healthSafe, params.sessionId);
 }
 
 function buildContents(params: {
@@ -530,7 +458,7 @@ function buildContents(params: {
     contents.unshift({
       role: 'user',
       parts: [
-        { text: isPet ? 'Bu evcil hayvan pati görselini inceleyip pati falına devam et. İnsan eli gibi yorumlama.' : 'Bu insan eli/avuç içi görselini inceleyip el falına devam et.' },
+        { text: isPet ? 'Bu evcil hayvan pati görselini inceleyip pati okumasına devam et. İnsan eli gibi yorumlama.' : 'Bu insan eli/avuç içi görselini inceleyip el okumasına devam et.' },
         inlineImage(params.images.palm),
       ],
     });
@@ -540,10 +468,10 @@ function buildContents(params: {
     const includeSaucer = Boolean(params.images.saucer && (!surfaces.length || surfaces.includes('saucer')));
     const promptText =
       surfaces.length === 1 && surfaces[0] === 'cup'
-        ? 'Yalnızca fincan içi görselini inceleyip fala devam et.'
+        ? 'Yalnızca fincan içi görselini inceleyip yoruma devam et.'
         : surfaces.length === 1 && surfaces[0] === 'saucer'
-          ? 'Yalnızca kahve tabağı görselini inceleyip fala devam et.'
-          : 'Doğrulanmış fincan ve/veya tabak görsellerini inceleyip fala devam et.';
+          ? 'Yalnızca kahve tabağı görselini inceleyip yoruma devam et.'
+          : 'Doğrulanmış fincan ve/veya tabak görsellerini inceleyip yoruma devam et.';
     const parts: Array<Record<string, unknown>> = [{ text: promptText }];
     if (includeCup && params.images.cup) {
       parts.push({ text: 'Fincan içi görseli yüklendi. Bunu fincanın iç yüzeyi, derinliği, kenar akışı ve telve birikimi olarak oku.' });
@@ -562,184 +490,6 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
   const usage = emptyUsage();
   const images = body.images || {};
   try {
-    if (body.devSettings.modelProvider === 'together' && body.devSettings.modelName === 'google/gemma-3n-E4B-it') {
-      let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
-      let palmValidation: { isInnerPalm?: boolean; handVisibleEnough?: boolean } | null = null;
-      if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
-        const result = await validateGemmaCoffeeImages(images);
-        addUsage(usage, result.usage);
-        validatedSurfaces = result.surfaces;
-      } else if (!body.isFollowUp && body.readingType === 'palm') {
-        const result = await validateGemmaPalmImage(images, body.memorySnippet);
-        addUsage(usage, result.usage);
-        validatedSurfaces = ['palm'];
-        palmValidation = result.validation;
-      }
-
-      const prompt = buildGemmaFortunePrompt({
-        sessionId: body.sessionId,
-        devSettings: body.devSettings,
-        profileName: body.profileName,
-        readingType: body.readingType,
-        coffeeMode: body.coffeeMode || 'upload',
-        memorySnippet: body.memorySnippet,
-        messages: body.messages,
-        images,
-        isFollowUp: body.isFollowUp,
-        validatedSurfaces,
-        palmValidation,
-      });
-      const userText = prompt.userText;
-      const validationNote = gemmaValidationNote(body.readingType, body.coffeeMode, validatedSurfaces);
-      const userTextWithValidation = [userText, validationNote].filter(Boolean).join('\n\n');
-      const imageContent =
-        body.isFollowUp || (body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew')
-          ? []
-          : imageContentForTogether(images, validatedSurfaces);
-      const response = await generateTogetherTextDirect({
-        provider: 'together',
-        model: 'google/gemma-3n-E4B-it',
-        messages: [
-          { role: 'system', content: prompt.systemInstruction },
-          { role: 'user', content: imageContent.length ? [{ type: 'text', text: userTextWithValidation }, ...imageContent] : userTextWithValidation },
-        ],
-        max_tokens: body.isFollowUp ? 360 : 3000,
-        reasoning: { enabled: true },
-      });
-      addUsage(usage, response.usage);
-      const cleanedText =
-        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
-          ? response.text
-          : cleanFortuneText({
-              text: response.text,
-              closingSentence: prompt.closingSentence,
-              messages: body.messages,
-              memorySnippet: body.memorySnippet,
-              devSettings: body.devSettings,
-              sessionId: body.sessionId,
-              readingType: body.readingType,
-              isFollowUp: body.isFollowUp,
-            });
-      return {
-        text: cleanedText,
-        modelName: response.model,
-        specificityUsage: prompt.specificityUsage,
-        usage,
-      };
-    }
-
-    if (body.devSettings.modelProvider === 'publicai' && body.devSettings.modelName === 'utter-project/EuroLLM-22B-Instruct-2512') {
-      let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
-      let palmValidation: { isInnerPalm?: boolean; handVisibleEnough?: boolean } | null = null;
-      if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
-        const result = await validateGemmaCoffeeImages(images);
-        addUsage(usage, result.usage);
-        validatedSurfaces = result.surfaces;
-      } else if (!body.isFollowUp && body.readingType === 'palm') {
-        const result = await validateGemmaPalmImage(images, body.memorySnippet);
-        addUsage(usage, result.usage);
-        validatedSurfaces = ['palm'];
-        palmValidation = result.validation;
-      }
-
-      const prompt = buildGemmaFortunePrompt({
-        sessionId: body.sessionId,
-        devSettings: body.devSettings,
-        profileName: body.profileName,
-        readingType: body.readingType,
-        coffeeMode: body.coffeeMode || 'upload',
-        memorySnippet: body.memorySnippet,
-        messages: body.messages,
-        images,
-        isFollowUp: body.isFollowUp,
-        validatedSurfaces,
-        palmValidation,
-      });
-      const validationNote = textOnlyValidationNote('EuroLLM', body.readingType, body.coffeeMode, validatedSurfaces);
-      const userText = [prompt.userText, validationNote].filter(Boolean).join('\n\n');
-      const response = await generatePublicAiTextDirect({
-        provider: 'publicai',
-        model: 'utter-project/EuroLLM-22B-Instruct-2512',
-        messages: [
-          { role: 'system', content: prompt.systemInstruction },
-          { role: 'user', content: userText },
-        ],
-        max_tokens: body.isFollowUp ? 360 : 2200,
-        temperature: 0.8,
-        top_p: 0.9,
-      });
-      addUsage(usage, response.usage);
-      const cleanedText =
-        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
-          ? response.text
-          : cleanFortuneText({
-              text: response.text,
-              closingSentence: prompt.closingSentence,
-              messages: body.messages,
-              memorySnippet: body.memorySnippet,
-              devSettings: body.devSettings,
-              sessionId: body.sessionId,
-              readingType: body.readingType,
-              isFollowUp: body.isFollowUp,
-            });
-      return {
-        text: cleanedText,
-        modelName: response.model,
-        specificityUsage: prompt.specificityUsage,
-        usage,
-      };
-    }
-
-    if (body.devSettings.modelProvider === 'openai' && body.devSettings.modelName === 'gpt-5-nano') {
-      const prompt = buildGpt5NanoFortunePrompt({
-        sessionId: body.sessionId,
-        devSettings: body.devSettings,
-        profileName: body.profileName,
-        readingType: body.readingType,
-        coffeeMode: body.coffeeMode || 'upload',
-        memorySnippet: body.memorySnippet,
-        messages: body.messages,
-        images,
-        isFollowUp: body.isFollowUp,
-      });
-      const response = await generateOpenAITextDirect({
-        provider: 'openai',
-        model: 'gpt-5-nano',
-        instructions: prompt.developerMessage,
-        input: prompt.input,
-        text: {
-          format: { type: 'text' },
-          verbosity: 'high',
-        },
-        reasoning: {
-          effort: 'medium',
-          summary: 'auto',
-        },
-        store: true,
-        max_output_tokens: body.isFollowUp ? 2500 : 6000,
-      });
-      addUsage(usage, response.usage);
-      const cleanedText =
-        body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'ai-brew'
-          ? response.text
-          : cleanFortuneText({
-              text: response.text,
-              closingSentence: prompt.closingSentence,
-              messages: body.messages,
-              memorySnippet: body.memorySnippet,
-              devSettings: body.devSettings,
-              sessionId: body.sessionId,
-              readingType: body.readingType,
-              isFollowUp: body.isFollowUp,
-            });
-      return {
-        text: cleanedText,
-        modelName: response.model,
-        specificityUsage: prompt.specificityUsage,
-        usage,
-      };
-    }
-
     let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
     let palmValidation: PalmClassification | null = null;
     if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
@@ -758,6 +508,7 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
       profileName: body.profileName,
       readingType: body.readingType,
       coffeeMode: body.coffeeMode || 'upload',
+      focusQuestion: body.focusQuestion,
       memorySnippet: body.memorySnippet,
       messages: body.messages,
       images,
@@ -765,21 +516,25 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
       validatedSurfaces,
       palmValidation,
     });
-    const response = await generateGeminiTextDirect({
-      system_instruction: { parts: [{ text: prompt.systemInstruction }] },
-      contents: buildContents({
-        messages: body.messages,
-        images,
-        isFollowUp: body.isFollowUp,
-        readingType: body.readingType,
-        validatedSurfaces: validatedSurfaces || undefined,
-        memorySnippet: body.memorySnippet,
-      }),
-      generationConfig: {
-        temperature: Number(body.devSettings.temperature || 0.8),
-        maxOutputTokens: body.isFollowUp ? 320 : body.messages.length <= 1 ? 1000 : 430,
+    const response = await generateGeminiTextDirect(
+      {
+        system_instruction: { parts: [{ text: prompt.systemInstruction }] },
+        contents: buildContents({
+          messages: body.messages,
+          images,
+          isFollowUp: body.isFollowUp,
+          readingType: body.readingType,
+          validatedSurfaces: validatedSurfaces || undefined,
+          memorySnippet: body.memorySnippet,
+        }),
+        generationConfig: {
+          temperature: Number(body.devSettings.temperature || 0.8),
+          maxOutputTokens: body.isFollowUp ? PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS : PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+        },
       },
-    });
+      45000,
+      { usageMode: 'raw' },
+    );
     addUsage(usage, response.usage);
     return {
       text: cleanFortuneText({
@@ -791,50 +546,14 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
         sessionId: body.sessionId,
         readingType: body.readingType,
         isFollowUp: body.isFollowUp,
+        focusQuestion: body.focusQuestion,
       }),
       modelName: response.model,
       specificityUsage: prompt.specificityUsage,
       usage,
     };
   } catch (err: any) {
-    if (err?.isGemmaImageValidation) {
-      addUsage(usage, err.tokenUsage);
-      throw jsonPayloadError(err?.message || FRIENDLY_FALLBACK, usage);
-    }
     if (err?.isImageValidation) throw err;
-    if (err?.isOpenAIError) {
-      const error = new Error(err?.message || 'OpenAI yorum yanıtı alınamadı.') as Error & {
-        isOpenAIError?: boolean;
-        tokenUsage?: GeminiUsage;
-        status?: number;
-      };
-      error.isOpenAIError = true;
-      error.status = err?.status;
-      error.tokenUsage = usage;
-      throw error;
-    }
-    if (err?.isTogetherError) {
-      const error = new Error(err?.message || 'Together yorum yanıtı alınamadı.') as Error & {
-        isTogetherError?: boolean;
-        tokenUsage?: GeminiUsage;
-        status?: number;
-      };
-      error.isTogetherError = true;
-      error.status = err?.status;
-      error.tokenUsage = usage;
-      throw error;
-    }
-    if (err?.isPublicAiError) {
-      const error = new Error(err?.message || 'PublicAI yorum yanıtı alınamadı.') as Error & {
-        isPublicAiError?: boolean;
-        tokenUsage?: GeminiUsage;
-        status?: number;
-      };
-      error.isPublicAiError = true;
-      error.status = err?.status;
-      error.tokenUsage = usage;
-      throw error;
-    }
     const error = new Error(friendlyApiMessage(err?.message)) as Error & {
       tokenUsage?: GeminiUsage;
       isImageValidation?: boolean;

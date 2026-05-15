@@ -1,5 +1,6 @@
 import type { SubjectProfile } from '../types/memory';
 import type { AstroPeriod, AstroReadingResult } from './astroEngine';
+import { buildAnimalProfileInstructionFromProfile, isAnimalProfile } from './animalProfilePrompt';
 import { generateGeminiTextDirect } from './geminiDirectService';
 
 const SIGN_ORDER = [
@@ -82,18 +83,30 @@ function buildGeneralAstroPayload(params: {
 }) {
   const signLabel = SIGN_TR[params.sign];
   const periodLabel = PERIOD_TR[params.period];
+  const animalProfile = isAnimalProfile(params.profile);
   const systemText =
-    'Sen Türkçe yazan bir genel astroloji yorumcususun. Yanıtı kısa, akıcı ve kullanıcıya dönük yaz; kesin kehanet, sağlık/finans garantisi ve korkutucu dil kullanma. Markdown, yıldızlı vurgu, madde imi, emoji, ikon veya dekoratif sembol kullanma.';
+    [
+      'Sen Türkçe yazan bir genel astroloji yorumcususun. Yanıtı kısa, akıcı ve kullanıcıya dönük yaz; kesin gelecek iddiası, sağlık/finans garantisi ve korkutucu dil kullanma. Sağlıkta teşhis, tedavi, ilaç, doz, beslenme reçetesi veya kesin iyileşme dili kurma; insan sağlığı endişesinde doktor/uygun sağlık uzmanı, hayvan sağlığı endişesinde veteriner öner. Markdown, yıldızlı vurgu, madde imi, emoji, ikon veya dekoratif sembol kullanma.',
+      animalProfile
+        ? 'Seçili profil evcil hayvansa genel astro yorumunu insan okuması gibi yazma. Kariyer, iş, para kazanma, okul, evlilik, romantik ilişki, insan sosyal çevresi veya yetişkin insan psikolojisi teması kurma; hayvanın mizacı, oyun/dinlenme ritmi, duyuları, ev içi güveni, pencere/dış dünya merakı, evdeki diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden yaz.'
+        : '',
+    ].filter(Boolean).join(' ');
   const userText = [
     `Profil adı: ${params.profile.displayName}`,
+    buildAnimalProfileInstructionFromProfile(params.profile),
     `Güneş burcu: ${signLabel}`,
     `Dönem: ${periodLabel}`,
     `Tarih anahtarı: ${params.targetDate}`,
     [
       'Yükselen veya kişiye özel doğum haritası bilgisi varmış gibi davranma.',
-      '3-4 ana konuya değin: duygu hali, ilişkiler, iş/para ve küçük bir öneri.',
+      animalProfile
+        ? '3-4 ana konuya değin: mizaç/duygu tonu, oyun ve dinlenme ritmi, ev içi güven ve sahibiyle bağ, küçük bir gözlem önerisi.'
+        : '3-4 ana konuya değin: duygu hali, ilişkiler, iş/para ve küçük bir öneri.',
+      animalProfile
+        ? 'Metin hayvanı üçüncü tekil şahısla anlatsın; hesap sahibine yalnızca sahibi/refakatçisi olarak yumuşak öneri ver.'
+        : '',
       'Başlık atma. Türkçe yaz. 110-170 kelime arasında doğal bir yorum ver.',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
   ].join('\n\n');
 
   return {

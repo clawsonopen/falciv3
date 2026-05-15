@@ -30,6 +30,23 @@ function normalizeUsage(data: GeminiProxyResponse) {
   };
 }
 
+function normalizeRawUsage(data: GeminiProxyResponse) {
+  return {
+    inputTokens: Number(data.usage?.rawInputTokens ?? data.usage?.inputTokens ?? 0),
+    outputTokens: Number(data.usage?.rawOutputTokens ?? data.usage?.outputTokens ?? 0),
+    totalTokens: Number(data.usage?.rawTotalTokens ?? data.usage?.totalTokens ?? 0),
+  };
+}
+
+type GeminiUsageMode = 'effective' | 'raw';
+type GeminiDirectOptions = {
+  usageMode?: GeminiUsageMode;
+};
+
+function selectedUsage(data: GeminiProxyResponse, options?: GeminiDirectOptions) {
+  return options?.usageMode === 'raw' ? normalizeRawUsage(data) : normalizeUsage(data);
+}
+
 async function postGeminiProxy(payload: Record<string, unknown>, timeoutMs: number) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -68,14 +85,14 @@ async function postGeminiProxy(payload: Record<string, unknown>, timeoutMs: numb
   }
 }
 
-export async function generateGeminiTextDirect(payload: Record<string, unknown>, timeoutMs = 45000) {
+export async function generateGeminiTextDirect(payload: Record<string, unknown>, timeoutMs = 45000, options?: GeminiDirectOptions) {
   try {
     const data = await postGeminiProxy(payload, timeoutMs);
     return {
       text: data.text!.trim(),
       model: data.model || 'gemini-2.5-flash-lite',
       finishReason: data.finishReason || null,
-      usage: normalizeUsage(data),
+      usage: selectedUsage(data, options),
     };
   } catch (err: any) {
     const retryAfterSeconds = Number(err?.retryAfterSeconds || 0);
@@ -86,7 +103,7 @@ export async function generateGeminiTextDirect(payload: Record<string, unknown>,
         text: data.text!.trim(),
         model: data.model || 'gemini-2.5-flash-lite',
         finishReason: data.finishReason || null,
-        usage: normalizeUsage(data),
+        usage: selectedUsage(data, options),
       };
     }
     throw err;

@@ -19,24 +19,15 @@ export interface SessionConfig {
   profileName: string;
   /** Whether selected profile is the account owner's self profile */
   profileIsSelf: boolean;
+  /** Optional topic/question the user wants this reading to focus on */
+  focusQuestion?: string | null;
   /** Profile memory snippet for this turn */
   memorySnippet?: import('./memory').ProfileMemorySnippet | null;
   /** Dev controls */
   devSettings: DevSettings;
 }
 
-export type FortuneModelProvider = 'gemini' | 'openai' | 'together' | 'publicai';
-export type FortuneModelName =
-  | 'gemini-2.5-flash-lite'
-  | 'gpt-5-nano'
-  | 'google/gemma-3n-E4B-it'
-  | 'utter-project/EuroLLM-22B-Instruct-2512';
-
 export interface DevSettings {
-  /** Selected AI model provider */
-  modelProvider: FortuneModelProvider;
-  /** Selected AI model name */
-  modelName: FortuneModelName;
   /** Selected assistant persona id */
   assistantId: string;
   /** Gemini temperature (0.0 - 2.0) */

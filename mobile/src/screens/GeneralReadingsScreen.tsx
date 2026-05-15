@@ -214,7 +214,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
       },
       {
         id: 'daisy-fortune',
-        title: 'Papatya ile Hızlı EVET/HAYIR Falı',
+        title: 'Papatya ile Hızlı EVET/HAYIR Ritüeli',
         description: 'Aklındaki soru için yaprakları tek tek kopararak hızlı evet/hayır yanıtı.',
         isPaid: false,
         refreshLabel: 'Sınırsız ücretsiz',
@@ -300,7 +300,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
+          message: 'Okuma hazırlayabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
         });
         setSpeechMode('hidden');
         return;
@@ -500,13 +500,16 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
+          message: 'Okuma hazırlayabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
         });
         setSpeechMode('hidden');
         return;
       }
-      setPendingItem(item);
-      setConfirmVisible(true);
+      navigation.navigate('GeneralReadingResult', {
+        profileId: selectedProfile.profileId,
+        readingId: item.id,
+        title: item.title,
+      });
     },
     [navigation, selectedProfile],
   );
@@ -516,7 +519,7 @@ export function GeneralReadingsScreen({ navigation }: Props) {
       <BrandedScrollView contentContainerStyle={[styles.content, { paddingBottom: 24 + insets.bottom }]} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kimin İçin Baktıracaksın?</Text>
-          <Text style={styles.helperText}>Genel okumalar daha kısa ve daha geneldir; yükselen veya ay burcu hesaba katılmaz.</Text>
+          <Text style={styles.helperText}>Önce profili seç, sonra aşağıdan okumaya geç.</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {profiles.map((profile) => {
               const selected = profile.profileId === selectedProfileId;
@@ -537,7 +540,8 @@ export function GeneralReadingsScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Genel Fal Türleri</Text>
+          <Text style={styles.panelTitle}>Genel Okuma Türleri</Text>
+          <Text style={styles.helperText}>Genel okumalar daha kısa ve daha geneldir; yükselen veya ay burcu gibi doğum anı etkileri hesaplamalara katılmaz.</Text>
           <View style={styles.grid}>
             {items.map((item) => (
               <TouchableOpacity
@@ -678,10 +682,10 @@ const styles = StyleSheet.create({
   panelTitle: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 10 },
   helperText: { color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 18, marginBottom: 10 },
   profileCard: {
-    width: 140,
+    width: 100,
     minHeight: 90,
     marginRight: 10,
-    padding: 12,
+    padding: 10,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.18)',
@@ -708,7 +712,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   readingSquareTitle: {
-    color: '#D4A574',
+    color: '#FFF5E8',
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',

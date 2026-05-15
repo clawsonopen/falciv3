@@ -45,35 +45,37 @@ export function BrandedPicker<T extends string>({
           {selected?.label || placeholder}
         </Text>
       </TouchableOpacity>
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
-        <View style={[styles.overlay, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-          <View style={styles.card}>
-            <View style={styles.header}>
-              <Text style={styles.title}>{label || placeholder}</Text>
-              <TouchableOpacity onPress={() => setVisible(false)}>
-                <Text style={styles.closeText}>Kapat</Text>
-              </TouchableOpacity>
+      {visible ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setVisible(false)}>
+          <View style={[styles.overlay, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View style={styles.card}>
+              <View style={styles.header}>
+                <Text style={styles.title}>{label || placeholder}</Text>
+                <TouchableOpacity onPress={() => setVisible(false)}>
+                  <Text style={styles.closeText}>Kapat</Text>
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.optionScroll} contentContainerStyle={styles.optionContent}>
+                {options.map((option) => {
+                  const active = option.value === selectedValue;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.optionRow, active && styles.optionRowActive]}
+                      onPress={() => {
+                        onValueChange(option.value);
+                        setVisible(false);
+                      }}
+                    >
+                      <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
-            <ScrollView style={styles.optionScroll} contentContainerStyle={styles.optionContent}>
-              {options.map((option) => {
-                const active = option.value === selectedValue;
-                return (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[styles.optionRow, active && styles.optionRowActive]}
-                    onPress={() => {
-                      onValueChange(option.value);
-                      setVisible(false);
-                    }}
-                  >
-                    <Text style={[styles.optionText, active && styles.optionTextActive]}>{option.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      ) : null}
     </>
   );
 }

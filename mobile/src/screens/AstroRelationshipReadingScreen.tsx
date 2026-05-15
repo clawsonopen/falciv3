@@ -4,6 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
+import { FOLLOW_UP_QUESTION_MAX_CHARS, FOLLOW_UP_QUESTION_MIN_CHARS, normalizeLimitedInput } from '../config/llmTokenPolicy';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { BrandedPicker } from '../components/BrandedPicker';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
@@ -364,8 +365,8 @@ export function AstroRelationshipReadingScreen({ route, navigation }: Props) {
   }, [assistantId, assistantLabel, context, isLoading, mode, prepareSubjects, profileId, text]);
 
   const handleSendQuestion = useCallback(async () => {
-    const question = questionText.replace(/\s+/g, ' ').trim();
-    if (!question || !text || isSendingQuestion || !preparedSubjects.length) return;
+    const question = normalizeLimitedInput(questionText, FOLLOW_UP_QUESTION_MAX_CHARS);
+    if (question.length < FOLLOW_UP_QUESTION_MIN_CHARS || !text || isSendingQuestion || !preparedSubjects.length) return;
     const previousFollowUps = followUps.map(({ role, text }) => ({ role, text }));
     setFollowUps((current) => [...current, { id: `u-${Date.now()}`, role: 'user', text: question }]);
     setQuestionText('');
@@ -575,7 +576,7 @@ export function AstroRelationshipReadingScreen({ route, navigation }: Props) {
             <View style={styles.panel}>
               <Text style={styles.panelTitle}>{mode === 'family' ? 'Aile Bireyleri' : 'Kimlerin Uyumuna Bakılacak?'}</Text>
               <Text style={styles.helperText}>
-                Kayıtlı profillerden seçebilir ya da yalnız bu fal için kişi/pet bilgisi girebilirsin.
+                Kayıtlı profillerden seçebilir ya da yalnız bu analiz için kişi/pet bilgisi girebilirsin.
               </Text>
               {mode === 'compatibility' ? (
                 <View style={styles.contextBox}>
@@ -611,6 +612,7 @@ export function AstroRelationshipReadingScreen({ route, navigation }: Props) {
                   style={styles.questionInput}
                   value={questionText}
                   onChangeText={setQuestionText}
+                  maxLength={FOLLOW_UP_QUESTION_MAX_CHARS}
                   placeholder="Bu yorumla ilgili ne sormak istersin?"
                   placeholderTextColor="rgba(255,255,255,0.35)"
                   multiline

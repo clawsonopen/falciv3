@@ -123,9 +123,9 @@ const styles = StyleSheet.create({
   panelTitle: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 8 },
   helperText: { color: 'rgba(255,255,255,0.72)', fontSize: 13, lineHeight: 20, marginBottom: 10 },
   profileCard: {
-    width: 144,
-    minHeight: 88,
-    padding: 12,
+    width: 100,
+    minHeight: 90,
+    padding: 10,
     borderRadius: 14,
     marginRight: 10,
     backgroundColor: 'rgba(0,0,0,0.18)',

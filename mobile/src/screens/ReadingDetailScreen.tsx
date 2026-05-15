@@ -50,7 +50,7 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.readingCard}>
-          <Text style={styles.sectionTitle}>{reading.readingType === 'personality-test' ? 'Test Özeti' : 'Fal Özeti'}</Text>
+          <Text style={styles.sectionTitle}>{reading.readingType === 'personality-test' ? 'Test Özeti' : 'Okuma Özeti'}</Text>
           <SelectableFormattedText text={mainText} style={styles.readingText} />
         </View>
 
@@ -69,13 +69,13 @@ export function ReadingDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-          <Text style={styles.deleteButtonText}>Bu Falı Sil</Text>
+          <Text style={styles.deleteButtonText}>Bu Okumayı Sil</Text>
         </TouchableOpacity>
       </BrandedScrollView>
       <BrandedConfirmModal
         visible={deleteConfirmVisible}
-        title="Falı Sil"
-        message="Bu fal kaydını cihazından silmek istediğine emin misin?"
+        title="Okumayı Sil"
+        message="Bu okuma kaydını cihazından silmek istediğine emin misin?"
         confirmLabel="Evet, Sil"
         cancelLabel="Hayır, Silme"
         onConfirm={async () => {

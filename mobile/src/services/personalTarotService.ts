@@ -2,8 +2,23 @@ import type { SubjectProfile, ProfileMemorySnippet } from '../types/memory';
 import { TAROT_CARDS, type TarotCard } from '../data/divinationData';
 import { TAROT_TR_NAMES } from '../data/tarotNamesTR';
 import { getTarotSpread, type TarotSpread } from '../data/tarotSpreads';
+import {
+  PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
+  PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION,
+  PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+  PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+} from '../config/llmTokenPolicy';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import { generateGeminiTextDirect } from './geminiDirectService';
+import {
+  appendHealthProfessionalReminder,
+  isHealthClosingSentence,
+  sanitizePublicReadingLanguage,
+  selectAnimalClosingSentence,
+  stripPersonaSelfIntroduction,
+  userAskedHealthConcern,
+} from './personaClosingService';
+import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile } from './animalProfilePrompt';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 
@@ -25,9 +40,9 @@ export type TarotFollowUpMessage = {
   text: string;
 };
 
-const TAROT_MAX_OUTPUT_TOKENS = 1400;
-const TAROT_FOLLOW_UP_MAX_OUTPUT_TOKENS = 900;
-const TAROT_FORBIDDEN_CLOSING_TERMS = /kahve|fincan|telve|tabak|avuç|el falı|el fal|el çizg|doğum haritası|numeroloji|rüya yorumu/i;
+const TAROT_MAX_OUTPUT_TOKENS = PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS;
+const TAROT_FOLLOW_UP_MAX_OUTPUT_TOKENS = PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS;
+const TAROT_FORBIDDEN_CLOSING_TERMS = /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|doğum haritası|numeroloji|rüya yorumu/i;
 
 function personaId(value?: string): PersonaId {
   return (value && value in FORTUNE_PERSONA_DATA ? value : 'durdane-hanim') as PersonaId;
@@ -64,8 +79,8 @@ function stripTarotDomainLeaks(text: string, assistantLabel?: string) {
     .replace(/\bfincan(?:ın|daki|da|dan|ı|a)?\b/gi, 'açılım')
     .replace(/\btelve(?:nin|leri|lerde|lerden|yi|ye|de|den)?\b/gi, 'kartların izi')
     .replace(/\bkahve(?:nin|si|de|den|ye|yi)?\b/gi, 'tarot')
-    .replace(/\bkahve falı\b/gi, 'tarot açılımı')
-    .replace(/\bel falı\b/gi, 'tarot açılımı')
+    .replace(/\bkahve yorumu\b/gi, 'tarot açılımı')
+    .replace(/\bel okuması\b/gi, 'tarot açılımı')
     .replace(/\bavuç içi\b/gi, 'kart dizilimi')
     .replace(/\bel çizgileri?\b/gi, 'kartların sembolleri')
     .replace(/\btabak(?:ta|tan|taki|ı|a)?\b/gi, 'açılım')
@@ -92,13 +107,26 @@ function trimIncompleteTail(text: string, assistantLabel?: string) {
   return cleaned;
 }
 
-function selectTarotClosing(params: { assistantId: string; seed: string; usedClosings?: string[] }) {
+function selectTarotClosing(params: { assistantId: string; seed: string; usedClosings?: string[]; allowHealthClosing?: boolean; isAnimalProfile?: boolean }) {
   const id = personaId(params.assistantId);
+  if (params.isAnimalProfile) {
+    return selectAnimalClosingSentence({
+      assistantId: id,
+      seed: `tarot:${params.seed}`,
+      usedClosings: params.usedClosings,
+    });
+  }
   const used = new Set((params.usedClosings || []).map((item) => item.trim()).filter(Boolean));
   const library = FORTUNE_PERSONA_DATA[id].closingLibrary as Record<string, readonly string[]>;
   const options = Object.values(library)
     .flatMap((items) => [...items])
-    .filter((sentence) => sentence && !TAROT_FORBIDDEN_CLOSING_TERMS.test(sentence) && !used.has(sentence));
+    .filter(
+      (sentence) =>
+        sentence &&
+        !TAROT_FORBIDDEN_CLOSING_TERMS.test(sentence) &&
+        !used.has(sentence) &&
+        (params.allowHealthClosing || !isHealthClosingSentence(sentence)),
+    );
   if (!options.length) return '';
   return options[hashString(`tarot:${id}:${params.seed}:${used.size}`) % options.length];
 }
@@ -110,8 +138,10 @@ function completeWithTarotClosing(params: {
   usedClosings?: string[];
   forceClosing?: boolean;
   assistantLabel?: string;
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
 }) {
-  const base = trimIncompleteTail(params.text, params.assistantLabel);
+  const base = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(trimIncompleteTail(params.text, params.assistantLabel)));
   const closing = selectTarotClosing(params);
   if (!closing) return { text: base, closingSentence: '' };
   if (!base) return { text: closing, closingSentence: closing };
@@ -158,12 +188,15 @@ export function drawTarotSpreadCards(params: {
   return { spread, cards: out };
 }
 
-function memoryContext(profileName: string, memorySnippet?: ProfileMemorySnippet | null) {
+function memoryContext(profileName: string, memorySnippet?: ProfileMemorySnippet | null, isAnimalProfile = false) {
   const lines = [
     '## Profil ve Hafıza Bağlamı',
-    `- Bu tarot açılımı ${profileName || 'seçili kişi'} için yapılıyor.`,
+    isAnimalProfile || memorySnippet?.relationshipPrimary === 'evcil_hayvan'
+      ? `- Bu tarot açılımı ${profileName || 'seçili profil'} adlı evcil hayvan için yapılıyor.`
+      : `- Bu tarot açılımı ${profileName || 'seçili kişi'} için yapılıyor.`,
     '- Kullanıcının bu oturumda sorduğu soru ve takip soruları birincil sinyaldir.',
     '- Önceki yorumlardan türeyen temalar düşük öncelikli arka plan olarak kalmalı; mevcut spread ve soru desteklemiyorsa ana konu yapılmamalı.',
+    '- Hafızadaki olay/life event kayıtlarını yalnızca mevcut soru veya kartların akışıyla gerçekten ilişkiliyse kullan; alakasız bir kaydı yoruma zorla sokma.',
   ];
   if (!memorySnippet) return lines.join('\n');
   if (memorySnippet.isSelf) {
@@ -172,6 +205,8 @@ function memoryContext(profileName: string, memorySnippet?: ProfileMemorySnippet
     lines.push(`- Okuma hesap sahibinden farklı biri için olabilir; seçili profil olan ${profileName} sabit kalmalı.`);
   }
   if (memorySnippet.relationshipLabel) lines.push(`- Hesap sahibiyle yakınlık: ${memorySnippet.relationshipLabel}.`);
+  const animalContext = buildAnimalProfileInstructionFromMemory(memorySnippet);
+  if (animalContext) lines.push(animalContext);
   if (memorySnippet.profileGender) lines.push(`- Profil cinsiyet bilgisi: ${memorySnippet.profileGender}; hitapları buna göre seç.`);
   if (memorySnippet.userStatedTopics?.length) {
     lines.push(`- Kullanıcının kendi söylediği güçlü konular: ${memorySnippet.userStatedTopics.slice(0, 8).join(', ')}.`);
@@ -216,34 +251,49 @@ function buildBaseSystem(params: {
   profileName: string;
   memorySnippet?: ProfileMemorySnippet | null;
   usedClosings?: string[];
+  isAnimalProfile?: boolean;
 }) {
   const id = personaId(params.assistantId);
   const identity = FORTUNE_PERSONA_DATA[id];
+  const isAnimalTarot = Boolean(params.isAnimalProfile || params.memorySnippet?.relationshipPrimary === 'evcil_hayvan');
   return [
     identity.systemBody,
     [
       '## Tarot Direktifleri',
       `- Bu oturum tarot açılımıdır. ${params.assistantLabel} personasında kal; persona yalnızca ses, hitap ve yorum ritmini belirler.`,
-      `- Seçilen ve konuşan falcı sadece ${params.assistantLabel}. Başka falcı/persona adı anma.`,
-      `- "Caner dedi", "Bahar Hanım olarak", "Dürdane'ye göre" gibi seçilen falcı dışında isim kaymaları yasak. Gerekirse hiç isim kullanmadan doğrudan yoruma gir.`,
+      `- Seçilen ve konuşan yorumcu sadece ${params.assistantLabel}. Başka yorumcu/persona adı anma.`,
+      `- "Caner dedi", "Bahar Hanım olarak", "Dürdane'ye göre" gibi seçilen yorumcu dışında isim kaymaları yasak. Gerekirse hiç isim kullanmadan doğrudan yoruma gir.`,
+      `- Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcuyum" gibi girişler yasak. İlk cümle doğrudan yoruma başlasın.`,
+      '- Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+      '- Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+      '- "Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+      '- Kullanıcı bir konu/soru yazdıysa bunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
+      '- Hafıza veya önceki okuma kaynağını açık etme; "önceki okumanda", "hafızanda", "sana daha önce çıkmıştı" gibi cümleler kurma.',
       '- Kahve, fincan, telve, tabak, el, avuç, el çizgisi, doğum haritası, numeroloji veya rüya yorumu objeleriyle yorum yapma.',
-      "- Persona geçmişinde kahve, el falı veya başka alanlar geçse bile bunları tamamen yok say; sadece tarot kartları, kart dizilimi, pozisyonlar ve semboller üzerinden konuş.",
+      "- Persona geçmişinde kahve, el okuması veya başka alanlar geçse bile bunları tamamen yok say; sadece tarot kartları, kart dizilimi, pozisyonlar ve semboller üzerinden konuş.",
       "- 'elindeki fincan', 'kahvenin telvesi', 'telve gibi', 'avuç çizgin', 'tabakta görünen' ve benzeri benzetmeler kesinlikle yasak.",
-      "- Caner dahil tüm personalar tarot okurken tarot dışı fal malzemesine metafor olarak bile değinmez.",
+      "- Caner dahil tüm personalar tarot okurken tarot dışı sembolik araçlara metafor olarak bile değinmez.",
       '- Her kartı üç katmanla yorumla: kartın tarot anlamı, spread içindeki pozisyon anlamı, pozisyona ait rehber soru.',
       '- Kullanıcının niyeti/sorusu varsa bu oturumun ana eksenidir; yanıtın ilk paragrafında o soruyu açıkça ele al ve tüm açılımı o soru bağlamında yorumla.',
       '- Kullanıcı soru/niyet yazdıysa genel tarot yorumu yapıp soruyu sona bırakma; kartları sorunun cevabına hizmet edecek şekilde bağla.',
+      isAnimalTarot
+        ? '- Seçili profil evcil hayvansa tarot açılımını insan hayatı şablonuna çevirme. Kartları hayvanın mizacı, oyun ve dinlenme düzeni, ev içi güveni, duyuları, pencere/dış dünya merakı, evdeki diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden yorumla.'
+        : '',
+      isAnimalTarot
+        ? '- Evcil hayvan profilde kariyer, iş, okul, evlilik, romantik ilişki, insan sosyal çevresi, para kazanma veya yetişkin insan psikolojisi teması kurma. Hesap sahibine yalnızca hayvanın sahibi/refakatçisi olarak pratik ve yumuşak öneriler ver.'
+        : '',
+      '- Hafıza ve önceki yaşam olayı sinyalleri soruya hizmet etmiyorsa sessiz kalsın; spread ile ilgisiz bir anıyı ana temaya çevirme.',
       '- Kartların dizilim içindeki ilişkisini kur; tek tek kart listesi gibi kopuk anlatma.',
-      '- Kesin kehanet, korkutucu felaket, ölüm, ağır hastalık veya garanti finans dili kullanma.',
+      '- Kesin hüküm, korkutucu felaket, ölüm, ağır hastalık veya garanti finans dili kullanma.',
       '- Yanıt başlıksız, listesiz, sohbet gibi akan düz yazı olsun. Markdown, yıldızlı vurgu, emoji, ikon veya dekoratif sembol kullanma.',
-      '- Ana açılım yorumunda hedef uzunluk spread büyüklüğüne göre doyurucu olsun; 1 kart kısa, 10 kart kapsamlı ama nefessiz olmasın.',
+      `- Ana açılım yorumunda ${PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION}`,
       '- Takip sorularında önce son soruya cevap ver, sonra kart ve pozisyon bağlamından gerekçe ekle.',
       '- Oturum boyunca aynı spread, aynı kartlar ve aynı profil bağlamı korunmalı.',
       '- Kapanışta yeni imza cümlesi üretme; sistem persona kapanışını sonradan ekleyecek.',
       params.usedClosings?.length ? `- Bu oturumda kullanılmış kapanışlar: ${params.usedClosings.join(' | ')}` : '',
       '- Türkçe karakterleri daima doğru UTF-8 yaz: ç, ğ, ı, İ, ö, ş, ü.',
     ].filter(Boolean).join('\n'),
-    memoryContext(params.profileName, params.memorySnippet),
+    memoryContext(params.profileName, params.memorySnippet, isAnimalTarot),
   ].join('\n\n');
 }
 
@@ -263,9 +313,11 @@ export async function createPersonalTarotReading(params: {
     profileName: params.profile.displayName,
     memorySnippet: params.memorySnippet,
     usedClosings: params.usedClosings,
+    isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
   const userText = [
     `Profil adı: ${params.profile.displayName}`,
+    buildAnimalProfileInstructionFromProfile(params.profile),
     `Açılım: ${params.spread.title}`,
     `Açılım amacı: ${params.spread.purpose}`,
     params.question
@@ -275,7 +327,10 @@ export async function createPersonalTarotReading(params: {
         ].join('\n')
       : 'Kullanıcı genel bir tarot açılımı istedi.',
     `Kartlar ve pozisyonlar:\n${cardContext(params.cards)}`,
-    'Yorumu önce açılımın genel enerjisiyle başlat, sonra önemli kart ilişkilerini pozisyon bağlamında işle, son bölümde uygulanabilir bir yön ve yumuşak toparlama ver.',
+    params.profile.relationshipPrimary === 'evcil_hayvan'
+      ? 'Yorumu önce hayvanın genel enerjisi ve güven/oyun ritmiyle başlat; sonra kart ilişkilerini ev içi davranış, duyular, diğer hayvanlarla minik sosyal dinamikler ve sahibiyle bağı üzerinden işle. Son bölümde sahibine uygulanabilir, yumuşak bir gözlem önerisi ver.'
+      : 'Yorumu önce açılımın genel enerjisiyle başlat, sonra önemli kart ilişkilerini pozisyon bağlamında işle, son bölümde uygulanabilir bir yön ve yumuşak toparlama ver.',
+    PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
   ].join('\n\n');
   const data = await generateGeminiTextDirect(
     {
@@ -287,6 +342,7 @@ export async function createPersonalTarotReading(params: {
       },
     },
     70000,
+    { usageMode: 'raw' },
   );
   const completed = completeWithTarotClosing({
     text: data.text,
@@ -295,8 +351,18 @@ export async function createPersonalTarotReading(params: {
     seed: `${params.profile.profileId}:${params.spread.id}:${params.cards.map((card) => card.id).join('|')}`,
     usedClosings: params.usedClosings,
     forceClosing: true,
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
-  return { text: completed.text, closingSentence: completed.closingSentence, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(completed.text, {
+      userText: params.question,
+      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+    }),
+    closingSentence: completed.closingSentence,
+    modelName: data.model,
+    usage: data.usage,
+  };
 }
 
 export async function createPersonalTarotFollowUp(params: {
@@ -317,18 +383,22 @@ export async function createPersonalTarotFollowUp(params: {
     profileName: params.profileName,
     memorySnippet: params.memorySnippet,
     usedClosings: params.usedClosings,
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   const conversation = (params.previousFollowUps || [])
     .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text}`)
     .join('\n');
   const userText = [
     `Profil adı: ${params.profileName}`,
+    buildAnimalProfileInstructionFromMemory(params.memorySnippet),
     `Açılım: ${params.spread.title}`,
     `Kartlar ve pozisyonlar:\n${cardContext(params.cards)}`,
     `İlk yorum:\n${params.readingText}`,
     conversation ? `Önceki soru cevaplar:\n${conversation}` : '',
     `Kullanıcının son sorusu:\n${params.question}`,
-    'Sadece son soruya cevap ver; ama aynı kartlar, aynı spread ve önceki bağlam korunmalı. 250-450 token aralığında toparlanmış ama doyurucu yanıt ver.',
+    params.memorySnippet?.relationshipPrimary === 'evcil_hayvan'
+      ? `Sadece son soruya cevap ver; ama aynı kartlar, aynı spread ve evcil hayvan bağlamı korunmalı. İnsan hayatı şablonuna kayma. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`
+      : `Sadece son soruya cevap ver; ama aynı kartlar, aynı spread ve önceki bağlam korunmalı. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
   ].filter(Boolean).join('\n\n');
   const data = await generateGeminiTextDirect(
     {
@@ -340,6 +410,7 @@ export async function createPersonalTarotFollowUp(params: {
       },
     },
     70000,
+    { usageMode: 'raw' },
   );
   const completed = completeWithTarotClosing({
     text: data.text,
@@ -347,6 +418,16 @@ export async function createPersonalTarotFollowUp(params: {
     seed: `${params.profileName}:${params.spread.id}:${params.question}:${params.previousFollowUps?.length || 0}`,
     usedClosings: params.usedClosings,
     forceClosing: true,
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
-  return { text: completed.text, closingSentence: completed.closingSentence, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(completed.text, {
+      userText: params.question,
+      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+    }),
+    closingSentence: completed.closingSentence,
+    modelName: data.model,
+    usage: data.usage,
+  };
 }

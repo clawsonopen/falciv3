@@ -13,6 +13,7 @@ import { HistoryScreen } from './src/screens/HistoryScreen';
 import { MemoryDebugScreen } from './src/screens/MemoryDebugScreen';
 import { ReadingDetailScreen } from './src/screens/ReadingDetailScreen';
 import { GeneralReadingsScreen } from './src/screens/GeneralReadingsScreen';
+import { GeneralReadingResultScreen } from './src/screens/GeneralReadingResultScreen';
 import { PersonalReadingsScreen } from './src/screens/PersonalReadingsScreen';
 import { ProfileSettingsScreen } from './src/screens/ProfileSettingsScreen';
 import { PersonalProfileSelectScreen } from './src/screens/PersonalProfileSelectScreen';
@@ -24,12 +25,18 @@ import { PersonalBirthChartScreen } from './src/screens/PersonalBirthChartScreen
 import { PersonalNumerologyReadingScreen } from './src/screens/PersonalNumerologyReadingScreen';
 import { APP_NAME } from './src/config/constants';
 import type { DevSettings, SessionConfig } from './src/types';
+import type { GeneralDivinationType } from './src/services/divinationEngine';
 import type { ReadingSummary } from './src/types/memory';
 
 export type RootStackParamList = {
   Home: { freshStartToken?: number } | undefined;
   ProfileSettings: undefined;
   GeneralReadings: undefined;
+  GeneralReadingResult: {
+    profileId: string;
+    readingId: GeneralDivinationType | 'astro-daily' | 'astro-weekly' | 'astro-monthly';
+    title: string;
+  };
   PersonalReadings: { devSettings: DevSettings } | undefined;
   PersonalProfileSelect: { devSettings: DevSettings };
   PersonalReadingTypeSelect: { devSettings: DevSettings; profileId: string };
@@ -42,8 +49,11 @@ export type RootStackParamList = {
       | 'astro-personal'
       | 'tarot-personal'
       | 'numerology-personal'
+      | 'numerology-core'
+      | 'numerology-period'
       | 'angel-personal'
-      | 'manifest-chat';
+      | 'manifest-chat'
+      | 'dream-interpretation';
   };
   PersonalReadingSetup:
     | {
@@ -56,7 +66,7 @@ export type RootStackParamList = {
     | undefined;
   PersonalAstroReading: { profileId: string; assistantId: string };
   PersonalBirthChart: { profileId: string };
-  PersonalNumerologyReading: { profileId: string; assistantId: string };
+  PersonalNumerologyReading: { profileId: string; assistantId: string; initialMode?: 'core' | 'daily' | 'weekly' | 'monthly' };
   Session: { config: SessionConfig };
   History: { profileId: string; profileName: string };
   MemoryDebug: { profileId: string; profileName: string };
@@ -79,7 +89,8 @@ export default function App() {
         >
           <Stack.Screen name="Home" component={HomeScreen} options={{ title: APP_NAME }} />
           <Stack.Screen name="ProfileSettings" component={ProfileSettingsScreen} options={{ title: 'Profil Ayarları' }} />
-          <Stack.Screen name="GeneralReadings" component={GeneralReadingsScreen} options={{ title: 'Genel Fallar' }} />
+          <Stack.Screen name="GeneralReadings" component={GeneralReadingsScreen} options={{ title: 'Genel Okumalar' }} />
+          <Stack.Screen name="GeneralReadingResult" component={GeneralReadingResultScreen} options={{ title: 'Genel Okuma' }} />
           <Stack.Screen name="PersonalReadings" component={PersonalReadingsScreen} options={{ title: 'Kişiye Özel' }} />
           <Stack.Screen
             name="PersonalProfileSelect"
@@ -89,17 +100,17 @@ export default function App() {
           <Stack.Screen
             name="PersonalReadingTypeSelect"
             component={PersonalReadingTypeSelectScreen}
-            options={{ title: 'Fal Tipi Seçimi' }}
+            options={{ title: 'Okuma Tipi Seçimi' }}
           />
           <Stack.Screen
             name="PersonalAssistantSelect"
             component={PersonalAssistantSelectScreen}
-            options={{ title: 'Falcı Seçimi' }}
+            options={{ title: 'Yorumcu Seçimi' }}
           />
           <Stack.Screen
             name="PersonalReadingSetup"
             component={PersonalReadingSetupScreen}
-            options={{ title: 'Profil Ayarları ve Fal Akışı' }}
+            options={{ title: 'Profil Ayarları ve Okuma Akışı' }}
           />
           <Stack.Screen
             name="PersonalAstroReading"
@@ -121,9 +132,9 @@ export default function App() {
             component={SessionScreen}
             options={{ title: APP_NAME, headerBackVisible: false }}
           />
-          <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'Son Fallar' }} />
+          <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'Son Okumalar' }} />
           <Stack.Screen name="MemoryDebug" component={MemoryDebugScreen} options={{ title: 'Hafıza' }} />
-          <Stack.Screen name="ReadingDetail" component={ReadingDetailScreen} options={{ title: 'Fal Detayı' }} />
+          <Stack.Screen name="ReadingDetail" component={ReadingDetailScreen} options={{ title: 'Okuma Detayı' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

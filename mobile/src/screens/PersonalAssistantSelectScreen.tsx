@@ -12,7 +12,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   const { devSettings, profileId, readingType } = route.params;
   const defaultAssistantId = useMemo(() => {
     if (readingType === 'astro-personal') return 'bahar-hanim';
-    if (readingType === 'numerology-personal') return 'mert-bey';
+    if (readingType === 'numerology-personal' || readingType === 'numerology-core' || readingType === 'numerology-period') return 'mert-bey';
     if (readingType === 'tarot-personal') return 'caner';
     if (readingType === 'palm') return 'hikmet-bey';
     return AVAILABLE_ASSISTANTS[0].id;
@@ -24,10 +24,12 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
   }, [defaultAssistantId]);
 
   const selectedReadingLabel = useMemo(() => {
-    if (readingType === 'coffee') return 'Kahve Falı';
-    if (readingType === 'palm') return 'El / Pati Falı';
+    if (readingType === 'coffee') return 'Kahve Yorumu';
+    if (readingType === 'palm') return 'El / Pati Okuması';
     if (readingType === 'astro-personal') return 'Astroloji';
     if (readingType === 'tarot-personal') return 'Kişiye Özel Tarot';
+    if (readingType === 'numerology-core') return 'Temel Numeroloji Haritası';
+    if (readingType === 'numerology-period') return 'Numeroloji';
     if (readingType === 'numerology-personal') return 'Kişiye Özel Numeroloji';
     if (readingType === 'dream-interpretation') return 'Rüya Yorumu';
     if (readingType === 'angel-personal') return 'Kişiye Özel Melek Kartları';
@@ -38,8 +40,8 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Falcı Seçimi</Text>
-          <Text style={styles.helperText}>Seçilen fal tipi: {selectedReadingLabel}</Text>
+          <Text style={styles.panelTitle}>Yorumcu Seçimi</Text>
+          <Text style={styles.helperText}>Seçilen okuma tipi: {selectedReadingLabel}</Text>
           <View style={styles.assistantList}>
             {AVAILABLE_ASSISTANTS.map((assistant) => {
               const selected = selectedAssistantId === assistant.id;
@@ -67,10 +69,11 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
                 return;
               }
 
-              if (readingType === 'numerology-personal') {
+              if (readingType === 'numerology-personal' || readingType === 'numerology-core' || readingType === 'numerology-period') {
                 navigation.navigate('PersonalNumerologyReading', {
                   profileId,
                   assistantId: selectedAssistantId,
+                  initialMode: readingType === 'numerology-core' ? 'core' : readingType === 'numerology-period' ? 'monthly' : undefined,
                 });
                 return;
               }
@@ -104,7 +107,7 @@ export function PersonalAssistantSelectScreen({ navigation, route }: Props) {
               });
             }}
           >
-            <Text style={styles.primaryButtonText}>Fal / Yoruma Geç</Text>
+            <Text style={styles.primaryButtonText}>Yoruma Geç</Text>
           </TouchableOpacity>
         </View>
       </BrandedScrollView>

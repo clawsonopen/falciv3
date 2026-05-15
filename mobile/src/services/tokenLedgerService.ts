@@ -6,6 +6,7 @@ const LEDGER_FILE = `${DATA_DIR}token-ledger.json`;
 export const DEFAULT_USD_TRY_RATE = 45.45;
 export const GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M = 0.1;
 export const GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M = 0.4;
+export const GEMINI_FLASH_LITE_MODEL_NAME = 'gemini-2.5-flash-lite';
 
 export type ModelTokenPrices = {
   inputPriceUsdPerM: number;
@@ -13,14 +14,11 @@ export type ModelTokenPrices = {
 };
 
 export const MODEL_TOKEN_PRICES_USD_PER_M: Record<string, ModelTokenPrices> = {
-  'gemini-2.5-flash-lite': { inputPriceUsdPerM: 0.1, outputPriceUsdPerM: 0.4 },
-  'google/gemma-3n-E4B-it': { inputPriceUsdPerM: 0.06, outputPriceUsdPerM: 0.12 },
-  'gpt-5-nano': { inputPriceUsdPerM: 0.05, outputPriceUsdPerM: 0.4 },
-  'utter-project/EuroLLM-22B-Instruct-2512': { inputPriceUsdPerM: 0.1, outputPriceUsdPerM: 0.2 },
+  [GEMINI_FLASH_LITE_MODEL_NAME]: { inputPriceUsdPerM: 0.1, outputPriceUsdPerM: 0.4 },
 };
 
 export function getModelTokenPrices(modelName?: string | null): ModelTokenPrices {
-  return MODEL_TOKEN_PRICES_USD_PER_M[modelName || ''] || MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'];
+  return MODEL_TOKEN_PRICES_USD_PER_M[GEMINI_FLASH_LITE_MODEL_NAME];
 }
 
 export type PersonalTokenUsageRow = {
@@ -38,6 +36,7 @@ type TokenLedger = {
   pendingMemoryAnalysisInputTokens: number;
   totalMemoryAnalysisInputTokens: number;
   totalMemoryAnalysisOutputTokens: number;
+  totalMemoryAnalysisRuns: number;
   memoryAnalysisInFlight: number;
   personalUsageRows: PersonalTokenUsageRow[];
 };
@@ -48,6 +47,7 @@ const EMPTY_LEDGER: TokenLedger = {
   pendingMemoryAnalysisInputTokens: 0,
   totalMemoryAnalysisInputTokens: 0,
   totalMemoryAnalysisOutputTokens: 0,
+  totalMemoryAnalysisRuns: 0,
   memoryAnalysisInFlight: 0,
   personalUsageRows: [],
 };
@@ -65,7 +65,32 @@ async function readLedger(): Promise<TokenLedger> {
   const info = await FileSystem.getInfoAsync(LEDGER_FILE);
   if (!info.exists) return EMPTY_LEDGER;
   const raw = await FileSystem.readAsStringAsync(LEDGER_FILE);
-  return { ...EMPTY_LEDGER, ...(JSON.parse(raw) as Partial<TokenLedger>) };
+  const savedLedger = JSON.parse(raw) as Partial<TokenLedger>;
+  const hadMemoryAnalysisRunCounter = Object.prototype.hasOwnProperty.call(savedLedger, 'totalMemoryAnalysisRuns');
+  const ledger = { ...EMPTY_LEDGER, ...savedLedger };
+  if (!hadMemoryAnalysisRunCounter) {
+    ledger.totalMemoryAnalysisInputTokens = 0;
+    ledger.totalMemoryAnalysisOutputTokens = 0;
+    ledger.totalMemoryAnalysisRuns = 0;
+  }
+  const normalizedRows = new Map<string, PersonalTokenUsageRow>();
+  for (const row of ledger.personalUsageRows || []) {
+    const key = `${GEMINI_FLASH_LITE_MODEL_NAME}|${row.readingName}`;
+    const current = normalizedRows.get(key);
+    if (current) {
+      current.imageInputTokens += Math.max(0, row.imageInputTokens || 0);
+      current.textInputTokens += Math.max(0, row.textInputTokens || 0);
+      current.outputTokens += Math.max(0, row.outputTokens || 0);
+    } else {
+      normalizedRows.set(key, {
+        ...row,
+        key,
+        modelName: GEMINI_FLASH_LITE_MODEL_NAME,
+      });
+    }
+  }
+  ledger.personalUsageRows = Array.from(normalizedRows.values());
+  return ledger;
 }
 
 async function writeLedger(ledger: TokenLedger) {
@@ -85,7 +110,7 @@ export async function addPersonalTokenUsage(params: {
   outputTokens?: number;
 }): Promise<void> {
   const ledger = await readLedger();
-  const key = `${params.modelName || 'gemini-2.5-flash-lite'}|${params.readingName}`;
+  const key = `${GEMINI_FLASH_LITE_MODEL_NAME}|${params.readingName}`;
   const current = (ledger.personalUsageRows || []).find((row) => row.key === key);
   if (current) {
     current.imageInputTokens += Math.max(0, params.imageInputTokens || 0);
@@ -96,7 +121,7 @@ export async function addPersonalTokenUsage(params: {
       ...(ledger.personalUsageRows || []),
       {
         key,
-        modelName: params.modelName || 'gemini-2.5-flash-lite',
+        modelName: GEMINI_FLASH_LITE_MODEL_NAME,
         readingName: params.readingName,
         imageInputTokens: Math.max(0, params.imageInputTokens || 0),
         textInputTokens: Math.max(0, params.textInputTokens || 0),
@@ -110,6 +135,9 @@ export async function addPersonalTokenUsage(params: {
 export async function resetPersonalTokenUsage(): Promise<void> {
   const ledger = await readLedger();
   ledger.personalUsageRows = [];
+  ledger.totalMemoryAnalysisInputTokens = 0;
+  ledger.totalMemoryAnalysisOutputTokens = 0;
+  ledger.totalMemoryAnalysisRuns = 0;
   await writeLedger(ledger);
 }
 
@@ -188,7 +216,8 @@ export async function settleMemoryAnalysisUsage(
   );
   ledger.totalMemoryAnalysisInputTokens += Math.max(0, inputTokens || 0);
   ledger.totalMemoryAnalysisOutputTokens += Math.max(0, outputTokens || 0);
-  const key = 'gemini-2.5-flash-lite|Hafıza Analizi';
+  ledger.totalMemoryAnalysisRuns += 1;
+  const key = `${GEMINI_FLASH_LITE_MODEL_NAME}|Hafıza Analizi`;
   const current = (ledger.personalUsageRows || []).find((row) => row.key === key);
   if (current) {
     current.textInputTokens += Math.max(0, inputTokens || 0);
@@ -198,7 +227,7 @@ export async function settleMemoryAnalysisUsage(
       ...(ledger.personalUsageRows || []),
       {
         key,
-        modelName: 'gemini-2.5-flash-lite',
+        modelName: GEMINI_FLASH_LITE_MODEL_NAME,
         readingName: 'Hafıza Analizi',
         imageInputTokens: 0,
         textInputTokens: Math.max(0, inputTokens || 0),

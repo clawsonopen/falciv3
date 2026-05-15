@@ -21,6 +21,7 @@ import {
   type AstroPeriod,
 } from '../services/astroEngine';
 import { APP_NAME } from '../config/constants';
+import { FOLLOW_UP_QUESTION_MAX_CHARS, FOLLOW_UP_QUESTION_MIN_CHARS, normalizeLimitedInput, OPTIONAL_READING_TOPIC_MAX_CHARS } from '../config/llmTokenPolicy';
 import { addPersonalTokenUsage, GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M, GEMINI_FLASH_LITE_OUTPUT_PRICE_USD_PER_M } from '../services/tokenLedgerService';
 import type { TokenUsageData } from '../types';
 import {
@@ -94,14 +95,14 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   const readingPanelYRef = useRef(0);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
-  const normalizedTopicText = topicText.replace(/\s+/g, ' ').trim();
+  const normalizedTopicText = normalizeLimitedInput(topicText, OPTIONAL_READING_TOPIC_MAX_CHARS);
   const modeHeaderLabel = useMemo(
     () => (selection === 'topic' ? 'Konu Odaklı' : period ? PERIOD_LABELS[period] : 'Dönem / konu seç'),
     [period, selection],
   );
   const isBusy = isLoading || isSendingQuestion;
   const hasPreparedReading = Boolean(text && period);
-  const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading && (selection !== 'topic' || normalizedTopicText));
+  const canPrepareReading = Boolean(period && !isBusy && !hasPreparedReading);
 
   const showSelectionInfo = useCallback((title: string, message: string) => {
     setInfoModal({ visible: true, title, message });
@@ -195,15 +196,6 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       return;
     }
     const focusQuestion = selection === 'topic' ? normalizedTopicText : '';
-    if (selection === 'topic' && !focusQuestion) {
-      setTopicEditorVisible(true);
-      setInfoModal({
-        visible: true,
-        title: 'Konu Gerekli',
-        message: 'Konu odaklı astroloji yorumu için yorumlanmasını istediğin konuyu, soruyu ya da durumu yazmalısın.',
-      });
-      return;
-    }
     setSelectionCollapsed(true);
     setIsLoading(true);
     setTimeout(() => {
@@ -237,8 +229,9 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       if (focusQuestion) {
         await appendUserConversationMemory(profile.profileId, focusQuestion).catch(() => {});
       }
+      const memoryState = focusQuestion ? await loadAccountState().catch(() => state) : state;
       const memorySnippet = await loadProfileMemorySnippet(
-        state,
+        memoryState,
         profile.profileId,
         focusQuestion ? { semanticQuery: focusQuestion } : undefined,
       ).catch(() => null);
@@ -327,8 +320,8 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
   }, [latestReadableText, speechMode]);
 
   const handleSendQuestion = useCallback(async () => {
-    const question = questionText.replace(/\s+/g, ' ').trim();
-    if (!question || !text || !period || isSendingQuestion) return;
+    const question = normalizeLimitedInput(questionText, FOLLOW_UP_QUESTION_MAX_CHARS);
+    if (question.length < FOLLOW_UP_QUESTION_MIN_CHARS || !text || !period || isSendingQuestion) return;
     const userMessage: FollowUpMessage = { id: `u-${Date.now()}`, role: 'user', text: question };
     const previousFollowUps = [
       ...(selection === 'topic' && normalizedTopicText
@@ -571,7 +564,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
             <TouchableOpacity style={styles.topicPromptBox} activeOpacity={0.9} onPress={() => setTopicEditorVisible(true)}>
               <Text style={styles.topicPromptLabel}>Yorumlanacak konu</Text>
               <Text style={[styles.topicPromptText, !normalizedTopicText && styles.topicPromptPlaceholder]}>
-                {normalizedTopicText || 'Aklında yorumlanmasını istediğin konu, soru ya da durum var mı?'}
+                {normalizedTopicText || 'Aklında yorumlanmasını istediğin konu, soru ya da durum varsa buraya yazabilirsin. Aklında bir şey yoksa boş da bırakabilirsin.'}
               </Text>
             </TouchableOpacity>
               ) : null}
@@ -641,7 +634,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
             {isSendingQuestion ? <AssistantLoading compact /> : null}
             <TouchableOpacity style={styles.questionInput} activeOpacity={0.88} onPress={() => setEditorVisible(true)}>
               <Text style={[styles.composePreviewText, !questionText.trim() && styles.composePreviewPlaceholder]}>
-                {questionText.trim() || 'Bu yorumla ilgili ne sormak istersin?'}
+                {questionText.trim() || 'Bu yorumla ilgili bir soru veya konu yazabilirsin. Aklında bir şey yoksa boş da bırakabilirsin.'}
               </Text>
             </TouchableOpacity>
             <Modal visible={editorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditorVisible(false)}>
@@ -656,7 +649,8 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
                     style={styles.editorInput}
                     value={questionText}
                     onChangeText={setQuestionText}
-                    placeholder="Sorunu buradan düzenleyebilirsin..."
+                    maxLength={FOLLOW_UP_QUESTION_MAX_CHARS}
+                    placeholder="Sorunu veya konunu buradan düzenleyebilirsin. Aklında bir şey yoksa boş da bırakabilirsin."
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     multiline
                     autoFocus
@@ -699,7 +693,7 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
               onPress={() => void persistReadingAndEnd()}
               disabled={isSendingQuestion}
             >
-              <Text style={styles.endButtonText}>Falı Bitir</Text>
+              <Text style={styles.endButtonText}>Okumayı Bitir</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -717,7 +711,8 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
               style={styles.editorInput}
               value={topicText}
               onChangeText={setTopicText}
-              placeholder="Aklında yorumlanmasını istediğin konu, soru ya da durum var mı? Boş bırakmadan yaz."
+              maxLength={OPTIONAL_READING_TOPIC_MAX_CHARS}
+              placeholder="Aklında yorumlanmasını istediğin konu, soru ya da durum varsa buraya yazabilirsin. Aklında bir şey yoksa boş da bırakabilirsin."
               placeholderTextColor="rgba(255,255,255,0.35)"
               multiline
               autoFocus
@@ -728,9 +723,8 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
                 <Text style={styles.editorGhostText}>Kapat</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.editorSendBtn, !normalizedTopicText && styles.disabledAction]}
+                style={styles.editorSendBtn}
                 onPress={() => setTopicEditorVisible(false)}
-                disabled={!normalizedTopicText}
               >
                 <Text style={styles.editorSendText}>Kaydet</Text>
               </TouchableOpacity>

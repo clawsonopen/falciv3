@@ -68,13 +68,13 @@ export function HistoryScreen({ route, navigation }: Props) {
         ) : (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>Henüz kayıt yok</Text>
-            <Text style={styles.emptyText}>Bu profil için biten fallar ve test sonuçları burada listelenecek.</Text>
+            <Text style={styles.emptyText}>Bu profil için biten okumalar ve test sonuçları burada listelenecek.</Text>
           </View>
         )}
       </BrandedScrollView>
       <BrandedConfirmModal
         visible={Boolean(deleteTarget)}
-        title="Falı Sil"
+        title="Okumayı Sil"
         message="Bu kaydı cihazından silmek istediğine emin misin?"
         confirmLabel="Evet, Sil"
         cancelLabel="Hayır, Silme"

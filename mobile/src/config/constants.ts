@@ -4,17 +4,10 @@
 
 import type { DevSettings } from '../types';
 
-export const APP_NAME = 'Falcı Ailesi Sezuşgiller';
+export const APP_NAME = 'İçimdeki Evren';
 
 /** Agent backend API base URL */
 export const AGENT_API_URL = 'http://192.168.1.76:8080';
-
-export const FORTUNE_MODELS = [
-  { provider: 'gemini', name: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite' },
-  { provider: 'openai', name: 'gpt-5-nano', label: 'GPT-5 nano' },
-  { provider: 'together', name: 'google/gemma-3n-E4B-it', label: 'Gemma 3n E4B' },
-  { provider: 'publicai', name: 'utter-project/EuroLLM-22B-Instruct-2512', label: 'EuroLLM 22B' },
-] as const;
 
 /** Image compression settings */
 export const IMAGE_MAX_DIMENSION = 768;
@@ -40,7 +33,7 @@ export const AVAILABLE_ASSISTANTS: AssistantPreset[] = [
   {
     id: 'durdane-hanim',
     label: 'Dürdane Hanım',
-    specialty: 'Kahve Falı',
+    specialty: 'Kahve Yorumu',
     tagline: 'Anaç, mahalleli, sıcak ve telveden hikâye çıkarır.',
     ttsVoiceName: 'Gacrux',
     ttsInstructions:
@@ -51,7 +44,7 @@ export const AVAILABLE_ASSISTANTS: AssistantPreset[] = [
   {
     id: 'hikmet-bey',
     label: 'Hikmet Bey',
-    specialty: 'El Falı',
+    specialty: 'El Okuması',
     tagline: 'Babacan, felsefi ve psikolojik derinliği olan bir yorumcu.',
     ttsVoiceName: 'Kore',
     ttsInstructions:
@@ -62,7 +55,7 @@ export const AVAILABLE_ASSISTANTS: AssistantPreset[] = [
   {
     id: 'bahar-hanim',
     label: 'Bahar Hanım',
-    specialty: 'Astro Falı',
+    specialty: 'Astroloji Yorumu',
     tagline: 'Modern astrolog, farkındalık dili yüksek, daha rafine bir enerji.',
     ttsVoiceName: 'Aoede',
     ttsInstructions:
@@ -117,8 +110,6 @@ export function applyAssistantPreset(
 
 /** Default dev settings */
 export const DEFAULT_DEV_SETTINGS: DevSettings = {
-  modelProvider: 'gemini',
-  modelName: 'gemini-2.5-flash-lite',
   assistantId: 'durdane-hanim',
   temperature: 0.8,
   thinkingBudget: 0,

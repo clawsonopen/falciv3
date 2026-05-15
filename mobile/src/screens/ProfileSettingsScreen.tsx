@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -297,7 +296,6 @@ function sortProfiles(profiles: SubjectProfile[], primaryProfileId: string | nul
 }
 
 export function ProfileSettingsScreen({ navigation }: Props) {
-  const lastProfileTapRef = useRef<{ profileId: string; timestamp: number } | null>(null);
   const [state, setState] = useState<AccountState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -366,28 +364,6 @@ export function ProfileSettingsScreen({ navigation }: Props) {
     setProfileDraft(draftFromProfile(profile));
     setProfileModalVisible(true);
   }, []);
-
-  const handleProfileCardPress = useCallback(
-    (profile: SubjectProfile) => {
-      const now = Date.now();
-      const lastTap = lastProfileTapRef.current;
-      const isDoubleTap = lastTap !== null && lastTap.profileId === profile.profileId && now - lastTap.timestamp < 320;
-
-      setSelectedProfileId(profile.profileId);
-
-      if (isDoubleTap) {
-        lastProfileTapRef.current = null;
-        openProfileDetailModal(profile);
-        return;
-      }
-
-      lastProfileTapRef.current = {
-        profileId: profile.profileId,
-        timestamp: now,
-      };
-    },
-    [openProfileDetailModal],
-  );
 
   const handleDraftChange = useCallback(<K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => {
     setProfileDraft((current) => ({ ...current, [key]: value }));
@@ -478,32 +454,40 @@ export function ProfileSettingsScreen({ navigation }: Props) {
         <BrandedScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showScrollToTop>
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Profil Ayarları</Text>
-            <Text style={styles.helperText}>Profili seçmek için tek dokun, düzenlemek için çift dokun.</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <Text style={styles.helperText}>Profili seçmek için karta dokun, düzenlemek için Düzenle butonunu kullan.</Text>
+            <View style={styles.subjectGrid}>
               {state?.profiles.map((profile) => {
                 const selected = profile.profileId === selectedProfileId;
                 return (
-                  <TouchableOpacity
+                  <View
                     key={profile.profileId}
                     style={[styles.subjectCard, selected && styles.subjectCardSelected]}
-                    onPress={() => handleProfileCardPress(profile)}
                   >
-                    <Text style={styles.subjectName}>{profile.displayName}</Text>
-                    <Text style={styles.subjectMeta}>{profileBadge(profile)}</Text>
-                    {selected ? (
-                      <Text style={styles.subjectHint}>Seçili profil - Düzenlemek için çift dokun</Text>
-                    ) : (
-                      <Text style={styles.subjectHint}>Seçmek için dokun - Düzenlemek için çift dokun</Text>
-                    )}
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.86}
+                      style={styles.subjectSelectArea}
+                      onPress={() => setSelectedProfileId(profile.profileId)}
+                    >
+                      <Text style={styles.subjectName}>{profile.displayName}</Text>
+                      <Text style={styles.subjectMeta}>{profileBadge(profile)}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={`${profile.displayName} profilini düzenle`}
+                      activeOpacity={0.82}
+                      style={styles.editProfileButton}
+                      onPress={() => openProfileDetailModal(profile)}
+                    >
+                      <Text style={styles.editProfileButtonText}>Düzenle</Text>
+                    </TouchableOpacity>
+                  </View>
                 );
               })}
-              <TouchableOpacity style={[styles.subjectCard, styles.addProfileCard]} onPress={openNewProfileModal}>
-                <Text style={styles.addProfilePlus}>+</Text>
-                <Text style={styles.subjectName}>Profil Ekle</Text>
-                <Text style={styles.subjectMeta}>Yeni kişi ekle</Text>
-              </TouchableOpacity>
-            </ScrollView>
+            </View>
+            <TouchableOpacity style={styles.addProfileButton} onPress={openNewProfileModal}>
+              <Text style={styles.addProfilePlus}>+</Text>
+              <Text style={styles.addProfileButtonText}>Profil Ekle</Text>
+            </TouchableOpacity>
 
             {selectedProfile ? (
               <View style={styles.linkRow}>
@@ -527,7 +511,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
                     })
                   }
                 >
-                  <Text style={styles.linkButtonText}>Son Fallar</Text>
+                  <Text style={styles.linkButtonText}>Son Okumalar</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -537,7 +521,7 @@ export function ProfileSettingsScreen({ navigation }: Props) {
 
       <Modal visible={profileModalVisible} animationType="slide" transparent onRequestClose={() => setProfileModalVisible(false)}>
         <View style={styles.modalBackdrop}>
-          <KeyboardAvoidingView style={styles.modalSheet} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <KeyboardAvoidingView style={styles.modalSheet} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <SafeAreaView edges={['bottom']} style={styles.modalSafeArea}>
               <BrandedScrollView
                 contentContainerStyle={styles.modalContent}
@@ -840,22 +824,45 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: { color: '#FFB0B0', fontSize: 14, fontWeight: '700' },
   subjectCard: {
-    width: 144,
-    minHeight: 104,
+    width: '48.5%',
+    minHeight: 108,
     padding: 12,
     borderRadius: 14,
-    marginRight: 10,
+    marginBottom: 10,
     backgroundColor: 'rgba(0,0,0,0.18)',
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.18)',
     justifyContent: 'space-between',
   },
-  addProfileCard: { alignItems: 'center', justifyContent: 'center' },
-  addProfilePlus: { color: '#E8C49A', fontSize: 24, fontWeight: '700', marginBottom: 4 },
+  subjectGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  addProfileButton: {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(168,130,82,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  addProfilePlus: { color: '#E8C49A', fontSize: 20, fontWeight: '700', marginRight: 8 },
+  addProfileButtonText: { color: '#FFF5E8', fontSize: 14, fontWeight: '800' },
   subjectCardSelected: { borderColor: '#D4A574', backgroundColor: 'rgba(212,165,116,0.14)' },
+  subjectSelectArea: { flex: 1 },
   subjectName: { color: '#FFF5E8', fontSize: 14, fontWeight: '700', marginBottom: 4 },
   subjectMeta: { color: 'rgba(212,165,116,0.72)', fontSize: 12 },
-  subjectHint: { color: 'rgba(255,255,255,0.46)', fontSize: 11, marginTop: 10 },
+  editProfileButton: {
+    marginTop: 10,
+    minHeight: 28,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,165,116,0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,165,116,0.1)',
+  },
+  editProfileButtonText: { color: '#E8C49A', fontSize: 12, fontWeight: '800' },
   linkRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   linkButton: {
     flex: 1,
@@ -869,13 +876,14 @@ const styles = StyleSheet.create({
   linkButtonText: { color: '#E8C49A', fontSize: 13, fontWeight: '700' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.52)', justifyContent: 'flex-end' },
   modalSheet: {
-    maxHeight: '92%',
+    width: '100%',
+    height: '92%',
     backgroundColor: '#181820',
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
     overflow: 'hidden',
   },
-  modalSafeArea: { maxHeight: '100%' },
+  modalSafeArea: { flex: 1 },
   modalContent: { padding: 20, paddingBottom: Platform.OS === 'ios' ? 120 : 180 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   modalTitle: { color: '#FFF5E8', fontSize: 18, fontWeight: '700' },

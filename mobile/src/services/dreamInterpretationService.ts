@@ -1,6 +1,21 @@
 import type { SubjectProfile, ProfileMemorySnippet } from '../types/memory';
+import {
+  PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
+  PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION,
+  PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+  PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+} from '../config/llmTokenPolicy';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
+import {
+  appendHealthProfessionalReminder,
+  isHealthClosingSentence,
+  sanitizePublicReadingLanguage,
+  selectAnimalClosingSentence,
+  stripPersonaSelfIntroduction,
+  userAskedHealthConcern,
+} from './personaClosingService';
+import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile, isAnimalProfile } from './animalProfilePrompt';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 
@@ -9,10 +24,11 @@ export type DreamChatMessage = {
   text: string;
 };
 
-const DREAM_MAX_OUTPUT_TOKENS = 1000;
+const DREAM_MAX_OUTPUT_TOKENS = PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS;
+const DREAM_FOLLOW_UP_MAX_OUTPUT_TOKENS = PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS;
 
 const DREAM_FORBIDDEN_CLOSING_TERMS =
-  /kahve|fincan|telve|tabak|avuç|el falı|el fal|el çizg|tarot|kart|melek kart|rune|i ching|hexagram|doğum haritası|numeroloji/i;
+  /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|tarot|kart|melek kart|rune|i ching|hexagram|doğum haritası|numeroloji/i;
 
 const PERSONA_DREAM_OPENINGS: Record<string, string[]> = {
   'durdane-hanim': [
@@ -34,6 +50,29 @@ const PERSONA_DREAM_OPENINGS: Record<string, string[]> = {
   caner: [
     'Güzel ruh, rüyanın kapısını yavaşça aralayalım. Bana görüntüleri, hisleri ve uyandığında içinde kalan titreşimi anlat.',
     'Canım, rüyalar bazen iç dünyanın sembollerle konuşan şiiridir. Ne gördüğünü, hangi rengin veya sahnenin seni tuttuğunu tarif et.',
+  ],
+};
+
+const ANIMAL_DREAM_OPENINGS: Record<string, string[]> = {
+  'durdane-hanim': [
+    'Gel canım, bu minik rüya kapısını onun küçük dünyasına uygun şekilde aralayalım. Uykudaki hallerini, çıkardığı küçük sesleri ya da içine doğan sevimli sahneyi anlat.',
+    'Anlat güzelim, bu kez geceyi onun küçük dünyasından okuyalım. Belki bir pati kıpırtısı, belki bir pencere merakı, belki de evde saklı tatlı bir bağ vardır.',
+  ],
+  'hikmet-bey': [
+    'Hadi bakalım, küçük dostun uyku âlemini yumuşak bir sembol diliyle konuşalım. Ne gördün, nasıl uyudu, hangi ses ya da hareket aklında kaldı?',
+    'Gel evladım, hayvanların uykusunda bile evin kalbi atar. Onun minik hallerini anlat, biz de bunu sevgiyle ve sembolik bir dille yorumlayalım.',
+  ],
+  'bahar-hanim': [
+    'Tatlım, bunu onun küçük evreninden gelen yumuşak bir sembol gibi ele alalım. Uykudaki hali, gün içindeki enerjisi veya içine doğan sahne neydi?',
+    'Gel, bu minik uyku izine farkındalıkla bakalım. Hayvanların duyduğu kokular, sesler ve kurduğu bağlar bazen çok zarif bir hikâye anlatır.',
+  ],
+  'mert-bey': [
+    'Dostum, bunu tatlı bir uyku notu gibi açalım. Onun gün içindeki ritmini, uyurken yaptığı hareketleri ya da aklına gelen sevimli sahneyi anlat.',
+    'Kardeşim, bu ekran açılsa bile akışı küçük dostunun uykusu, oyunu, kokuları ve evdeki bağı üzerinden doğru yere taşıyalım.',
+  ],
+  caner: [
+    'Güzel ruh, bu kez rüyanın kapısı onun küçük dünyasına aralansın. Uykudaki hali, minik sesleri ya da kalbine düşen sahneyi anlat.',
+    'Canım, hayvanların sessiz dünyası bazen rüya gibi parlar. Onun kokularını, ışıklarını ve sevgi bağını yumuşak bir sembol diliyle okuyalım.',
   ],
 };
 
@@ -74,13 +113,28 @@ function selectDreamClosing(params: {
   assistantId: string;
   seed: string;
   usedClosings?: string[];
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
 }) {
   const id = personaId(params.assistantId);
+  if (params.isAnimalProfile) {
+    return selectAnimalClosingSentence({
+      assistantId: id,
+      seed: `dream:${params.seed}`,
+      usedClosings: params.usedClosings,
+    });
+  }
   const library = FORTUNE_PERSONA_DATA[id].closingLibrary as Record<string, readonly string[]>;
   const used = new Set((params.usedClosings || []).map((item) => item.trim()).filter(Boolean));
   const options = Object.values(library)
     .flatMap((items) => [...items])
-    .filter((sentence) => sentence && !DREAM_FORBIDDEN_CLOSING_TERMS.test(sentence) && !used.has(sentence));
+    .filter(
+      (sentence) =>
+        sentence &&
+        !DREAM_FORBIDDEN_CLOSING_TERMS.test(sentence) &&
+        !used.has(sentence) &&
+        (params.allowHealthClosing || !isHealthClosingSentence(sentence)),
+    );
   if (!options.length) return '';
   return options[hashString(`dream:${id}:${params.seed}:${used.size}`) % options.length];
 }
@@ -91,8 +145,10 @@ function completeWithDreamClosing(params: {
   seed: string;
   usedClosings?: string[];
   forceClosing?: boolean;
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
 }) {
-  const base = trimIncompleteTail(cleanGeneratedText(params.text));
+  const base = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(trimIncompleteTail(cleanGeneratedText(params.text))));
   const shouldClose = params.forceClosing || !hasTerminalPunctuation(base);
   const closing = selectDreamClosing(params);
   if (!closing) return { text: base, closingSentence: '' };
@@ -102,11 +158,18 @@ function completeWithDreamClosing(params: {
 }
 
 function buildDreamMemoryContext(profileName: string, memorySnippet?: ProfileMemorySnippet | null) {
+  const isAnimalDream = memorySnippet?.relationshipPrimary === 'evcil_hayvan';
   const lines = [
     '## Profil ve Hafıza Bağlamı',
-    `- Bu rüya yorumu ${profileName || 'seçili kişi'} için yapılıyor.`,
-    '- Rüya yorumu kişiye özel bağlamla yapılır; yine de hafızayı ham kayıt gibi açıklama.',
-    '- Kullanıcının bu oturumda yazdığı rüya ve sorular birincil sinyaldir; önceki yorumlardan türeyen temalar yalnızca düşük sesli arka plan olabilir.',
+    isAnimalDream
+      ? `- Bu rüya/uyku sembol yorumu ${profileName || 'seçili profil'} adlı evcil hayvan için yapılıyor.`
+      : `- Bu rüya yorumu ${profileName || 'seçili kişi'} için yapılıyor.`,
+    isAnimalDream
+      ? '- Bu akışta anlatılan şey hayvanın kesin iç deneyimi gibi sunulmaz; sahibinin gözlemi, sezgisel sahnesi ve sembolik uyku hali olarak yorumlanır.'
+      : '- Rüya yorumu kişiye özel bağlamla yapılır; yine de hafızayı ham kayıt gibi açıklama.',
+    isAnimalDream
+      ? '- Kullanıcının anlattığı uyku hali, küçük hareket, ses, gün içi sahne veya takip sorusu birincil sinyaldir; insan psikolojisi şablonu kurma.'
+      : '- Kullanıcının bu oturumda yazdığı rüya ve sorular birincil sinyaldir; önceki yorumlardan türeyen temalar yalnızca düşük sesli arka plan olabilir.',
   ];
   if (!memorySnippet) return lines.join('\n');
   if (memorySnippet.isSelf) {
@@ -115,6 +178,8 @@ function buildDreamMemoryContext(profileName: string, memorySnippet?: ProfileMem
     lines.push(`- Bu okuma hesap sahibinden farklı biri için olabilir. Ana yorum seçili profil olan ${profileName} için sabit kalmalı.`);
   }
   if (memorySnippet.relationshipLabel) lines.push(`- Hesap sahibiyle yakınlık: ${memorySnippet.relationshipLabel}.`);
+  const animalContext = buildAnimalProfileInstructionFromMemory(memorySnippet);
+  if (animalContext) lines.push(animalContext);
   if (memorySnippet.profileGender) lines.push(`- Profil cinsiyet bilgisi: ${memorySnippet.profileGender}. Cinsiyetli hitapları buna göre dikkatli kullan.`);
   if (memorySnippet.userStatedTopics?.length) {
     lines.push(`- Kullanıcının kendi söylediği güçlü konular: ${memorySnippet.userStatedTopics.slice(0, 8).join(', ')}.`);
@@ -152,20 +217,34 @@ function buildBaseSystem(params: {
   profileName: string;
   memorySnippet?: ProfileMemorySnippet | null;
   usedClosings?: string[];
+  isAnimalProfile?: boolean;
 }) {
   const id = personaId(params.assistantId);
   const identity = FORTUNE_PERSONA_DATA[id];
+  const isAnimalDream = Boolean(params.isAnimalProfile || params.memorySnippet?.relationshipPrimary === 'evcil_hayvan');
   return [
     identity.systemBody,
     [
       '## Rüya Yorumu Direktifleri',
-      `- Bu oturumun alanı rüya yorumu. Falcının ana branşı ${identity.primaryDomainLabel} olsa bile kahve, fincan, telve, el çizgisi, tarot kartı veya doğum haritası objeleriyle yorum yapma.`,
-      `- ${params.assistantLabel} personasında kal; kendini tanıtma, sistemden veya yapay zekadan bahsetme.`,
+      `- Bu oturumun alanı rüya yorumu. Yorumcunun ana branşı ${identity.primaryDomainLabel} olsa bile kahve, fincan, telve, el çizgisi, tarot kartı veya doğum haritası objeleriyle yorum yapma.`,
+      `- ${params.assistantLabel} personasında kal; kendini tanıtma, adınla/rolünle başlama, sistemden veya yapay zekadan bahsetme.`,
+      `- "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcu olarak" gibi girişler yasak; doğrudan rüya yorumuna gir.`,
+      '- Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+      '- Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+      '- "Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+      '- Kullanıcı bir soru yazdıysa bunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
+      '- Hafıza veya önceki okuma kaynağını açık etme; "önceki okumanda", "hafızanda", "sana daha önce çıkmıştı" gibi cümleler kurma.',
       '- Kullanıcının anlattığı rüya bu oturumun ana kaynağıdır. Rüyada söylenmeyen sahne, kişi veya olay uydurma.',
-      '- Sembol dilini psikolojik ve sezgisel oku; kesin kehanet, korkutucu felaket, ölüm, ağır hastalık veya geri dönülmez hüküm verme.',
+      isAnimalDream
+        ? '- Seçili profil evcil hayvansa bu akışı insan rüyası analizi gibi kurma. Hayvanın uyku hali, gün içi izleri, kokular, ince sesler, pencere ziyaretçileri, evdeki diğer hayvanlarla ilişkisi ve insanlarıyla kalp bağı üzerinden sembolik yorumla.'
+        : '',
+      isAnimalDream
+        ? '- Hayvanın kesin olarak ne rüya gördüğünü iddia etme; "sanki", "bu iz", "bu uyku hali", "sembolik olarak" gibi yumuşak olasılık dili kullan. Hayvana insan gibi kariyer, romantik ilişki, evlilik, okul veya insan sosyal çevresi yükleme.'
+        : '',
+      '- Sembol dilini psikolojik ve sezgisel oku; kesin hüküm, korkutucu felaket, ölüm, ağır hastalık veya geri dönülmez hüküm verme.',
       '- Sağlık ve finans konularında tanı, tedavi, garanti kazanç veya kesin karar dili kullanma.',
       '- Yanıt başlıksız, listesiz, sohbet gibi akan düz yazı olsun. Markdown, yıldızlı vurgu, emoji, ikon veya dekoratif sembol kullanma.',
-      '- Ana rüya yorumunda hedef uzunluk 800-900 token aralığıdır; max 1000 tokenı aşmaya çalışma.',
+      `- Ana rüya yorumunda ${PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION}`,
       '- Soru yanıtlarında önce soruya net cevap ver, sonra rüya bağlamından 1-2 gerekçe ve kısa tavsiye ekle.',
       '- Tüm oturum boyunca seçili profil, rüya metni, ilk yorum ve önceki soru cevap bağlamı korunmalı; başka kişiye kayma.',
       '- Kapanışta yeni imza cümlesi üretme; sistem persona kapanışını sonradan ekleyecek.',
@@ -180,9 +259,11 @@ function buildBaseSystem(params: {
 export function createDreamOpening(params: {
   assistantId: string;
   profileName: string;
+  isAnimalProfile?: boolean;
 }) {
   const id = personaId(params.assistantId);
-  const options = PERSONA_DREAM_OPENINGS[id] || PERSONA_DREAM_OPENINGS['durdane-hanim'];
+  const library = params.isAnimalProfile ? ANIMAL_DREAM_OPENINGS : PERSONA_DREAM_OPENINGS;
+  const options = library[id] || library['durdane-hanim'];
   return options[hashString(`${id}:${params.profileName}:dream-opening`) % options.length];
 }
 
@@ -200,12 +281,20 @@ export async function createDreamInterpretation(params: {
     profileName: params.profile.displayName,
     memorySnippet: params.memorySnippet,
     usedClosings: params.usedClosings,
+    isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
+  const animalProfile = isAnimalProfile(params.profile);
   const userText = [
     `Profil adı: ${params.profile.displayName}`,
-    `Rüya metni:\n${params.dreamText}`,
-    'Bu rüyayı önce ana duygu, sonra belirgin semboller, sonra kişinin bugünkü iç dünyası ve yakın dönem farkındalığı üzerinden yorumla.',
-    'Son paragrafta uygulanabilir, sakin ve persona uyumlu bir öneri ver; kapanış cümlesi üretme.',
+    buildAnimalProfileInstructionFromProfile(params.profile),
+    animalProfile ? `Uyku/rüya notu:\n${params.dreamText}` : `Rüya metni:\n${params.dreamText}`,
+    animalProfile
+      ? 'Bunu hayvanın kesin gördüğü rüya gibi değil; sahibinin gözlemi, sezgisel sahnesi ve sembolik uyku hali gibi yorumla. Önce hayvanın uyku/oyun/duyu dünyasını, sonra evdeki bağları ve küçük sosyal dinamikleri, son bölümde de sahibine uygulanabilir yumuşak bir öneriyi işle.'
+      : 'Bu rüyayı önce ana duygu, sonra belirgin semboller, sonra kişinin bugünkü iç dünyası ve yakın dönem farkındalığı üzerinden yorumla.',
+    animalProfile
+      ? 'Pati, kanat, kuyruk, kulak, beden hareketi, pencere merakı, diğer hayvanlarla oyun/kıskançlık/barışma, insanların duymadığı ses ve kokular, sevdiği insanların kalbindeki yeri gibi evcil hayvan dünyasına ait malzemeleri kullan; kapanış cümlesi üretme.'
+      : 'Son paragrafta uygulanabilir, sakin ve persona uyumlu bir öneri ver; kapanış cümlesi üretme.',
+    PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
   ].join('\n\n');
   const data = await generateGeminiTextDirect(
     {
@@ -217,6 +306,7 @@ export async function createDreamInterpretation(params: {
       },
     },
     70000,
+    { usageMode: 'raw' },
   );
   const completed = completeWithDreamClosing({
     text: data.text,
@@ -224,8 +314,18 @@ export async function createDreamInterpretation(params: {
     seed: `${params.profile.profileId}:${params.dreamText.slice(0, 180)}`,
     usedClosings: params.usedClosings,
     forceClosing: data.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(params.dreamText),
+    isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
-  return { text: completed.text, closingSentence: completed.closingSentence, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(completed.text, {
+      userText: params.dreamText,
+      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+    }),
+    closingSentence: completed.closingSentence,
+    modelName: data.model,
+    usage: data.usage,
+  };
 }
 
 export async function createDreamFollowUp(params: {
@@ -245,17 +345,22 @@ export async function createDreamFollowUp(params: {
     profileName: params.profileName,
     memorySnippet: params.memorySnippet,
     usedClosings: params.usedClosings,
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
+  const isAnimalDream = params.memorySnippet?.relationshipPrimary === 'evcil_hayvan';
   const conversation = (params.previousFollowUps || [])
     .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text}`)
     .join('\n');
   const userText = [
     `Profil adı: ${params.profileName}`,
-    `İlk rüya metni:\n${params.dreamText}`,
-    `İlk rüya yorumu:\n${params.interpretationText}`,
+    buildAnimalProfileInstructionFromMemory(params.memorySnippet),
+    isAnimalDream ? `İlk uyku/rüya metni:\n${params.dreamText}` : `İlk rüya metni:\n${params.dreamText}`,
+    isAnimalDream ? `İlk uyku/rüya yorumu:\n${params.interpretationText}` : `İlk rüya yorumu:\n${params.interpretationText}`,
     conversation ? `Önceki soru cevaplar:\n${conversation}` : '',
     `Kullanıcının son sorusu:\n${params.question}`,
-    'Sadece son soruya cevap ver; ama rüya metni, ilk yorum ve önceki soru cevap bağlamını bozma. 250-450 token aralığında doyurucu ama toparlanmış cevap ver.',
+    isAnimalDream
+      ? `Sadece son soruya cevap ver; ama evcil hayvanın uyku hali, sembolik ilk yorum ve önceki soru cevap bağlamını bozma. İnsan rüyası/psikolojisi şablonuna kayma. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`
+      : `Sadece son soruya cevap ver; ama rüya metni, ilk yorum ve önceki soru cevap bağlamını bozma. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
   ].filter(Boolean).join('\n\n');
   const data = await generateGeminiTextDirect(
     {
@@ -263,10 +368,11 @@ export async function createDreamFollowUp(params: {
       contents: [{ role: 'user', parts: [{ text: userText }] }],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: DREAM_MAX_OUTPUT_TOKENS,
+        maxOutputTokens: DREAM_FOLLOW_UP_MAX_OUTPUT_TOKENS,
       },
     },
     70000,
+    { usageMode: 'raw' },
   );
   const completed = completeWithDreamClosing({
     text: data.text,
@@ -274,6 +380,16 @@ export async function createDreamFollowUp(params: {
     seed: `${params.profileName}:${params.question}:${params.previousFollowUps?.length || 0}`,
     usedClosings: params.usedClosings,
     forceClosing: data.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
-  return { text: completed.text, closingSentence: completed.closingSentence, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(completed.text, {
+      userText: params.question,
+      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+    }),
+    closingSentence: completed.closingSentence,
+    modelName: data.model,
+    usage: data.usage,
+  };
 }

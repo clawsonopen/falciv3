@@ -4,6 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../App';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
+import {
+  DREAM_DESCRIPTION_MAX_CHARS,
+  FOLLOW_UP_QUESTION_MAX_CHARS,
+  FOLLOW_UP_QUESTION_MIN_CHARS,
+  normalizeLimitedInput,
+} from '../config/llmTokenPolicy';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { BrandedConfirmModal } from '../components/BrandedConfirmModal';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
@@ -72,6 +78,7 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
   const { profileId, assistantId } = route.params;
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
   const [profileName, setProfileName] = useState('');
+  const [isAnimalProfileSelected, setIsAnimalProfileSelected] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [dreamText, setDreamText] = useState('');
   const [interpretationText, setInterpretationText] = useState('');
@@ -118,7 +125,9 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
           return;
         }
         setProfileName(profile.displayName);
-        const opening = createDreamOpening({ assistantId, profileName: profile.displayName });
+        const isAnimal = profile.relationshipPrimary === 'evcil_hayvan';
+        setIsAnimalProfileSelected(isAnimal);
+        const opening = createDreamOpening({ assistantId, profileName: profile.displayName, isAnimalProfile: isAnimal });
         setMessages([makeMessage('assistant', opening)]);
       })
       .catch((err: any) => {
@@ -187,8 +196,8 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
   }, []);
 
   const handleSend = useCallback(async () => {
-    const text = questionText.replace(/\s+/g, ' ').trim();
-    if (!text || isSending || isLoadingProfile) return;
+    const text = normalizeLimitedInput(questionText, hasInterpretation ? FOLLOW_UP_QUESTION_MAX_CHARS : DREAM_DESCRIPTION_MAX_CHARS);
+    if ((!hasInterpretation && !text) || (hasInterpretation && text.length < FOLLOW_UP_QUESTION_MIN_CHARS) || isSending || isLoadingProfile) return;
     const userMessage = makeMessage('user', text);
     setMessages((current) => [...current, userMessage]);
     setQuestionText('');
@@ -339,7 +348,7 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
           </View>
           <View style={styles.sessionHeaderRow}>
             <Text style={styles.sessionHeaderText}>{profileName || 'Profil'}</Text>
-            <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>Rüya Yorumu</Text>
+            <Text style={[styles.sessionHeaderText, styles.modeHeaderText]}>{isAnimalProfileSelected ? 'Uyku/Rüya Yorumu' : 'Rüya Yorumu'}</Text>
             <Text style={styles.sessionHeaderText}>{assistantLabel}</Text>
           </View>
 
@@ -354,7 +363,7 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
               onContentSizeChange={() => readingScrollRef.current?.scrollToEnd({ animated: true })}
             >
               {isLoadingProfile ? (
-                <AssistantLoading label="Rüya yorumu açılıyor" detail="Lütfen bekleyiniz." />
+                <AssistantLoading label={isAnimalProfileSelected ? 'Uyku yorumu açılıyor' : 'Rüya yorumu açılıyor'} detail="Lütfen bekleyiniz." />
               ) : (
                 messages.map((message) => (
                   <View
@@ -383,7 +392,13 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
             <TouchableOpacity style={styles.questionInput} activeOpacity={0.88} onPress={() => setEditorVisible(true)}>
               <Text style={[styles.composePreviewText, !questionText.trim() && styles.composePreviewPlaceholder]}>
                 {questionText.trim() ||
-                  (hasInterpretation ? 'Bu rüya yorumuyla ilgili ne sormak istersin?' : 'Rüyanda ne gördün? Sahneyi, kişileri ve hislerini anlat.')}
+                  (hasInterpretation
+                    ? isAnimalProfileSelected
+                      ? 'Bu uyku yorumuyla ilgili ne sormak istersin?'
+                      : 'Bu rüya yorumuyla ilgili ne sormak istersin?'
+                    : isAnimalProfileSelected
+                      ? 'Uykusunda, hareketlerinde veya küçük dünyasında ne fark ettin?'
+                      : 'Rüyanda ne gördün? Sahneyi, kişileri ve hislerini anlat.')}
               </Text>
             </TouchableOpacity>
             <Modal visible={editorVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setEditorVisible(false)}>
@@ -393,12 +408,19 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
                 keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
               >
                 <View style={styles.editorCard}>
-                  <Text style={styles.editorTitle}>{hasInterpretation ? 'Sorunu Düzenle' : 'Rüyanı Düzenle'}</Text>
+                  <Text style={styles.editorTitle}>{hasInterpretation ? 'Sorunu Düzenle' : isAnimalProfileSelected ? 'Uyku Notunu Düzenle' : 'Rüyanı Düzenle'}</Text>
                   <TextInput
                     style={styles.editorInput}
                     value={questionText}
                     onChangeText={setQuestionText}
-                    placeholder={hasInterpretation ? 'Sorunu buradan düzenleyebilirsin...' : 'Rüyanı buradan detaylıca anlatabilirsin...'}
+                    maxLength={hasInterpretation ? FOLLOW_UP_QUESTION_MAX_CHARS : DREAM_DESCRIPTION_MAX_CHARS}
+                    placeholder={
+                      hasInterpretation
+                        ? 'Sorunu buradan düzenleyebilirsin...'
+                        : isAnimalProfileSelected
+                          ? 'Uykusunu, minik hareketlerini, seslerini veya aklına gelen sahneyi anlatabilirsin...'
+                          : 'Rüyanı buradan detaylıca anlatabilirsin...'
+                    }
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     multiline
                     autoFocus

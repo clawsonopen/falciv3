@@ -281,10 +281,10 @@ export function MemoryDebugScreen({ route, navigation }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Fal Kaynaklı Taksonomi</Text>
+          <Text style={styles.cardTitle}>Okuma Kaynaklı Taksonomi</Text>
           {bundle ? (
             renderTaxonomyMemory(
-              'Fallarda çıkanlar',
+              'Okumalarda çıkanlar',
               bundle.readingDerived.recurringTopics,
               bundle.readingDerived.importantPeople,
               bundle.readingDerived.emotionalPatterns,

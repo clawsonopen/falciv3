@@ -33,6 +33,8 @@ const asciiTurkishRegex =
 // Detects Turkish words where ş,ç,ğ,ı,ö,ü were replaced with '?' by non-UTF-8 tools
 // Matches patterns like ba?lang?c, g?r?n?r, d?n??t?r, se?im, etc.
 const questionMarkReplacementRegex = /[a-zA-Z]\?[a-zA-Z]/;
+const malformedTurkishWordRegex =
+  /\b(yoğunlukede|yoğunlukdade|yoğunlukta?de|yoğunlukni|yoğunlukı|yoğunlukın|yorgunlukede|telaşede|sakinlikede|huzurede|enerjiede|ritimede|dengedede)\b/iu;
 
 function shouldIgnore(filePath) {
   return ignorePathPart.some((part) => filePath.includes(part));
@@ -198,6 +200,21 @@ function checkAsciiTurkishOnly(filePath, content) {
   return issues;
 }
 
+function checkMalformedTurkishWords(filePath, content) {
+  const issues = [];
+  const lineStarts = buildLineIndex(content);
+  extractStringLiterals(content).forEach((literal) => {
+    if (!malformedTurkishWordRegex.test(literal.text)) return;
+    issues.push({
+      type: 'malformed-turkish-word',
+      filePath,
+      line: lineFromIndex(lineStarts, literal.index),
+      sample: literal.text.trim().slice(0, 180),
+    });
+  });
+  return issues;
+}
+
 function unique(arr) {
   return [...new Set(arr)];
 }
@@ -217,6 +234,7 @@ function run() {
     const content = fs.readFileSync(filePath, 'utf8');
     findings.push(...checkAsciiTurkishOnly(filePath, content));
     findings.push(...checkQuestionMarkReplacement(filePath, content));
+    findings.push(...checkMalformedTurkishWords(filePath, content));
   }
 
   if (!findings.length) {

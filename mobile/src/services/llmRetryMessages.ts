@@ -17,7 +17,7 @@ const RETRY_MESSAGES: Record<LlmReadingKind, RetryMessage[]> = {
     },
     {
       title: 'Fincan Hattı Meşgul',
-      message: 'Fincan hattında küçük bir yoğunluk var. Bir iki dakika sonra tekrar dokun; kahve kendine gelsin, biz de falı açalım.',
+      message: 'Fincan hattında küçük bir yoğunluk var. Bir iki dakika sonra tekrar dokun; kahve kendine gelsin, biz de yorumu açalım.',
     },
   ],
   palm: [
@@ -27,7 +27,7 @@ const RETRY_MESSAGES: Record<LlmReadingKind, RetryMessage[]> = {
     },
     {
       title: 'Avuç Çizgileri Sıraya Girdi',
-      message: 'El falı kanalı şu an biraz kalabalık. Bir iki dakika sonra tekrar deneyelim; kader çizgisi sakin sakin yerinde bekliyor.',
+      message: 'El okuması kanalı şu an biraz kalabalık. Bir iki dakika sonra tekrar deneyelim; çizgiler sakin sakin yerinde bekliyor.',
     },
     {
       title: 'Kısa Bir El Molası',
@@ -78,16 +78,16 @@ const RETRY_MESSAGES: Record<LlmReadingKind, RetryMessage[]> = {
   ],
   generic: [
     {
-      title: 'Falcı Hattı Kısa Bir Molada',
+      title: 'Yorum Hattı Kısa Bir Molada',
       message: 'Yorum hattı şu an küçük bir yoğunluğa takıldı. 1-2 dakika sonra tekrar dene; masayı dağıtmadan geri dönüyoruz.',
     },
     {
       title: 'Kısa Bir Mistik Bekleme',
-      message: 'Falcı masası bir an nefes aldı. Bir iki dakika sonra tekrar dene; bu kez yorum kapısını daha usulca çalacağız.',
+      message: 'Yorum masası bir an nefes aldı. Bir iki dakika sonra tekrar dene; bu kez yorum kapısını daha usulca çalacağız.',
     },
     {
       title: 'Perde Bir Anlığına Kapandı',
-      message: 'Fal perdesi şu an kısa bir mola verdi. 1-2 dakika sonra tekrar dene; sahne birazdan yeniden açılıyor.',
+      message: 'Okuma perdesi şu an kısa bir mola verdi. 1-2 dakika sonra tekrar dene; sahne birazdan yeniden açılıyor.',
     },
   ],
 };

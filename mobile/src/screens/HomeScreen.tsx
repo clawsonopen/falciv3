@@ -121,7 +121,7 @@ export function HomeScreen({ navigation }: Props) {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Ayarlar</Text>
           <Text style={styles.panelText}>
-            Profilleri buradan oluşturabilirsiniz. Eski fallarınıza ve hafıza kayıtlarınıza buradan ulaşabilirsiniz.
+            Profilleri buradan oluşturabilirsiniz. Eski okumalarınıza ve hafıza kayıtlarınıza buradan ulaşabilirsiniz.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('ProfileSettings')}>
             <Text style={styles.primaryButtonText}>Profil Ayarları ve Kayıtlar</Text>
@@ -130,25 +130,25 @@ export function HomeScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Genel Fallar</Text>
+          <Text style={styles.panelTitle}>Genel Okumalar</Text>
           <Text style={styles.panelText}>
             Genel astro günlük/haftalık/aylık okumalar, kısmet kurabiyesi, sihirli küre, günlük tarot, günlük melek kartı ve günün numerolojisi burada.
           </Text>
           <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('GeneralReadings')}>
-            <Text style={styles.primaryButtonText}>Genel Fallara Git</Text>
+            <Text style={styles.primaryButtonText}>Genel Okumalara Git</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kişiye Özel</Text>
           <Text style={styles.panelText}>
-            Profili üstten seçip aynı sayfada fal tipine geçersin. Sonrasında falcıyı seçip doğrudan fal okumayı başlatırsın.
+            Profili üstten seçip aynı sayfada okuma tipine geçersin. Sonrasında yorumcuyu seçip doğrudan okumayı başlatırsın.
           </Text>
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() => navigation.navigate('PersonalReadings', { devSettings })}
           >
-            <Text style={styles.primaryButtonText}>Kişiye Özel Fallara Git</Text>
+            <Text style={styles.primaryButtonText}>Kişiye Özel Okumalara Git</Text>
           </TouchableOpacity>
         </View>
 
@@ -169,15 +169,9 @@ export function HomeScreen({ navigation }: Props) {
                 </TouchableOpacity>
               </View>
               <Text style={styles.panelText}>
-                Model fiyatları satırdaki modele göre uygulanır: Gemini giriş $
+                Model fiyatı Gemini 2.5 Flash Lite olarak uygulanır: giriş $
                 {MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'].inputPriceUsdPerM.toFixed(2)} / çıkış $
-                {MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'].outputPriceUsdPerM.toFixed(2)}, Gemma giriş $
-                {MODEL_TOKEN_PRICES_USD_PER_M['google/gemma-3n-E4B-it'].inputPriceUsdPerM.toFixed(2)} / çıkış $
-                {MODEL_TOKEN_PRICES_USD_PER_M['google/gemma-3n-E4B-it'].outputPriceUsdPerM.toFixed(2)}, GPT-5 nano giriş $
-                {MODEL_TOKEN_PRICES_USD_PER_M['gpt-5-nano'].inputPriceUsdPerM.toFixed(2)} / çıkış $
-                {MODEL_TOKEN_PRICES_USD_PER_M['gpt-5-nano'].outputPriceUsdPerM.toFixed(2)}, EuroLLM giriş $
-                {MODEL_TOKEN_PRICES_USD_PER_M['utter-project/EuroLLM-22B-Instruct-2512'].inputPriceUsdPerM.toFixed(2)} / çıkış $
-                {MODEL_TOKEN_PRICES_USD_PER_M['utter-project/EuroLLM-22B-Instruct-2512'].outputPriceUsdPerM.toFixed(2)} / 1M token.
+                {MODEL_TOKEN_PRICES_USD_PER_M['gemini-2.5-flash-lite'].outputPriceUsdPerM.toFixed(2)} / 1M token.
               </Text>
               <View style={styles.rateControls}>
                 <View style={styles.rateRow}>
@@ -214,7 +208,7 @@ export function HomeScreen({ navigation }: Props) {
                   <View style={[styles.usageRow, styles.usageHeader]}>
                     {[
                       'Model',
-                      'Fal',
+                      'Okuma',
                       'Image Input',
                       'USD',
                       'TRY',
@@ -269,7 +263,7 @@ export function HomeScreen({ navigation }: Props) {
                     })
                   ) : (
                     <View style={styles.usageRow}>
-                      <Text style={[styles.usageCell, styles.emptyUsageCell]}>Henüz kişisel fal token kaydı yok.</Text>
+                      <Text style={[styles.usageCell, styles.emptyUsageCell]}>Henüz kişisel okuma token kaydı yok.</Text>
                     </View>
                   )}
                   {(() => {

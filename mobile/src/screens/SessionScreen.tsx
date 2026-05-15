@@ -29,6 +29,7 @@ import {
   stopNativeRecording,
 } from '../services/nativeSttService';
 import { APP_NAME } from '../config/constants';
+import { FOLLOW_UP_QUESTION_MAX_CHARS, FOLLOW_UP_QUESTION_MIN_CHARS, normalizeLimitedInput } from '../config/llmTokenPolicy';
 import {
   getAssistantSpeechProgress,
   isAssistantSpeaking,
@@ -50,12 +51,11 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Session'>;
 const MAX_HOLD_TO_TALK_SECONDS = 30;
 
 const PHOTO_RETRY_MESSAGE =
-  'Bu fotoğraf bu fal türü için uygun görünmüyor canım. Kahve falı için telveyi gösteren fincan veya tabak, el falı için avuç içi fotoğrafı yükleyelim.';
+  'Bu fotoğraf bu okuma türü için uygun görünmüyor canım. Kahve yorumu için telveyi gösteren fincan veya tabak, el okuması için avuç içi fotoğrafı yükleyelim.';
 
 function visibleStartupError(raw?: string | null) {
   const text = (raw || '').trim();
   if (!text) return PHOTO_RETRY_MESSAGE;
-  if (/OpenAI|Together|PublicAI/i.test(text)) return text;
   return /Gemini|HTTP|JSON|RuntimeError|Traceback|candidate|classifier|generateContent|API|token|exception|returned/i.test(
     text,
   )
@@ -156,11 +156,10 @@ export function SessionScreen({ route, navigation }: Props) {
       .catch((err) => {
         if (isCancelled) return;
         const retryMessage = isRetryableLlmError(err) ? getRetryLaterMessage(retryKindForSession(config), config.profileId) : null;
-        const isProviderError = Boolean(err?.isOpenAIError || err?.isTogetherError || /OpenAI|Together|PublicAI/i.test(err?.message || ''));
         setStartupError({
-          title: retryMessage?.title || (isProviderError ? 'Model Yanıtı Alınamadı' : 'Fotoğrafı bir daha seçelim'),
+          title: retryMessage?.title || 'Fotoğrafı bir daha seçelim',
           message: retryMessage?.message || visibleStartupError(err?.message),
-          isRetry: Boolean(retryMessage || isProviderError),
+          isRetry: Boolean(retryMessage),
         });
       });
 
@@ -313,8 +312,8 @@ export function SessionScreen({ route, navigation }: Props) {
   }, [isRecording]);
 
   const handleSendDraft = async () => {
-    const rawText = draftText;
-    if (!rawText.trim()) return;
+    const rawText = normalizeLimitedInput(draftText, FOLLOW_UP_QUESTION_MAX_CHARS);
+    if (rawText.length < FOLLOW_UP_QUESTION_MIN_CHARS) return;
     if (isTurnLocked) {
       setInfoModal({ visible: true, title: 'Sıralı Akış', message: 'Bu tur tamamlanmadan yeni mesaj gönderemezsin.' });
       return;
@@ -411,8 +410,8 @@ export function SessionScreen({ route, navigation }: Props) {
     config.readingType === 'coffee'
       ? config.coffeeMode === 'ai-brew'
         ? 'Benim Yerime İç Modu'
-        : 'Kahve Falı'
-      : 'El Falı Modu';
+        : 'Kahve Yorumu'
+      : 'El Okuması Modu';
   const persistReadingAndEnd = async () => {
     if (state.isAiSpeaking) return;
     const transcript = state.messages.map((message) => ({
@@ -433,7 +432,7 @@ export function SessionScreen({ route, navigation }: Props) {
             ].filter(Boolean) as Array<'cup' | 'saucer'>);
     const summaryText =
       firstReading ||
-      `${config.profileName} için ${assistantLabel} ile yapılan ${config.readingType === 'palm' ? 'el falı' : 'kahve falı'}.`;
+      `${config.profileName} için ${assistantLabel} ile yapılan ${config.readingType === 'palm' ? 'el okuması' : 'kahve yorumu'}.`;
 
     await appendReadingSummary({
       profileId: config.profileId,
@@ -481,7 +480,7 @@ export function SessionScreen({ route, navigation }: Props) {
           <Text style={styles.errorText}>{startupError.message}</Text>
           {!startupError.isRetry ? (
             <Text style={styles.errorWarning}>
-              Her yanlış yüklenen görsel kredi hesabına dahil edilir. Bu denemeler bir sonraki falın açılışına da not
+              Her yanlış yüklenen görsel kredi hesabına dahil edilir. Bu denemeler bir sonraki okumanın açılışına da not
               düşülür.
             </Text>
           ) : null}
@@ -622,7 +621,7 @@ export function SessionScreen({ route, navigation }: Props) {
           ))}
           {state.isAiSpeaking ? (
             <AssistantLoading
-              label={state.messages.length ? 'Yanıt hazırlanıyor' : 'Falın hazırlanıyor'}
+              label={state.messages.length ? 'Yanıt hazırlanıyor' : 'Okuman hazırlanıyor'}
               detail={state.messages.length ? undefined : 'Lütfen bekleyiniz. Ekranı kapatmayınız.'}
               compact={Boolean(state.messages.length)}
             />
@@ -693,7 +692,7 @@ export function SessionScreen({ route, navigation }: Props) {
             onPress={() => void persistReadingAndEnd()}
             disabled={state.isAiSpeaking}
           >
-            <Text style={styles.endButtonText}>Falı Bitir</Text>
+            <Text style={styles.endButtonText}>Okumayı Bitir</Text>
           </TouchableOpacity>
         </View>
 
@@ -706,7 +705,7 @@ export function SessionScreen({ route, navigation }: Props) {
         <BrandedConfirmModal
           visible={pauseWarningVisible}
           title={APP_NAME}
-          message="Falcı okumasını bitirip soru sorarak mı devam etmek istiyorsunuz?"
+          message="Yorumcu okumasını bitirip soru sorarak mı devam etmek istiyorsunuz?"
           confirmLabel="Evet"
           cancelLabel="Hayır"
           onConfirm={() => {
@@ -736,6 +735,7 @@ export function SessionScreen({ route, navigation }: Props) {
                 style={styles.editorInput}
                 value={draftText}
                 onChangeText={setDraftText}
+                maxLength={FOLLOW_UP_QUESTION_MAX_CHARS}
                 placeholder="Sorunu buradan düzenleyebilirsin..."
                 placeholderTextColor="rgba(255,255,255,0.35)"
                 multiline

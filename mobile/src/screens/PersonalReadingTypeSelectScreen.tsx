@@ -24,13 +24,13 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
     () => [
       {
         id: 'coffee',
-        title: 'Kahve Falı',
+        title: 'Kahve Yorumu',
         description: 'Mevcut kahve akışı: fotoğraf yükleme, analiz ve geri bildirim.',
         currentlyAvailable: true,
       },
       {
         id: 'palm',
-        title: 'El / Pati Falı',
+        title: 'El / Pati Okuması',
         description: 'Mevcut el-pati akışı: fotoğraf yükleme, analiz ve geri bildirim.',
         currentlyAvailable: true,
       },
@@ -74,8 +74,8 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>3. Fal Tipi Seçimi</Text>
-          <Text style={styles.helperText}>Fal tipini seç. Devam butonunda markalı onay penceresi açılır.</Text>
+          <Text style={styles.panelTitle}>3. Okuma Tipi Seçimi</Text>
+          <Text style={styles.helperText}>Okuma tipini seç. Devam butonunda markalı onay penceresi açılır.</Text>
           {types.map((item) => {
             const selected = selectedTypeId === item.id;
             return (
@@ -106,15 +106,15 @@ export function PersonalReadingTypeSelectScreen({ navigation, route }: Props) {
             <Text style={styles.primaryButtonText}>Evet - Devam</Text>
           </TouchableOpacity>
           {selectedType && !selectedType.currentlyAvailable ? (
-            <Text style={styles.blockedHint}>Bu fal tipi yakında aktif olacak.</Text>
+            <Text style={styles.blockedHint}>Bu okuma tipi yakında aktif olacak.</Text>
           ) : null}
         </View>
       </BrandedScrollView>
 
       <BrandedConfirmModal
         visible={confirmVisible}
-        title="Fal Tipi Onayı"
-        message={selectedType ? `${selectedType.title} seçildi. Emin misin?` : 'Once bir fal tipi secmelisin.'}
+        title="Okuma Tipi Onayı"
+        message={selectedType ? `${selectedType.title} seçildi. Emin misin?` : 'Önce bir okuma tipi seçmelisin.'}
         confirmLabel="Evet - Devam"
         cancelLabel="Hayır"
         onCancel={() => setConfirmVisible(false)}

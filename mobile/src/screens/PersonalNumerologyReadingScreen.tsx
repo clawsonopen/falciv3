@@ -9,6 +9,7 @@ import { TokenUsage } from '../components/TokenUsage';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
 import { BrandedScrollView } from '../components/BrandedScrollView';
 import { APP_NAME, getAssistantLabel } from '../config/constants';
+import { FOLLOW_UP_QUESTION_MAX_CHARS, FOLLOW_UP_QUESTION_MIN_CHARS, normalizeLimitedInput } from '../config/llmTokenPolicy';
 import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
@@ -44,7 +45,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PersonalNumerologyReadi
 
 const MODE_LABELS: Record<PersonalNumerologyMode, string> = {
   core: 'Temel Sayı Haritası',
-  period: 'Aylık Numeroloji',
+  daily: 'Günlük Numeroloji',
+  weekly: 'Haftalık Numeroloji',
+  monthly: 'Aylık Numeroloji',
 };
 
 const CORE_LABELS: Array<[keyof PersonalNumerologyCore, string]> = [
@@ -67,14 +70,14 @@ function compactSummary(text: string) {
 }
 
 export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
-  const { profileId, assistantId } = route.params;
+  const { profileId, assistantId, initialMode } = route.params;
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<PersonalNumerologyMode | null>(null);
+  const [mode, setMode] = useState<PersonalNumerologyMode | null>(initialMode || null);
   const [isLoading, setIsLoading] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [text, setText] = useState('');
   const [core, setCore] = useState<PersonalNumerologyCore | null>(null);
-  const [readingTheme, setReadingTheme] = useState<{ label: string; key: string; period?: 'monthly' } | null>(null);
+  const [readingTheme, setReadingTheme] = useState<{ label: string; key: string; period?: 'daily' | 'weekly' | 'monthly' } | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsageData>({ inputTokens: 0, outputTokens: 0, textInputTokens: 0, imageInputTokens: 0 });
   const [questionText, setQuestionText] = useState('');
   const [followUps, setFollowUps] = useState<FollowUpMessage[]>([]);
@@ -86,8 +89,13 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
   const speechRunRef = useRef(0);
   const questionBaseRef = useRef('');
   const pageScrollRef = useRef<ScrollView>(null);
+  const initialModeLoadedRef = useRef(false);
 
   const assistantLabel = useMemo(() => getAssistantLabel(assistantId), [assistantId]);
+  const availableModes = useMemo<PersonalNumerologyMode[]>(
+    () => (initialMode === 'core' ? ['core'] : ['daily', 'weekly', 'monthly']),
+    [initialMode],
+  );
   const modeHeaderLabel = useMemo(() => (mode ? MODE_LABELS[mode] : 'Bölüm seç'), [mode]);
   const isBusy = isLoading || isSendingQuestion;
   const hasPreparedReading = Boolean(text && mode);
@@ -114,12 +122,12 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
     const theme =
       reading.mode === 'core'
         ? `temel numeroloji: yaşam yolu ${reading.core.lifePath}, kader ${reading.core.destiny}, olgunluk ${reading.core.maturity}`
-        : `aylık numeroloji: ${reading.context.calendarMonthName} ${reading.context.calendarYear} için dört haftalık akış yorumu`;
+        : `${MODE_LABELS[reading.mode].toLocaleLowerCase('tr-TR')}: ${reading.periodKey || reading.context.targetDateIso}`;
     const themeKey =
       reading.mode === 'core'
         ? 'personal-numerology-core'
-        : `personal-numerology-monthly-${reading.periodKey || reading.context.targetDateIso}`;
-    setReadingTheme({ label: theme, key: themeKey, period: reading.mode === 'period' ? 'monthly' : undefined });
+        : `personal-numerology-${reading.mode}-${reading.periodKey || reading.context.targetDateIso}`;
+    setReadingTheme({ label: theme, key: themeKey, period: reading.mode === 'core' ? undefined : reading.mode });
   }, []);
 
   const handleSelectMode = useCallback(
@@ -145,6 +153,12 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
     },
     [applyReadingToScreen, assistantId, isBusy, profileId],
   );
+
+  useEffect(() => {
+    if (!initialMode || initialModeLoadedRef.current) return;
+    initialModeLoadedRef.current = true;
+    void handleSelectMode(initialMode);
+  }, [handleSelectMode, initialMode]);
 
   const loadReading = useCallback(async () => {
     if (isBusy || text) return;
@@ -175,11 +189,15 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
         return;
       }
 
+      const memorySnippet = await loadProfileMemorySnippet(state, profileId, {
+        semanticQuery: mode === 'core' ? 'temel numeroloji haritası' : MODE_LABELS[mode],
+      }).catch(() => null);
       const reading = await createPersonalNumerologyReading({
         profile,
         assistantId,
         assistantLabel,
         mode,
+        memorySnippet,
       });
       if (!reading.cached && reading.usage) {
         const inputTokens = reading.usage.inputTokens || 0;
@@ -192,7 +210,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
         }));
         await addPersonalTokenUsage({
           modelName: reading.modelName || 'gemini-2.5-flash-lite',
-          readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : 'Kişisel Numeroloji - Aylık',
+          readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : `Kişisel Numeroloji - ${MODE_LABELS[mode]}`,
           textInputTokens: inputTokens,
           outputTokens,
         }).catch(() => {});
@@ -257,8 +275,8 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
   }, [latestReadableText, speechMode]);
 
   const handleSendQuestion = useCallback(async () => {
-    const question = questionText.replace(/\s+/g, ' ').trim();
-    if (!question || !text || !mode || isSendingQuestion) return;
+    const question = normalizeLimitedInput(questionText, FOLLOW_UP_QUESTION_MAX_CHARS);
+    if (question.length < FOLLOW_UP_QUESTION_MIN_CHARS || !text || !mode || isSendingQuestion) return;
     const userMessage: FollowUpMessage = { id: `u-${Date.now()}`, role: 'user', text: question };
     const previousFollowUps = followUps.map(({ role, text }) => ({ role, text }));
     setFollowUps((current) => [...current, userMessage]);
@@ -291,7 +309,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
       }));
       await addPersonalTokenUsage({
         modelName: answer.modelName || 'gemini-2.5-flash-lite',
-        readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : 'Kişisel Numeroloji - Aylık',
+        readingName: mode === 'core' ? 'Kişisel Numeroloji - Temel' : `Kişisel Numeroloji - ${MODE_LABELS[mode]}`,
         textInputTokens: inputTokens,
         outputTokens,
       }).catch(() => {});
@@ -418,7 +436,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
         </View>
         <View style={styles.panel}>
           <View style={styles.modeRow}>
-            {(['core', 'period'] as PersonalNumerologyMode[]).map((item) => {
+            {availableModes.map((item) => {
               const selected = mode === item;
               return (
                 <TouchableOpacity
@@ -467,7 +485,11 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
             ) : text ? (
               <SelectableFormattedText text={text} style={styles.readingText} />
             ) : (
-              <Text style={styles.loading}>Temel sayı haritası veya aylık numeroloji seçip yorumu hazırlayabilirsin.</Text>
+              <Text style={styles.loading}>
+                {initialMode === 'core'
+                  ? 'Temel sayı haritasını hazırlayabilir veya kayıtlı yorumun geldiyse üzerinden soru sorabilirsin.'
+                  : 'Günlük, haftalık veya aylık numeroloji seçip yorumu hazırlayabilirsin.'}
+              </Text>
             )}
           </BrandedScrollView>
           {text ? (
@@ -511,6 +533,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
                     style={styles.editorInput}
                     value={questionText}
                     onChangeText={setQuestionText}
+                    maxLength={FOLLOW_UP_QUESTION_MAX_CHARS}
                     placeholder="Sorunu buradan düzenleyebilirsin..."
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     multiline
@@ -553,7 +576,7 @@ export function PersonalNumerologyReadingScreen({ route, navigation }: Props) {
               onPress={() => void persistReadingAndEnd()}
               disabled={isSendingQuestion}
             >
-              <Text style={styles.endButtonText}>Falı Bitir</Text>
+              <Text style={styles.endButtonText}>Okumayı Bitir</Text>
             </TouchableOpacity>
           </View>
         ) : null}

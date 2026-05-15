@@ -4,9 +4,9 @@ type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 export type PersonalReadingDomain = 'astro' | 'numerology';
 
 const DOMAIN_FORBIDDEN_TERMS: Record<PersonalReadingDomain, RegExp> = {
-  astro: /kahve|fincan|telve|tabak|avuç|el falı|el fal|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i,
+  astro: /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i,
   numerology:
-    /kahve|fincan|telve|tabak|avuç|el falı|el fal|el çizg|görsel|fotoğraf|tarot|kart|melek kart|rune|i ching|hexagram|gökyüzü|yıldız|gezegen|natal|transit|burç|ay döng/i,
+    /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|görsel|fotoğraf|tarot|kart|melek kart|rune|i ching|hexagram|gökyüzü|yıldız|gezegen|natal|transit|burç|ay döng/i,
 };
 
 const FALLBACK_CLOSINGS: Record<PersonalReadingDomain, Record<string, string[]>> = {
@@ -56,6 +56,59 @@ const FALLBACK_CLOSINGS: Record<PersonalReadingDomain, Record<string, string[]>>
   },
 };
 
+const ANIMAL_PERSONA_CLOSINGS: Record<string, string[]> = {
+  'durdane-hanim': [
+    'Tüyün kadar ömrün olsun canım yavrum; boncuk boncuk gözlerin hep sıcak bir ev ışığı görsün.',
+    'O yumuşacık patilerin hep güvenli yere bassın miniğim; içindeki masumiyet eve bereket gibi yayılsın.',
+    'Güzel kalpli küçük dost, sahibinin sevgisi üstüne battaniye gibi örtülsün de mışıl mışıl dinlen.',
+    'Boncuk gözlerinden öperim minik can; ne kötülük bilirsin ne hesap, hep sevildiğini hisset.',
+    'Pofuduk tüylerin güneşi bulsun yavrum; kalbin de sahibinin yanında hep usul usul sakinleşsin.',
+    'Pamuk patilerini sevgiyle sevsinler küçüğüm; sen evin en masum neşesi olarak ışılda.',
+    'Gözlerin hep merakla parlasın canım; küçük dünyan oyunla, sıcak köşelerle ve sevgiyle dolsun.',
+    'Miniğim, sahibinin sesi sana hep güven versin; tüylerin kadar güzel günlerin olsun.',
+  ],
+  'hikmet-bey': [
+    'Hadi bakalım küçük dostum, patilerin sağlam yere bassın; masum kalbin evin huzurunu çoğaltsın.',
+    'Boncuk gözlü arkadaş, ömrün tüylerin kadar yumuşak ve uzun olsun; sahibinin sevgisi sana siper olsun.',
+    'Küçük can, dünyayı koklayarak ve merakla tanımaya devam et; içinde kötülük olmayan kalbin hep korunsun.',
+    'Yumuşak patilerin yorulmasın miniğim; güneşi de gölgeyi de kendi ritminde bul.',
+    'Güzel gözlü dostum, evin içinde kurduğun küçük düzen hep huzurla dolsun.',
+    'Patilerinin izi eve neşe bıraksın; sahibin de seni anlayan sakin bir kalple yanında dursun.',
+    'Küçük yoldaş, merakın canlı, kalbin temiz kalsın; her günün bir oyun ve güven köşesi olsun.',
+    'Tüylerinin arasından geçen her güneş ışığı sana iyi gelsin minik dostum.',
+  ],
+  'bahar-hanim': [
+    'Boncuk gözlü miniğim, küçük evrenin hep güneşli köşeler, güzel kokular ve yumuşacık güvenle dolsun.',
+    'Patilerinin altına hep sıcak ve sakin bir zemin gelsin; masum kalbin evin en güzel frekansı olsun.',
+    'Tüyün kadar güzel günün olsun küçük yıldız; sahibinin sevgisi seni hep yumuşakça sarsın.',
+    'Miniğim, o saf enerjin evde tatlı bir ışık gibi kalsın; boncuk gözlerin hep merakla parlasın.',
+    'Yumuşacık patilerini sevgiyle okşasınlar; sen de küçük dünyanda huzurla mırıldan.',
+    'Güzel kalpli patili, güneş lekelerini bul, kokuların izini sür, sevildiğini her gün hisset.',
+    'Küçüğüm, içindeki masumiyet evin ritmini güzelleştiriyor; o ritim hep şefkatle korunsun.',
+    'Minik dost, tüylerinin her kıvrımına huzur dolsun; evin içindeki ışığın hiç sönmesin.',
+  ],
+  'mert-bey': [
+    'Küçük dostum, patilerin hep sevdiğin köşelere çıksın; günün oyun, güneş ve güvenle dolsun.',
+    'Boncuk gözlü minik, sahibin seni iyi okusun; sen de dünyanı merakla ama rahatça keşfet.',
+    'Tüyün kadar güzel günün olsun miniğim; küçük rutinlerin hep huzur versin.',
+    'Patilerini seven eller eksik olmasın; sen evin içinde tertemiz bir neşe olarak kal.',
+    'Küçük arkadaş, oyun isteğin de dinlenme hakkın da duyulsun; kalbin hep rahat etsin.',
+    'Minik can, bugün de sevdiğin kokuları, sıcak yerleri ve güvenli alanları bul.',
+    'Güzel gözlü dost, masum enerjin evi toparlayan küçük bir ışık gibi parlasın.',
+    'Yumuşak patilerin yorulmasın; sahibinle arandaki bağ sakin sakin güçlensin.',
+  ],
+  caner: [
+    'Boncuk gözlü küçük ruh, tüylerinin arasına hep güneş düşsün; masum kalbin usul usul parlasın.',
+    'Miniğim, patilerin evin sessiz şiiri gibi; her adımın sevgiye ve güvene varsın.',
+    'Güzel gözlerinden öperim küçük dost; içinde kötülük olmayan o dünya hep korunmuş kalsın.',
+    'Tüyün kadar yumuşak günlerin olsun; sahibinin sevgisi sana ince bir şarkı gibi eşlik etsin.',
+    'Küçük kalbin evde usul bir ışık yakıyor; o ışık hep sıcak, hep sakin kalsın.',
+    'Yumuşacık patilerin güneş lekelerine bassın minik can; her günün küçük bir huzur resmi olsun.',
+    'Boncuk gözlerin geceyi bile tatlı yapıyor; sen hep sevildiğini bilerek uykuya dal.',
+    'Küçüğüm, merakın rüzgar gibi hafif, kalbin pamuk gibi temiz kalsın.',
+  ],
+};
+
 function personaId(value?: string): PersonaId {
   return (value && value in FORTUNE_PERSONA_DATA ? value : 'durdane-hanim') as PersonaId;
 }
@@ -69,12 +122,39 @@ function hashString(value: string) {
   return h >>> 0;
 }
 
-function safeClosingOptions(id: PersonaId, domain: PersonalReadingDomain) {
+const HEALTH_CLOSING_TERMS =
+  /\b(sağlık|saglik|sağlığ|saglig|beden|bedeni|bedenin|bedensel|ruh sağlığı|hasta|hastalık|hastalik|rahatsız|rahatsiz|ağrı|agri|acı|aci|sancı|sanci|ateş|ates|öksür|oksur|uyku|uykusuz|iyileş|iyiles|şifa|sifa|doktor|uzman|veteriner|ilaç|ilac|doz|tedavi)\b/iu;
+
+const HEALTH_CONCERN_TERMS =
+  /\b(sağlık|saglik|hasta|hastalık|hastalik|rahatsız|rahatsiz|ağrı|agri|acı|aci|sancı|sanci|ateş|ates|kusma|ishal|kan|nefes|öksür|oksur|uyku|uykusuz|yemiyor|içmiyor|icmiyor|iyileş|iyiles|tedavi|ilaç|ilac|doz|veteriner|doktor|psikolog|psikiyatrist|terapi|anksiyete|depresyon)\b/iu;
+
+const ANIMAL_HEALTH_TERMS =
+  /\b(kedi|kedim|köpek|kopek|köpeğim|kopegim|kuş|kus|kuşum|kusum|tavşan|tavsan|hayvan|pati|veteriner)\b/iu;
+
+export function userAskedHealthConcern(userText?: string | null) {
+  return HEALTH_CONCERN_TERMS.test((userText || '').toLocaleLowerCase('tr-TR'));
+}
+
+export function userAskedAnimalHealthConcern(userText?: string | null, isAnimalProfile?: boolean) {
+  const text = (userText || '').toLocaleLowerCase('tr-TR');
+  return userAskedHealthConcern(text) && (Boolean(isAnimalProfile) || ANIMAL_HEALTH_TERMS.test(text));
+}
+
+export function isHealthClosingSentence(sentence: string) {
+  return HEALTH_CLOSING_TERMS.test((sentence || '').toLocaleLowerCase('tr-TR'));
+}
+
+function safeClosingOptions(id: PersonaId, domain: PersonalReadingDomain, allowHealthClosing = false) {
   const forbidden = DOMAIN_FORBIDDEN_TERMS[domain];
   const library = FORTUNE_PERSONA_DATA[id].closingLibrary as Record<string, readonly string[]>;
   const options = Object.values(library)
     .flatMap((items) => [...items])
-    .filter((sentence) => sentence && !forbidden.test(sentence.toLocaleLowerCase('tr-TR')));
+    .filter(
+      (sentence) =>
+        sentence &&
+        !forbidden.test(sentence.toLocaleLowerCase('tr-TR')) &&
+        (allowHealthClosing || !isHealthClosingSentence(sentence)),
+    );
   const fallback = FALLBACK_CLOSINGS[domain][id] || FALLBACK_CLOSINGS[domain]['durdane-hanim'];
   return options.length ? options : fallback;
 }
@@ -83,10 +163,23 @@ export function selectPersonaClosingSentence(params: {
   assistantId: string;
   domain: PersonalReadingDomain;
   seed: string;
+  allowHealthClosing?: boolean;
 }) {
   const id = personaId(params.assistantId);
-  const options = safeClosingOptions(id, params.domain);
+  const options = safeClosingOptions(id, params.domain, params.allowHealthClosing);
   return options[hashString(`${params.domain}:${id}:${params.seed}`) % options.length] || '';
+}
+
+export function selectAnimalClosingSentence(params: {
+  assistantId: string;
+  seed: string;
+  usedClosings?: string[];
+}) {
+  const id = personaId(params.assistantId);
+  const used = new Set((params.usedClosings || []).map((item) => item.trim()).filter(Boolean));
+  const options = (ANIMAL_PERSONA_CLOSINGS[id] || ANIMAL_PERSONA_CLOSINGS['durdane-hanim']).filter((sentence) => !used.has(sentence));
+  const pool = options.length ? options : ANIMAL_PERSONA_CLOSINGS[id] || ANIMAL_PERSONA_CLOSINGS['durdane-hanim'];
+  return pool[hashString(`animal:${id}:${params.seed}:${used.size}`) % pool.length] || '';
 }
 
 function hasTerminalPunctuation(text: string) {
@@ -101,21 +194,204 @@ function trimIncompleteTail(text: string) {
   return cleaned;
 }
 
+const PACE_REPLACEMENTS = [
+  'gündelik yoğunluk',
+  'sıkışık tempo',
+  'zaman baskısı',
+  'üst üste gelen işler',
+  'zihinsel kalabalık',
+  'günlük ritim',
+  'hareketli gündem',
+  'yoğun gün akışı',
+  'iç sıkışıklığı',
+  'dağınık program',
+  'hızlı akış',
+  'biriken işler',
+  'günün ağırlığı',
+  'düşünce yoğunluğu',
+  'planların sıkışması',
+  'gündem kalabalığı',
+  'zihin yorgunluğu',
+  'sorumluluk yükü',
+  'aynı anda gelen işler',
+  'nefes alanı ihtiyacı',
+  'yoğun iletişim trafiği',
+  'düzen arayışı',
+  'ritim bozulması',
+  'günün sıkışıklığı',
+  'akışın hızlanması',
+  'program yoğunluğu',
+  'dikkat dağınıklığı',
+  'iç gerilim',
+  'toparlanma ihtiyacı',
+  'denge arayışı',
+];
+
+const TURKISH_MALFORMED_WORD_FIXES: Array<[RegExp, string]> = [
+  [/\byoğunlukede\b/giu, 'yoğunlukta'],
+  [/\byoğunlukta?de\b/giu, 'yoğunlukta'],
+  [/\byoğunluk[niı]\b/giu, 'yoğunluk'],
+  [/\byoğunlukın\b/giu, 'yoğunluğun'],
+  [/\byorgunlukede\b/giu, 'yorgunlukta'],
+  [/\btelaşede\b/giu, 'telaşta'],
+  [/\bsakinlikede\b/giu, 'sakinlikte'],
+  [/\bhuzurede\b/giu, 'huzurda'],
+  [/\benerjiede\b/giu, 'enerjide'],
+  [/\britimede\b/giu, 'ritimde'],
+  [/\bdengedede\b/giu, 'dengede'],
+  [/\bdengede de\b/giu, 'dengede'],
+];
+
+const HUMAN_HEALTH_REMINDERS = [
+  'Sağlıkla ilgili bir endişe varsa bunu korkmadan ama ertelemeden bir doktora ya da uygun bir sağlık uzmanına danışman en doğrusu olur.',
+  'Bu konu bedene veya ruh sağlığına dokunuyorsa, içini rahatlatmak için bir doktordan ya da uygun bir sağlık uzmanından görüş almak iyi olur.',
+  'Sağlık tarafında aklında soru işareti kaldıysa bunu kendi kendine yorumlamadan bir doktora ya da uygun bir sağlık uzmanına göstermen daha doğru olur.',
+  'Belirti, ağrı veya uzun süren bir rahatsızlık varsa en sağlıklı adım bir doktora ya da uygun bir sağlık uzmanına danışmak olur.',
+  'Bu okuma tıbbi bir değerlendirme yerine geçmez; sağlıkla ilgili bir kaygın varsa bir doktora ya da uygun bir sağlık uzmanına görünmen iyi olur.',
+  'İçini kurcalayan bir sağlık konusu varsa bunu büyütmeden ama ertelemeden bir doktora ya da uygun bir sağlık uzmanına taşıman en güvenlisi olur.',
+  'Bedensel veya ruhsal bir belirti söz konusuysa net cevap için bir doktora ya da uygun bir sağlık uzmanına danışmanı öneririm.',
+  'Sağlık konusunda emin olmak istiyorsan en doğru pusula bir doktorun ya da uygun bir sağlık uzmanının değerlendirmesi olur.',
+  'Bu alanda kesin konuşmak doğru olmaz; sağlıkla ilgili endişen varsa bir doktora ya da uygun bir sağlık uzmanına danışman iyi olur.',
+  'Kendini ya da bir yakınını ilgilendiren sağlık sorusunda, sakin kalıp bir doktordan ya da uygun bir sağlık uzmanından destek almak en sağlam yol olur.',
+];
+
+const ANIMAL_HEALTH_REMINDERS = [
+  'Sağlıkla ilgili bir endişe varsa bunu korkmadan ama ertelemeden bir veterinere danışman en doğrusu olur.',
+  'Patili dostunla ilgili bir belirti ya da davranış değişikliği varsa, içini rahatlatmak için bir veteriner görüşü almak iyi olur.',
+  'Hayvan sağlığı konusunda net değerlendirme için en güvenli yol bir veterinere danışmak olur.',
+  'Yememe, halsizlik, ağrı ya da alışılmadık bir hal görüyorsan bunu ertelemeden bir veterinere göstermen iyi olur.',
+  'Bu okuma veteriner değerlendirmesi yerine geçmez; sağlıkla ilgili kaygın varsa bir veterinere görünmek en doğru adım olur.',
+  'Patili dostunun sağlığı konusunda aklında soru işareti kaldıysa, bunu bir veterinerle paylaşman en güvenlisi olur.',
+  'Hayvanlarda küçük görünen belirtiler bile önemli olabilir; korkmadan ama geciktirmeden bir veterinere danışmanı öneririm.',
+  'Bu konuda kesin konuşmak doğru olmaz; hayvan sağlığıyla ilgili endişede veteriner kontrolü en sağlam yol olur.',
+  'Pati, iştah, enerji ya da davranış değişikliği gibi bir durum varsa bir veterinerin değerlendirmesi en doğru rehber olur.',
+  'Can dostunun sağlığı için sezgiyle yetinmeden bir veterinere danışmak iyi olur; böylece için de daha rahat eder.',
+];
+
+function replacePaceFixation(text: string) {
+  let index = 0;
+  return (text || '').replace(/\b(telaş(?:ı|ın|ını|ının|ında|ından|ınla|tan|a|lı|sız)?|koşuşturma(?:sı|sını|sının|sında|sından|nın|dan|ya|lı)?|koşturma(?:sı|sını|sının|sında|sından|nın|dan|ya|lı)?|koştur(?:up|uyor|uyorsun|uyorum|mak|ma)|koşuştur(?:up|uyor|uyorsun|uyorum|mak|ma))\b/giu, () => {
+    const replacement = PACE_REPLACEMENTS[index % PACE_REPLACEMENTS.length] || 'günlük ritim';
+    index += 1;
+    return replacement;
+  });
+}
+
+export function stripPersonaSelfIntroduction(text: string) {
+  return (text || '')
+    .replace(
+      /^\s*[^.!?\n]{0,140}\bben\s+(?:dürdane\s+hanım|hikmet\s+bey|bahar\s+hanım|mert\s+bey|caner)\b[^.!?\n]*[.!?]\s*/iu,
+      '',
+    )
+    .replace(
+      /^\s*[^.!?\n]{0,140}\b(?:dürdane\s+hanım|hikmet\s+bey|bahar\s+hanım|mert\s+bey|caner)\s+olarak\b[^.!?\n]*[.!?]\s*/iu,
+      '',
+    )
+    .replace(
+      /^\s*(?:merhaba|selam|hoş geldin|hoş geldiniz)[,!\s]*(?:ben\s+)?(?:dürdane\s+hanım|hikmet\s+bey|bahar\s+hanım|mert\s+bey|caner)(?:\s+olarak|\s+adlı\s+\w+|\s+diye\s+bilinirim)?[,.\s-]*/iu,
+      '',
+    )
+    .replace(
+      /^\s*ben\s+(?:dürdane\s+hanım|hikmet\s+bey|bahar\s+hanım|mert\s+bey|caner)(?:\s+olarak|\s+adlı\s+\w+|\s+diye\s+bilinirim)?[,.\s-]*/iu,
+      '',
+    )
+    .replace(/^\s*(?:dürdane\s+hanım|hikmet\s+bey|bahar\s+hanım|mert\s+bey|caner)\s+olarak[,.\s-]*/iu, '')
+    .trim();
+}
+
+export function sanitizeRestrictedReadingTerms(text: string) {
+  return (text || '')
+    .replace(/\bfalcı(?:n|yım|yız|sı|sın|lar|ya|dan|da)?\b/giu, 'yorumcu')
+    .replace(/\bfal(?:ım|ın|ı|in|ına|ına|ımda|ında|ımdan|ından|dan|da|cı|cılar|cıya|cıdan|cıda)?\b/giu, 'yorum')
+    .replace(/\bkehanet(?:im|in|i|ler|leri|te|ten)?\b/giu, 'sembolik yorum')
+    .replace(/\bgeleceğ(?:i|ini|e)\s+(?:görmek|görme|okumak|okuma|bilmek|bilirim|biliyorum)\b/giu, 'olasılıkları sezgisel yorumlamak')
+    .replace(/\bgelecek\s+(?:okuması|yorumu|analizi|öngörüsü)\b/giu, 'sembolik içgörü')
+    .replace(/\b(?:vaat|vaad)\s+ed(?:er|iyor|iyorum|eceğim|eceğiz|en|ilmez)\b/giu, 'sunar')
+    .replace(/\b(?:vaat|vaad)(?:im|in|i|ler|leri|te|ten)?\b/giu, 'söz');
+}
+
+export function sanitizePublicReadingLanguage(text: string) {
+  const fixedMalformedWords = TURKISH_MALFORMED_WORD_FIXES.reduce(
+    (current, [pattern, replacement]) => current.replace(pattern, replacement),
+    text || '',
+  );
+  const withoutMemoryDisclosure = fixedMalformedWords
+    .split(/(?<=[.!?])\s+/)
+    .filter(
+      (sentence) =>
+        !/\b(?:önceki|geçen|eski)\s+(?:fal|yorum|okuma)(?:ında|ında|dan|larda|larda)?\b/iu.test(sentence) &&
+        !/\b(?:hafızanda|hafızamda|hatırlıyorum|hatırımdaki|kayıtlarda|profilinde\s+gördüğüm)\b/iu.test(sentence) &&
+        !/\bsana\s+daha\s+önce\s+[^.!?]{0,80}\b(?:çıkmıştı|görünmüştü|gelmişti)\b/iu.test(sentence),
+    )
+    .join(' ');
+  return sanitizeRestrictedReadingTerms(replacePaceFixation(withoutMemoryDisclosure))
+    .replace(/\b(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b/giu, 'bu kişilik izi')
+    .replace(/\bMBTI\s+(?:sonucu|tipi|kişilik\s+tipi)\b/giu, 'kişilik eğilimi')
+    .replace(/\b(?:kişilik|uyumluluk|bağlanma|değerler|stresle\s+başa\s+çıkma)\s+testi\s+sonucu\b/giu, 'kişisel eğilim')
+    .replace(/\b[A-ZÇĞİÖŞÜ]{4,}\b/gu, (word) => {
+      const lower = word.toLocaleLowerCase('tr-TR');
+      return lower.charAt(0).toLocaleUpperCase('tr-TR') + lower.slice(1);
+    })
+    .replace(/\b(?:şimdi\s+)?akl[ıi]ma\s+geldi\b/giu, 'burada bir detay öne çıkıyor')
+    .replace(/\bkahve\s+demlen(?:ir|mez|di|miş|mişti|iyor|ecek|miş gibi|mişçesine)?\b/giu, 'kahve yapılır')
+    .replace(/\bdemlen(?:en|miş|mişti|iyor|ecek|ir)\s+kahve\b/giu, 'yapılmış kahve')
+    .replace(/\bkahveni\s+demle\b/giu, 'kahveni yap')
+    .replace(/\bkahveyi\s+demle\b/giu, 'kahveyi yap')
+    .replace(/\bgeleceği\s+kesin(?:likle)?\s+bil(?:mek|irim|iyorum|eceğim|eceğiz)\b/giu, 'geleceğe dair kesin konuşmak')
+    .replace(/\bkesin(?:likle)?\s+(?:olacak|çıkar|gerçekleşecek|dönecek|bitecek|başlayacak|gelecek|geçecek|iyileşecek|düzelecek)\b/giu, 'olası görünüyor')
+    .replace(/\biyileşeceğini\s+vaat\s+ed(?:er|iyor|en|iyor gibi)\b/giu, 'iyileşme ihtimalini düşündürüyor')
+    .replace(/\b(?:sağlığı|bedeni|hastalığı|rahatsızlığı)\s+(?:düzelecek|iyileşecek|geçecek)\b/giu, 'bu konuda bir uzmana danışmak iyi olur')
+    .replace(/\b(?:şunu|bunu|onu)\s+(?:ye|yiyip|iç|içip)\s+(?:geçer|düzelir|iyi\s+gelir)\b/giu, 'bu konuda bir uzmana danışmak daha doğru olur')
+    .replace(/\b(?:ilaç|doz|tedavi|takviye)\s+(?:al|almalısın|kullan|kullanmalısın|başla|başlamalısın)\b/giu, 'bir uzmana danış')
+    .replace(/\b(?:ağrın|belirtin|şikayetin|hastalığın)\s+geçer\b/giu, 'bu belirti için bir uzmana görünmek iyi olur')
+    .replace(/\b(fincan(?:ın|daki|da|ın\s+içindeki|ın\s+yanındaki)?|kupa(?:nın|daki)?)\s+kul\b/giu, '$1 kulpu')
+    .replace(/\bkul\s+taraf(?:ı|ında|ından|ına)\b/giu, 'kulp tarafı')
+    .replace(/\b(?:bu|şu)\s+fal(?:ın|da|dan|ı|a)?\b/giu, 'bu yorum')
+    .replace(/\bfal(?:ın|ım|ını|ımı|ına|ıma|ında|ımda|dan|ımdan|ı|ım|a|da)?\b/giu, 'yorum')
+    .replace(/\bfalcı(?:n|yım|yız|sı|sın|lar)?\b/giu, 'yorumcu')
+    .replace(/\s+([,.!?])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export function appendHealthProfessionalReminder(
+  text: string,
+  params?: { userText?: string | null; isAnimalProfile?: boolean },
+) {
+  const source = (params?.userText || '').toLocaleLowerCase('tr-TR');
+  if (!userAskedHealthConcern(source)) return text;
+  const animalConcern = userAskedAnimalHealthConcern(source, params?.isAnimalProfile);
+  const options = animalConcern ? ANIMAL_HEALTH_REMINDERS : HUMAN_HEALTH_REMINDERS;
+  const reminder = options[hashString(source) % options.length] || options[0];
+  if (text.toLocaleLowerCase('tr-TR').includes(reminder.toLocaleLowerCase('tr-TR'))) return text;
+  if (animalConcern && /\bveteriner/.test(text.toLocaleLowerCase('tr-TR'))) return text;
+  if (!animalConcern && /\b(doktor|sağlık uzman)/.test(text.toLocaleLowerCase('tr-TR'))) return text;
+  return `${text.trim()}\n\n${reminder}`.trim();
+}
+
 export function completeWithPersonaClosing(params: {
   text: string;
   assistantId: string;
   domain: PersonalReadingDomain;
   seed: string;
   forceClosing?: boolean;
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
 }) {
-  const base = trimIncompleteTail(params.text);
+  const base = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(trimIncompleteTail(params.text)));
   const shouldClose = params.forceClosing || !hasTerminalPunctuation(base);
   if (!shouldClose) return base;
-  const closing = selectPersonaClosingSentence({
-    assistantId: params.assistantId,
-    domain: params.domain,
-    seed: `${params.seed}:${base.slice(-160)}`,
-  });
+  const closing = params.isAnimalProfile
+    ? selectAnimalClosingSentence({
+        assistantId: params.assistantId,
+        seed: `${params.domain}:${params.seed}:${base.slice(-160)}`,
+      })
+    : selectPersonaClosingSentence({
+        assistantId: params.assistantId,
+        domain: params.domain,
+        seed: `${params.seed}:${base.slice(-160)}`,
+        allowHealthClosing: params.allowHealthClosing,
+      });
   if (!closing) return base;
   if (!base) return closing;
   if (base.includes(closing)) return base;

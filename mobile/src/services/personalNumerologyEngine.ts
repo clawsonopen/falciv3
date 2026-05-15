@@ -1,12 +1,26 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ProfileMemorySnippet, SubjectProfile } from '../types/memory';
+import {
+  PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
+  PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION,
+  PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+  PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+} from '../config/llmTokenPolicy';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { isRetryableLlmError } from './llmRetryMessages';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
-import { completeWithPersonaClosing } from './personaClosingService';
+import { selectNumerologyLifeEvents } from './fortuneSpecificityBank';
+import { loadAccountState } from './profileMemoryService';
+import {
+  appendHealthProfessionalReminder,
+  completeWithPersonaClosing,
+  sanitizePublicReadingLanguage,
+  userAskedHealthConcern,
+} from './personaClosingService';
+import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile, isAnimalProfile, isAnimalMemorySnippet } from './animalProfilePrompt';
 
-export type PersonalNumerologyMode = 'core' | 'period';
-export type PersonalNumerologyPeriod = 'monthly';
+export type PersonalNumerologyMode = 'core' | 'daily' | 'weekly' | 'monthly';
+export type PersonalNumerologyPeriod = Exclude<PersonalNumerologyMode, 'core'>;
 const PERSONAL_NUMEROLOGY_PERSONA_PROMPT_VERSION = 6;
 
 function formatRelevantMemory(snippet?: ProfileMemorySnippet | null) {
@@ -43,6 +57,16 @@ export type PersonalNumerologyContext = {
   calendarMonthName: string;
   monthTotal: number;
   calendarDay: number;
+  dayTotal: number;
+  weekTotal: number;
+  weekStartDateIso: string;
+  weekEndDateIso: string;
+  weekDays: Array<{
+    label: string;
+    dateIso: string;
+    dayTotal: number;
+    personalDayTotal?: number;
+  }>;
   monthWeeks: Array<{
     label: string;
     startDateIso: string;
@@ -50,6 +74,7 @@ export type PersonalNumerologyContext = {
     startTotal: number;
     endTotal: number;
     weekTotal: number;
+    personalWeekTotal?: number;
   }>;
   personTotal?: number;
 };
@@ -100,7 +125,7 @@ const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const CORE_CACHE_FILE = `${DATA_DIR}personal-numerology-core-cache.json`;
 const PERIOD_CACHE_FILE = `${DATA_DIR}personal-numerology-period-cache.json`;
 const MAX_PERIOD_CACHE_ITEMS = 160;
-const NUMEROLOGY_CACHE_VERSION = 5;
+const NUMEROLOGY_CACHE_VERSION = 6;
 const ISTANBUL_TIME_ZONE = 'Europe/Istanbul';
 
 const LETTER_VALUES: Record<string, number> = {
@@ -213,20 +238,48 @@ function getIstanbulParts(date = new Date()) {
   };
 }
 
-function weekKeyFromParts(year: number, month: number, day: number) {
+function isoDateFromUtc(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function weekStartUtc(year: number, month: number, day: number) {
   const utc = new Date(Date.UTC(year, month - 1, day));
   const weekday = utc.getUTCDay() || 7;
   utc.setUTCDate(utc.getUTCDate() - weekday + 1);
-  return `${utc.getUTCFullYear()}-W${String(Math.ceil((((utc.getTime() - Date.UTC(utc.getUTCFullYear(), 0, 1)) / 86400000) + 1) / 7)).padStart(2, '0')}`;
+  return utc;
 }
 
-function periodKey(date = new Date()) {
-  const { year, month } = getIstanbulParts(date);
+function weekKeyFromParts(year: number, month: number, day: number) {
+  const utc = weekStartUtc(year, month, day);
+  const weekOne = new Date(Date.UTC(utc.getUTCFullYear(), 0, 4));
+  const weekOneWeekday = weekOne.getUTCDay() || 7;
+  weekOne.setUTCDate(weekOne.getUTCDate() - weekOneWeekday + 1);
+  const week = Math.floor((utc.getTime() - weekOne.getTime()) / 604800000) + 1;
+  return `${utc.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function periodKey(mode: PersonalNumerologyPeriod, date = new Date()) {
+  const { year, month, day, dateKey } = getIstanbulParts(date);
+  if (mode === 'daily') return dateKey;
+  if (mode === 'weekly') return weekKeyFromParts(year, month, day);
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
-function periodExpiryIso(date = new Date()) {
-  const { year, month } = getIstanbulParts(date);
+function periodExpiryIso(mode: PersonalNumerologyPeriod, date = new Date()) {
+  const { year, month, day } = getIstanbulParts(date);
+  if (mode === 'daily') {
+    return new Date(Date.UTC(year, month - 1, day + 1) - 3 * 60 * 60 * 1000).toISOString();
+  }
+  if (mode === 'weekly') {
+    const start = weekStartUtc(year, month, day);
+    return new Date(addUtcDays(start, 7).getTime() - 3 * 60 * 60 * 1000).toISOString();
+  }
   return new Date(Date.UTC(year, month, 1) - 3 * 60 * 60 * 1000).toISOString();
 }
 
@@ -276,6 +329,15 @@ function dateParts(dateIso: string): { year: number; month: number; day: number 
 
 function buildContext(targetDate = new Date()): PersonalNumerologyContext {
   const { year, month, day, dateKey } = getIstanbulParts(targetDate);
+  const weekStart = weekStartUtc(year, month, day);
+  const weekDays = Array.from({ length: 7 }).map((_, index) => {
+    const dateIso = isoDateFromUtc(addUtcDays(weekStart, index));
+    return {
+      label: ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'][index],
+      dateIso,
+      dayTotal: reduceNumber(sumDateDigits(dateIso)),
+    };
+  });
   const monthTotal = reduceNumber(sumDigits(`${year}-${String(month).padStart(2, '0')}`));
   return {
     targetDateIso: dateKey,
@@ -284,11 +346,16 @@ function buildContext(targetDate = new Date()): PersonalNumerologyContext {
     calendarMonthName: MONTH_NAMES[month - 1],
     monthTotal,
     calendarDay: day,
-    monthWeeks: [0, 1, 2, 3].map((index) => {
+    dayTotal: reduceNumber(sumDateDigits(dateKey)),
+    weekTotal: reduceNumber(weekDays.reduce((sum, item) => sum + item.dayTotal, 0)),
+    weekStartDateIso: isoDateFromUtc(weekStart),
+    weekEndDateIso: isoDateFromUtc(addUtcDays(weekStart, 6)),
+    weekDays,
+    monthWeeks: Array.from({ length: Math.ceil(new Date(Date.UTC(year, month, 0)).getUTCDate() / 7) }).map((_, index) => {
       const start = new Date(Date.UTC(year, month - 1, 1 + index * 7));
       const end = new Date(Date.UTC(year, month - 1, Math.min(7 + index * 7, new Date(Date.UTC(year, month, 0)).getUTCDate())));
-      const startDateIso = start.toISOString().slice(0, 10);
-      const endDateIso = end.toISOString().slice(0, 10);
+      const startDateIso = isoDateFromUtc(start);
+      const endDateIso = isoDateFromUtc(end);
       const startTotal = reduceNumber(sumDateDigits(startDateIso));
       const endTotal = reduceNumber(sumDateDigits(endDateIso));
       return {
@@ -320,9 +387,16 @@ function calculateCore(profile: SubjectProfile, context: PersonalNumerologyConte
   const personalMonth = reduceNumber(personalYear + context.calendarMonth);
   const personalDay = reduceNumber(personalMonth + context.calendarDay);
   context.personTotal = personTotal;
+  context.dayTotal = reduceNumber(context.dayTotal + personTotal + personalDay);
+  context.weekTotal = reduceNumber(context.weekTotal + personTotal + personalMonth);
+  context.weekDays = context.weekDays.map((dayItem, index) => ({
+    ...dayItem,
+    personalDayTotal: reduceNumber(dayItem.dayTotal + personTotal + personalMonth + index + 1),
+  }));
   context.monthWeeks = context.monthWeeks.map((week, index) => ({
     ...week,
-    weekTotal: reduceNumber(week.startTotal + week.endTotal + context.monthTotal + personTotal + index + 1),
+    weekTotal: reduceNumber(week.startTotal + week.endTotal + context.monthTotal),
+    personalWeekTotal: reduceNumber(week.startTotal + week.endTotal + context.monthTotal + personTotal + index + 1),
   }));
 
   return {
@@ -363,14 +437,23 @@ function weekTone(total: number) {
   return tones[total] || 'ritmi sadeleştirme';
 }
 
-function fallbackPeriodText(profileName: string, context: PersonalNumerologyContext): string {
+function fallbackPeriodText(profileName: string, mode: PersonalNumerologyMode, context: PersonalNumerologyContext): string {
+  if (mode === 'daily') {
+    return `${profileName} için bugünün kişisel numeroloji ritmi ${context.dayTotal} sayısında toplanıyor. Bu sayı, günü daha net seçimler, sade bir öncelik listesi ve küçük ama kararlı bir adımla taşımayı anlatıyor.\n\nBugün aceleyle her yere yetişmek yerine tek bir ana meseleyi seçmek daha iyi çalışır. Günün sonunda da neyi tamamladığını görmek, zihni daha temiz kapatmana yardım eder.`;
+  }
+  if (mode === 'weekly') {
+    const days = context.weekDays
+      .map((item) => `${item.label} ${item.personalDayTotal || item.dayTotal} ritmiyle ${weekTone(item.personalDayTotal || item.dayTotal)} tarafını öne çıkarır`)
+      .join(', ');
+    return `${profileName} için bu haftanın kişisel numeroloji zemini ${context.weekTotal} sayısında birleşiyor; ana tema ${weekTone(context.weekTotal)}.\n\n${days}. Haftanın önerisi, her günü ayrı bir yarış gibi değil, birbirini tamamlayan küçük adımlar gibi taşımak.`;
+  }
   const intro =
     `${profileName} için ${context.calendarMonthName} ${context.calendarYear} ayı, kişinin temel numeroloji zeminiyle ayın kendi sayısının birleştiği dört haftalık bir akış veriyor. ` +
     `Ayın ana toplamı ${context.monthTotal}; bu yüzden bütün ay boyunca ana mesele ritmi dağıtmadan öncelikleri sadeleştirmek.`;
   const weekLines = context.monthWeeks
     .map((week) => {
-      const tone = weekTone(week.weekTotal);
-      return `${week.label} (${week.startDateIso} - ${week.endDateIso}): hafta başı toplamı ${week.startTotal}, hafta sonu toplamı ${week.endTotal}; birleşik ritim ${week.weekTotal}. Bu hafta ${tone} öne çıkıyor.`;
+      const tone = weekTone(week.personalWeekTotal || week.weekTotal);
+      return `${week.label} (${week.startDateIso} - ${week.endDateIso}): hafta başı toplamı ${week.startTotal}, hafta sonu toplamı ${week.endTotal}; kişisel birleşik ritim ${week.personalWeekTotal || week.weekTotal}. Bu hafta ${tone} öne çıkıyor.`;
     })
     .join('\n\n');
   return `${intro}\n\n${weekLines}\n\nAyın önerisi: ilk hafta niyeti belirle, ikinci hafta ilişki ve iş dilini toparla, üçüncü hafta somut adım at, dördüncü hafta ise ayın dersini kapatıp yeni aya daha temiz gir.`;
@@ -446,15 +529,32 @@ export async function getCachedPersonalNumerologyReading(params: {
     personaPromptVersion: PERSONAL_NUMEROLOGY_PERSONA_PROMPT_VERSION,
   });
   const cachedCore = await loadCoreFromCache(params.profile.profileId, fingerprint);
-  if (params.mode === 'core') return cachedCore;
-  const selectedPeriodKey = periodKey(new Date(`${context.targetDateIso}T12:00:00.000Z`));
-  return loadPeriodFromCache({
-    assistantId: params.assistantId,
-    profileId: params.profile.profileId,
-    period: 'monthly',
-    periodKeyValue: selectedPeriodKey,
-    fingerprint,
-  });
+  if (params.mode === 'core') {
+    if (cachedCore) return cachedCore;
+    const core = calculateCore(params.profile, context);
+    const state = await loadAccountState().catch(() => null);
+    const existing = state?.readings.find(
+      (reading) =>
+        reading.profileId === params.profile.profileId &&
+        reading.readingType === 'personal-numerology' &&
+        !reading.period &&
+        reading.assistantId === params.assistantId,
+    );
+    const existingText = existing?.transcript?.find((message) => message.role === 'assistant')?.text || '';
+    if (!existingText) return null;
+    const restored: PersonalNumerologyReading = {
+      text: existingText,
+      core,
+      context,
+      mode: 'core',
+      source: 'reading-history-personal-numerology-core',
+      cached: true,
+      hasCoreReading: true,
+    };
+    await saveCoreToCache(params.profile.profileId, fingerprint, restored).catch(() => {});
+    return restored;
+  }
+  return null;
 }
 
 function compactCoreSummary(coreReading: PersonalNumerologyReading | null) {
@@ -471,7 +571,18 @@ function sanitizeAffectionateRepetition(text: string) {
     .trim();
 }
 
+function cleanNumerologyText(text: string) {
+  return sanitizePublicReadingLanguage(sanitizeAffectionateRepetition(text));
+}
+
 function addressPolicyForProfile(profile: SubjectProfile, profileName: string) {
+  if (isAnimalProfile(profile)) {
+    return [
+      buildAnimalProfileInstructionFromProfile(profile),
+      'Hitap modu: seçili profil evcil hayvan. Metin boyunca hayvanı üçüncü tekil şahısla anlat; hesap sahibine hayvanın sahibi/refakatçisi olarak öneri ver.',
+      'Sayısal yorumu insan kariyeri, romantik ilişki, evlilik, okul veya para kazanma eksenine çevirme; hayvanın mizacı, rutinleri, ev içi enerjisi ve sahibiyle bağı üzerinden yorumla.',
+    ].join(' ');
+  }
   const isSelf = profile.isPrimary || profile.relationshipPrimary === 'kendi';
   const genderHint = profile.gender
     ? `Profil cinsiyeti: ${profile.gender}; cinsiyetli hitap seçerken buna uy.`
@@ -496,6 +607,13 @@ function addressPolicyFromMemory(profileName: string, snippet?: ProfileMemorySni
   if (!snippet) {
     return 'Hitap modunu önceki kişisel numeroloji yorumuyla tutarlı sürdür; aynı cevap içinde üçüncü tekil şahıs ve sen dili arasında geçiş yapma.';
   }
+  if (isAnimalMemorySnippet(snippet)) {
+    return [
+      buildAnimalProfileInstructionFromMemory(snippet),
+      'Hitap modu: seçili profil evcil hayvan. Metin boyunca hayvanı üçüncü tekil şahısla anlat; hesap sahibine hayvanın sahibi/refakatçisi olarak öneri ver.',
+      'Sayısal yorumu insan kariyeri, romantik ilişki, evlilik, okul, para kazanma veya yetişkin insan psikolojisi eksenine çevirme; hayvanın mizacı, rutinleri, ev içi enerjisi, duyuları ve sahibiyle bağı üzerinden yorumla.',
+    ].join(' ');
+  }
   const genderHint = snippet.profileGender
     ? `Profil cinsiyeti: ${snippet.profileGender}; cinsiyetli hitap seçerken buna uy.`
     : 'Profil cinsiyeti bilinmiyor; cinsiyetli hitap kullanma.';
@@ -517,15 +635,15 @@ function assistantStyleHint(assistantId: string, assistantLabel: string) {
   const styles: Record<string, string> = {
     'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek; sayıları psikolojik içgörüye dönüştürür.',
     'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın; sayıları pratik karar ve plan diline çevirir.',
-    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul fal sıcaklığı vardır ama şefkat hitaplarını abartmaz.',
+    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul bilgelik sıcaklığı vardır ama şefkat hitaplarını abartmaz.',
     'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan; sayıları hayat dersi ve ölçülü öğüt gibi yorumlar.',
     caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik; sayıları duygu ritmi ve iç ses olarak okur.',
   };
-  return styles[assistantId] || `${assistantLabel || 'Falcı'} tonu: sıcak, doğal ve persona içinde kalan.`;
+  return styles[assistantId] || `${assistantLabel || 'Yorumcu'} tonu: sıcak, doğal ve persona içinde kalan.`;
 }
 
 const NON_NUMEROLOGY_PERSONA_DOMAIN_TERMS =
-  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el falı|el fal|el çizg|çizgi|tarot|kart|melek kart|rune|i ching|hexagram/i;
+  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el okuması|el çizg|çizgi|tarot|kart|melek kart|rune|i ching|hexagram/i;
 
 function domainNeutralPersonaSignature(assistantId: string) {
   const signatures: Record<string, string> = {
@@ -540,22 +658,22 @@ function domainNeutralPersonaSignature(assistantId: string) {
       'Duyguyu küçümsemeden, çözüm ve plan tarafını görünür kılar.',
     ].join(' '),
     'durdane-hanim': [
-      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir fal malzemesine yaslanmaz.',
+      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir sembolik araca yaslanmaz.',
       'Hane, kalp, niyet, kısmet, yol, yakın çevre ve iç direnç gibi hayat alanlarını doğal ve çeşitli biçimde okuyabilir.',
       'Şefkatli hitapları ölçülü kullanır; telaş, yük ve koşturma temasına takılı kalmaz.',
     ].join(' '),
     'hikmet-bey': [
       'Babacan, sakin, felsefi ve psikolojik derinliği olan bir sesle konuşur.',
       'Cümleleri ölçülü öğüt, hayat tecrübesi ve iç denge hissi taşır.',
-      'Keskin kehanet yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
+      'Keskin hüküm yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
     ].join(' '),
     caner: [
       'Sezgisel, yumuşak, sanatsal ve hafif melankolik konuşur.',
       'Duygu ritmi, iç ses, atmosfer, kırılgan umut ve estetik sezgi öne çıkar.',
-      'Cümleleri şiirsel olabilir ama anlaşılır kalır; fal malzemesi değil insanın iç dünyası üzerinden imge kurar.',
+      'Cümleleri şiirsel olabilir ama anlaşılır kalır; sembolik araç değil insanın iç dünyası üzerinden imge kurar.',
     ].join(' '),
   };
-  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili falcının kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
+  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili yorumcunun kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
 }
 
 function numerologySafePersonaText(text?: string) {
@@ -577,7 +695,7 @@ function assistantPersonaContext(assistantId: string) {
     `Persona adı: ${identity.displayName}`,
     `İmza üslup:\n${domainNeutralPersonaSignature(assistantId)}`,
     voice ? `Ses ve mizaç (yalnızca üslup için):\n${voice}` : '',
-    'Numeroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanılmaz.',
+    'Numeroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanılmaz.',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -592,14 +710,37 @@ function coreBaseNumbers(core: PersonalNumerologyCore) {
   };
 }
 
-function monthlyNumerologyContext(core: PersonalNumerologyCore, context: PersonalNumerologyContext) {
+function periodNumerologyContext(mode: PersonalNumerologyMode, core: PersonalNumerologyCore, context: PersonalNumerologyContext, events: Array<{ group: string; label: string }>) {
+  const personTotal = context.personTotal || reduceNumber(core.lifePath + core.destiny + core.soulUrge + core.personality + core.birthday + core.maturity);
+  if (mode === 'daily') {
+    return {
+      targetDateIso: context.targetDateIso,
+      calendarYear: context.calendarYear,
+      calendarMonthName: context.calendarMonthName,
+      baseDayTotal: reduceNumber(sumDateDigits(context.targetDateIso)),
+      personTotal,
+      personalDayTotal: context.dayTotal,
+      suggestedLifeEvents: events,
+    };
+  }
+  if (mode === 'weekly') {
+    return {
+      weekStartDateIso: context.weekStartDateIso,
+      weekEndDateIso: context.weekEndDateIso,
+      baseWeekTotal: context.weekTotal,
+      personTotal,
+      weekDays: context.weekDays,
+      suggestedLifeEvents: events,
+    };
+  }
   return {
     calendarYear: context.calendarYear,
     calendarMonth: context.calendarMonth,
     calendarMonthName: context.calendarMonthName,
     monthTotal: context.monthTotal,
-    personTotal: context.personTotal || reduceNumber(core.lifePath + core.destiny + core.soulUrge + core.personality + core.birthday + core.maturity),
+    personTotal,
     monthWeeks: context.monthWeeks,
+    suggestedLifeEvents: events,
   };
 }
 
@@ -613,44 +754,115 @@ function buildGeminiPayload(params: {
   context: PersonalNumerologyContext;
   coreSummary: string | null;
   hasCoreReading: boolean;
+  memorySnippet?: ProfileMemorySnippet | null;
 }) {
   const styleHint = assistantStyleHint(params.assistantId, params.assistantLabel);
   const personaContext = assistantPersonaContext(params.assistantId);
+  const isAnimalNumerology = isAnimalProfile(params.profile);
+  const eventNumbers =
+    params.mode === 'core'
+      ? [params.core.lifePath, params.core.destiny, params.core.maturity]
+      : params.mode === 'daily'
+        ? [params.context.dayTotal, params.core.personalDay, params.core.lifePath]
+        : params.mode === 'weekly'
+          ? [params.context.weekTotal, ...params.context.weekDays.slice(0, 2).map((item) => item.personalDayTotal || item.dayTotal)]
+          : [
+              params.context.monthTotal,
+              ...params.context.monthWeeks.slice(0, 2).map((item) => item.personalWeekTotal || item.weekTotal),
+            ];
+  const lifeEvents =
+    params.mode === 'core'
+      ? []
+      : selectNumerologyLifeEvents({
+          seed: `${params.profile.profileId}:${params.assistantId}:${params.mode}:${params.context.targetDateIso}`,
+          numbers: eventNumbers,
+          memorySnippet: params.memorySnippet,
+          count: 3,
+        });
   const systemText = [
-    `Sen ${params.assistantLabel} adlı falcısın; kişiye özel numerolojiyi bu falcının aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
+    `Sen ${params.assistantLabel} adlı yorumcusun; kişiye özel numerolojiyi bu yorumcunun aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
     'Use only the provided on-device numerology JSON. Do not mention general divination numerology cards.',
     'Markdown biçimlendirmesi, yıldızlı vurgu, madde imi, numaralı liste, emoji, ikon veya dekoratif sembol üretme.',
-    'Numeroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; sayılar, profil ve dönem akışı üzerinden konuş.',
-    'Persona sesi teknik numeroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili falcıya ait olmalı. Kendini tanıtma.',
+    'Numeroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanma; sayılar, profil ve dönem akışı üzerinden konuş.',
+    `Persona sesi teknik numeroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili yorumcuya ait olmalı. Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcu olarak" diye başlama.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+    'Hafıza veya önceki okuma kaynağını açık etme; "önceki okumanda", "hafızanda", "sana daha önce çıkmıştı" gibi cümleler kurma.',
     'Use profile and prior reading data as silent background unless the user explicitly asks about the source. Keep the address mode consistent throughout the answer.',
+    isAnimalNumerology
+      ? 'Seçili profil evcil hayvansa numeroloji yorumunu insan okuması gibi yazma; kariyer, iş, para kazanma, okul, evlilik, romantik ilişki, insan sosyal çevresi veya yetişkin insan psikolojisi teması kurma. Sayıları hayvanın mizacı, oyun/dinlenme düzeni, duyuları, ev içi güveni, diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden yorumla.'
+      : '',
   ].join(' ');
-  const numerologyJson = params.mode === 'core' ? coreBaseNumbers(params.core) : monthlyNumerologyContext(params.core, params.context);
+  const numerologyJson = params.mode === 'core' ? coreBaseNumbers(params.core) : periodNumerologyContext(params.mode, params.core, params.context, lifeEvents);
+  const modeLabel = { core: 'temel numeroloji haritası', daily: 'günlük numeroloji', weekly: 'haftalık numeroloji', monthly: 'aylık numeroloji' }[params.mode];
   const taskPrompt =
     params.mode === 'core'
       ? [
-          'Türkçe yaz. Başlık atma.',
-          'Metni anlam akışına göre 3-4 kısa paragrafta ver: ana sayı örüntüsü, iç motivasyon/kişilik, ilişki-iş dengesi ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
+           'Türkçe yaz. Başlık atma.',
+          isAnimalNumerology
+            ? 'Metni anlam akışına göre 3-4 kısa paragrafta ver: ana sayı örüntüsü, mizaç/duyu ritmi, oyun-dinlenme ve ev içi güven dengesi, sahibiyle bağ ve kapanış önerisi. Her konu değişiminde boş satır bırak.'
+            : 'Metni anlam akışına göre 3-4 kısa paragrafta ver: ana sayı örüntüsü, iç motivasyon/kişilik, ilişki-iş dengesi ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
           'Yalnızca ve yalnızca temel numeroloji haritasını yorumla: Yaşam Yolu, Kader/İfade, Ruh Arzusu, Kişilik, Doğum Günü ve Olgunluk.',
           'Kişisel Yıl, Kişisel Ay, Kişisel Gün, aylık akış, haftalık akış, bugünkü enerji veya dönemsel yorum yazmak kesinlikle yasak.',
           'Bu okuma doğum haritası gibi ömürlük saklanacak; geçici tarih, bugün, bu hafta, bu ay veya bu yıl dili kullanma.',
           'Akıcı, premium ve kişisel bir yorum ver; sayıların her birini ayrı ayrı ezber bilgi gibi anlatmadan ana karakter örüntüsüne bağla.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
         ].join(' ')
-      : [
+      : params.mode === 'daily'
+        ? [
+          'Türkçe yaz. Başlık atma. Bu sadece günlük numeroloji yorumu.',
+          isAnimalNumerology
+            ? 'Metni anlam akışına göre 3 kısa paragrafta ver: günün hayvana özel sayı zemini, oyun/uyku/duyu dünyasında dikkat çeken tema ve sahibine uygulanabilir kapanış önerisi. Her konu değişiminde boş satır bırak.'
+            : 'Metni anlam akışına göre 3 kısa paragrafta ver: günün kişisel sayı zemini, gün içinde dikkat çeken tema ve uygulanabilir kapanış önerisi. Her konu değişiminde boş satır bırak.',
+          'Kişinin temel sayı haritasını arka planda dikkate al ama metinde Yaşam Yolu, Kader/İfade, Ruh Arzusu, Kişilik, Doğum Günü veya Olgunluk sayılarını tekrar etme.',
+          'Metinde Kişisel Yıl, Kişisel Ay veya Kişisel Gün sayılarını söyleme. Sayı raporu değil, yorum yaz.',
+          'Günün baseDayTotal, personTotal ve personalDayTotal değerlerini birlikte oku; genel gün sayısı gibi değil, seçili kişinin sayılarıyla birleşmiş günlük ritim gibi yorumla.',
+          'suggestedLifeEvents içinden 1-2 mikro olayı, hesaplanan sayıların anlamıyla ilişki kuruyorsa doğalca kullan; liste gibi sayma.',
+          params.coreSummary
+            ? `Temel harita özeti arka plan için: ${params.coreSummary}`
+            : 'Temel harita özeti yok; on-device gelen compact JSON arka plan olarak kullanılacak.',
+          'Current date context dışındaki hiçbir tarih veya dönem adını yazma.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+        ].join(' ')
+        : params.mode === 'weekly'
+          ? [
+          'Türkçe yaz. Başlık atma. Bu sadece haftalık numeroloji yorumu.',
+          isAnimalNumerology
+            ? 'Önce haftanın hayvana özel genel sayısına ve ana atmosferine değin; ardından ayrı gün başlıkları atmadan Pazartesi’den Pazar’a akan, hayvanın rutinleri ve ev içi dünyası içinde gün gün ilerleyen süreğen bir anlatı kur.'
+            : 'Önce haftanın genel kişisel sayısına ve ana atmosferine değin; ardından ayrı gün başlıkları atmadan Pazartesi’den Pazar’a akan, gün gün ilerleyen süreğen bir anlatı kur.',
+          'Metni 4-5 kısa paragrafta ver; her paragraf haftanın doğal akışında birkaç günü taşıyabilir ama madde, başlık veya liste yapma.',
+          'weekDays içindeki her günün personalDayTotal değerini kullan; günleri tek tek hesaplanan sayıların anlamıyla ilişkilendir.',
+          'Kişinin temel sayı haritasını arka planda dikkate al ama temel harita sayılarını rapor gibi tekrar etme.',
+          'Metinde Kişisel Yıl, Kişisel Ay veya Kişisel Gün sayılarını söyleme. Sayı raporu değil, yorum yaz.',
+          'suggestedLifeEvents içinden 2-3 mikro olayı, haftanın ve günlerin sayısal ritmiyle anlamlı bağ kuruyorsa doğalca kullan; liste gibi sayma.',
+          params.coreSummary
+            ? `Temel harita özeti arka plan için: ${params.coreSummary}`
+            : 'Temel harita özeti yok; on-device gelen compact JSON arka plan olarak kullanılacak.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+        ].join(' ')
+          : [
           'Türkçe yaz. Başlık atma. Bu sadece aylık numeroloji yorumu.',
-          'Metni anlam akışına göre 4 kısa paragrafta ver: ayın ana zemini, ilk yarı, ikinci yarı ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
-          'Günlük, haftalık veya yıllık okuma yazma. Gün gün yorumlama; tek tek günlere inme.',
+          isAnimalNumerology
+            ? 'Metni anlam akışına göre 4-5 kısa paragrafta ver: ayın hayvana özel ana zemini, ilk hafta, orta haftalar, son hafta ve sahibine yumuşak kapanış önerisi. Her konu değişiminde boş satır bırak.'
+            : 'Metni anlam akışına göre 4-5 kısa paragrafta ver: ayın ana zemini, ilk hafta, orta haftalar, son hafta ve kapanış önerisi. Her konu değişiminde boş satır bırak.',
+          'Günlük veya yıllık okuma yazma. Gün gün yorumlama; ayı haftalık dalgalar halinde anlat.',
           'Kişinin temel sayı haritasını arka planda dikkate al ama metinde Yaşam Yolu, Kader/İfade, Ruh Arzusu, Kişilik, Doğum Günü veya Olgunluk sayılarını tekrar etme.',
           'Önceki temel yorum, profil veya hesap verisi gibi kaynakları metinde açıkça anma; yalnızca yorumu daha isabetli yapmak için arka planda kullan.',
           'Metinde Kişisel Yıl, Kişisel Ay veya Kişisel Gün sayılarını söyleme. Sayı raporu değil, yorum yaz.',
           'Ayın monthTotal ve personTotal değerlerini ana zemin olarak kullan.',
-          'Her hafta için monthWeeks içindeki startTotal, endTotal ve weekTotal değerlerini karşılaştırarak ayrı bir yorum üret.',
+          'Her hafta için monthWeeks içindeki startTotal, endTotal, weekTotal ve personalWeekTotal değerlerini karşılaştırarak ayrı ama akışkan bir yorum üret.',
           'Hafta tarihlerini kullan ama hesap formülünü anlatma; sadece her haftanın karakterini, dikkat edilmesi gereken alanı ve önerisini yaz.',
+          'suggestedLifeEvents içinden 2-3 mikro olayı, ayın ve haftaların sayısal ritmiyle anlamlı bağ kuruyorsa doğalca kullan; liste gibi sayma.',
           `Temel numeroloji okuması daha önce yapılmış mı: ${params.hasCoreReading}.`,
           params.coreSummary
             ? `Temel harita özeti arka plan için: ${params.coreSummary}`
             : 'Temel harita özeti yok; on-device gelen compact JSON arka plan olarak kullanılacak.',
-          'Kişiye net öneri ver: ayın başında neyi başlatmalı, ortasında neyi toparlamalı, sonunda neyi kapatmalı.',
+          isAnimalNumerology
+            ? 'Sahibine net ama yumuşak gözlem önerisi ver: ayın başında hangi rutini desteklemeli, ortasında hangi sinyali izlemeli, sonunda hangi konfor alanını güçlendirmeli.'
+            : 'Kişiye net öneri ver: ayın başında neyi başlatmalı, ortasında neyi toparlamalı, sonunda neyi kapatmalı.',
           'Current date context dışındaki hiçbir yıl veya ay adını yazma.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
         ].join(' ');
 
   return {
@@ -665,7 +877,10 @@ function buildGeminiPayload(params: {
               `Assistant style: ${styleHint}`,
               personaContext ? `Assistant persona card:\n${personaContext}` : '',
               `Address policy: ${addressPolicyForProfile(params.profile, params.profileName)}`,
-              `Mode: ${params.mode}`,
+              isAnimalNumerology
+                ? 'Evcil hayvan profili için tüm yorum boyunca hayvanı üçüncü tekil şahısla anlat; hesap sahibine sahibi/refakatçisi olarak seslen. İnsan hayatına ait iş, okul, evlilik, romantik ilişki ve para kazanma temalarını kullanma.'
+                : '',
+              `Mode: ${modeLabel}`,
               `Numerology JSON calculated on-device:\n${JSON.stringify(numerologyJson)}`,
               'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme. Aynı şefkat hitabını bir yanıtta en fazla bir kez kullan; "canım canım", "tatlım tatlım", "güzelim güzelim" gibi ikilemeler yapma.',
               taskPrompt,
@@ -676,7 +891,7 @@ function buildGeminiPayload(params: {
     ],
     generationConfig: {
       temperature: 0.72,
-      maxOutputTokens: params.mode === 'core' ? 750 : 900,
+      maxOutputTokens: PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
     },
   };
 }
@@ -690,6 +905,7 @@ export async function createPersonalNumerologyReading(params: {
   assistantId: string;
   assistantLabel: string;
   mode: PersonalNumerologyMode;
+  memorySnippet?: ProfileMemorySnippet | null;
 }): Promise<PersonalNumerologyReading> {
   const context = buildContext();
   const core = calculateCore(params.profile, context);
@@ -704,20 +920,8 @@ export async function createPersonalNumerologyReading(params: {
     return cachedCore;
   }
 
-  const selectedPeriod: PersonalNumerologyPeriod | undefined = params.mode === 'period' ? 'monthly' : undefined;
-  const selectedPeriodKey = selectedPeriod ? periodKey() : undefined;
-  if (params.mode === 'period' && selectedPeriod && selectedPeriodKey) {
-    const cachedPeriod = await loadPeriodFromCache({
-      assistantId: params.assistantId,
-      profileId: params.profile.profileId,
-      period: selectedPeriod,
-      periodKeyValue: selectedPeriodKey,
-      fingerprint,
-    });
-    if (cachedPeriod) {
-      return cachedPeriod;
-    }
-  }
+  const selectedPeriod: PersonalNumerologyPeriod | undefined = params.mode === 'core' ? undefined : params.mode;
+  const selectedPeriodKey = selectedPeriod ? periodKey(selectedPeriod) : undefined;
 
   const hasCoreReading = Boolean(cachedCore);
   try {
@@ -729,18 +933,21 @@ export async function createPersonalNumerologyReading(params: {
       mode: params.mode,
       core,
       context,
-      coreSummary: params.mode === 'period' ? compactCoreSummary(cachedCore) : null,
+      coreSummary: params.mode === 'core' ? null : compactCoreSummary(cachedCore),
       hasCoreReading,
+      memorySnippet: params.memorySnippet,
     });
-    const payload = await generateGeminiTextDirect(geminiPayload);
+    const payload = await generateGeminiTextDirect(geminiPayload, 45000, { usageMode: 'raw' });
     if (payload.text) {
-      const text = completeWithPersonaClosing({
-        text: sanitizeAffectionateRepetition(payload.text),
+      const text = appendHealthProfessionalReminder(completeWithPersonaClosing({
+        text: cleanNumerologyText(payload.text),
         assistantId: params.assistantId,
         domain: 'numerology',
         seed: `${params.profile.profileId}:${params.mode}:${selectedPeriodKey || 'core'}`,
         forceClosing: payload.finishReason === 'MAX_TOKENS',
-      });
+        allowHealthClosing: false,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      }), { isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan' });
       const reading: PersonalNumerologyReading = {
         text,
         core,
@@ -756,17 +963,6 @@ export async function createPersonalNumerologyReading(params: {
       };
       if (params.mode === 'core') {
         await saveCoreToCache(params.profile.profileId, fingerprint, reading);
-      } else if (selectedPeriod && selectedPeriodKey) {
-        await savePeriodToCache({
-          assistantId: params.assistantId,
-          profileId: params.profile.profileId,
-          period: selectedPeriod,
-          periodKey: selectedPeriodKey,
-          profileFingerprint: fingerprint,
-          createdAt: nowIso(),
-          expiresAt: periodExpiryIso(),
-          reading,
-        });
       }
       return reading;
     }
@@ -781,7 +977,7 @@ export async function createPersonalNumerologyReading(params: {
     text:
       params.mode === 'core'
         ? fallbackCoreText(params.profile.displayName, core)
-        : fallbackPeriodText(params.profile.displayName, context),
+        : fallbackPeriodText(params.profile.displayName, params.mode, context),
     core,
     context,
     mode: params.mode,
@@ -793,17 +989,6 @@ export async function createPersonalNumerologyReading(params: {
   };
   if (params.mode === 'core') {
     await saveCoreToCache(params.profile.profileId, fingerprint, fallback);
-  } else if (selectedPeriod && selectedPeriodKey) {
-    await savePeriodToCache({
-      assistantId: params.assistantId,
-      profileId: params.profile.profileId,
-      period: selectedPeriod,
-      periodKey: selectedPeriodKey,
-      profileFingerprint: fingerprint,
-      createdAt: nowIso(),
-      expiresAt: periodExpiryIso(),
-      reading: fallback,
-    });
   }
   return fallback;
 }
@@ -827,10 +1012,15 @@ export async function createPersonalNumerologyFollowUp(params: {
     .map((message) => `${message.role === 'user' ? 'Kullanıcı' : params.assistantLabel}: ${message.text.trim()}`)
     .join('\n');
   const systemText = [
-    `Sen ${params.assistantLabel} adlı falcısın.`,
+    `Sen ${params.assistantLabel} adlı yorumcusun.`,
     'Türkçe, sıcak, net ve kişiye özel konuş.',
-    'Persona sesini koru; kişiye özel numerolojide falcının aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
-    'Numeroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; sayılar ve soru bağlamı üzerinden konuş.',
+    `Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcu olarak" gibi girişler yapma.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+    'Kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
+    'Persona sesini koru; kişiye özel numerolojide yorumcunun aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
+    'Numeroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanma; sayılar ve soru bağlamı üzerinden konuş.',
     'Cevabı daha önce üretilmiş kişisel numeroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
     'Kullanıcı özellikle sormadıkça önceki yorum, profil, hafıza veya sayı haritası kaynağını açıkça anma.',
     'Hitap modunu değiştirme; aynı yanıtta "canım", "tatlım", "güzelim" gibi şefkat hitaplarını tekrarlama.',
@@ -840,29 +1030,34 @@ export async function createPersonalNumerologyFollowUp(params: {
   const userText = [
     `Profil: ${params.profileName}`,
     `Bölüm: ${params.mode}`,
-    `Falcı kimliği: ${params.assistantId}`,
-    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    `Yorumcu kimliği: ${params.assistantId}`,
+    personaContext ? `Yorumcu persona kartı:\n${personaContext}` : '',
     `Hitap politikası: ${addressPolicy}`,
     relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Önceki kişisel numeroloji yorumu:\n${params.readingText}`,
     previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta numeroloji bağlamından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Yaklaşık 120-170 token içinde tamamla.',
+    `Yanıtı 2-3 kısa paragraf olarak ver: ilk paragrafta net cevap, sonra numeroloji bağlamından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
   ].filter(Boolean).join('\n\n');
   const payload = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.68,
-      maxOutputTokens: 520,
+      maxOutputTokens: PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
     },
-  });
-  const text = completeWithPersonaClosing({
-    text: sanitizeAffectionateRepetition(payload.text),
+  }, 45000, { usageMode: 'raw' });
+  const text = appendHealthProfessionalReminder(completeWithPersonaClosing({
+    text: cleanNumerologyText(payload.text),
     assistantId: params.assistantId,
     domain: 'numerology',
     seed: `${params.profileName}:${params.mode}:${params.question}`,
     forceClosing: payload.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+  }), {
+    userText: params.question,
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   return { text, modelName: payload.model, usage: payload.usage };
 }

@@ -151,7 +151,7 @@ function normalizeSection(section: any) {
 function buildMemoryPayload(body: MemoryAnalysisRequest) {
   const systemText = [
     'Sen mobil cihaz içinde çalışan bir hafıza analizcisisin.',
-    'Sadece verilen konuşmadan çıkarım yap; yeni fal yorumu yazma.',
+    'Sadece verilen konuşmadan çıkarım yap; yeni okuma yorumu yazma.',
     'Kısa, güvenli ve yapılandırılmış JSON döndür. Markdown kullanma.',
   ].join(' ');
   const userText = [
@@ -164,7 +164,7 @@ function buildMemoryPayload(body: MemoryAnalysisRequest) {
       'Şu JSON şemasına birebir uy:',
       '{"userStated":{"recurringTopics":[],"importantPeople":[],"emotionalPatterns":[],"observations":[],"categoryCandidates":[]},"readingDerived":{"recurringTopics":[],"importantPeople":[],"emotionalPatterns":[],"observations":[],"categoryCandidates":[]}}',
       'userStated yalnızca kullanıcının doğrudan söylediği bilgileri içersin.',
-      'readingDerived yalnızca fal/yorum metninden çıkan tekrar edilebilir temaları içersin.',
+      'readingDerived yalnızca okuma/yorum metninden çıkan tekrar edilebilir temaları içersin.',
       'Her listeyi en fazla 4 öğe ile sınırla. Emin değilsen boş liste döndür.',
     ].join('\n'),
   ].filter(Boolean).join('\n\n');

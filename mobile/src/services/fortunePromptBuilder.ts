@@ -1,7 +1,10 @@
 import type { DevSettings } from '../types';
 import type { ProfileMemorySnippet } from '../types/memory';
+import { PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION, PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION } from '../config/llmTokenPolicy';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import { buildSpecificityContext } from './fortuneSpecificityBank';
+import { isHealthClosingSentence, sanitizeRestrictedReadingTerms, selectAnimalClosingSentence, userAskedHealthConcern } from './personaClosingService';
+import { buildAnimalProfileInstructionFromMemory, isAnimalMemorySnippet } from './animalProfilePrompt';
 
 export type FortuneMessage = { role: 'user' | 'assistant'; text: string };
 export type FortuneImages = { cup?: string; saucer?: string; palm?: string };
@@ -117,11 +120,29 @@ function selectClosingTone(messages: FortuneMessage[], library: Record<string, s
   return hit?.[0] || (library.warm ? 'warm' : Object.keys(library)[0] || 'warm');
 }
 
-function selectClosingSentence(id: PersonaId, messages: FortuneMessage[], sessionId: string) {
+function selectClosingSentence(id: PersonaId, messages: FortuneMessage[], sessionId: string, allowHealthClosing = false, isAnimalProfile = false) {
+  const sessionText = messages.map((message) => message.text || '').join(' ');
+  const turnCount = messages.filter((message) => (message.text || '').trim()).length;
+  if (isAnimalProfile) {
+    for (let offset = 0; offset < 6; offset += 1) {
+      const closing = selectAnimalClosingSentence({
+        assistantId: id,
+        seed: `${sessionId}:${turnCount}:${sessionText.slice(-180)}:${offset}`,
+      });
+      if (closing && !sessionText.includes(closing)) return closing;
+    }
+    return selectAnimalClosingSentence({
+      assistantId: id,
+      seed: `${sessionId}:${turnCount}:${sessionText.slice(-180)}:fallback`,
+    });
+  }
   const library = closingLibrary(id);
   const tone = selectClosingTone(messages, library);
   let options = library[tone] || library.warm || [];
-  const sessionText = messages.map((message) => message.text || '').join(' ');
+  if (!allowHealthClosing) {
+    const nonHealthOptions = options.filter((option) => !isHealthClosingSentence(option));
+    if (nonHealthOptions.length) options = nonHealthOptions;
+  }
   const userAskedPaceTheme = /\b(telaş|acele|yetiş|yetişem|panik)\b/i.test(sessionText);
   if (!userAskedPaceTheme) {
     const nonPaceOptions = options.filter((option) => !/\b(telaş|acele|yetiş|yetişem|panik|koştur|koşuştur|yük|ağırlık)\b/i.test(option));
@@ -130,7 +151,6 @@ function selectClosingSentence(id: PersonaId, messages: FortuneMessage[], sessio
   const unused = options.filter((option) => !sessionText.includes(option));
   if (unused.length) options = unused;
   if (!options.length) return '';
-  const turnCount = messages.filter((message) => (message.text || '').trim()).length;
   return options[hashString(`${sessionId}:${id}:${tone}:${turnCount}`) % options.length];
 }
 
@@ -138,14 +158,23 @@ function buildSafetyPolicy() {
   return [
     '## Sağlık ve Finans Sınırları',
     "- Konu taksonomisinde sağlık, enerji, uyku, bel/sırt, hareket ve basit beden uyarıları 'İç Dünya / Ruh hali ve beden' altında değerlendirilir.",
-    '- Sağlık temaları yalnızca gündelik beden dengesi, dinlenme, hareket, randevu takibi ve genel dikkat diliyle anlatılabilir; teşhis, tedavi, ilaç, doz veya acil durum yönlendirmesi üretme.',
-    '- Sağlıkla ilgili ciddi, ani veya uzun süren bir belirti görünürse kullanıcıyı uygun bir uzmana danışmaya nazikçe yönlendir.',
+    '- Sağlık temaları yalnızca gündelik beden dengesi, randevu takibi ve genel dikkat diliyle anlatılabilir; teşhis, tedavi, ilaç, doz, beslenme reçetesi, takviye veya spesifik sağlık tavsiyesi üretme.',
+    '- İnsan sağlığıyla ilgili endişe, belirti, ağrı, hastalık, ruh sağlığı veya kullanıcı/başka bir insan için sağlık sorusu varsa doktora ya da uygun sağlık uzmanına görünmeyi nazikçe öner.',
+    '- Evcil hayvan veya başka bir hayvanın sağlığıyla ilgili endişe, belirti, ağrı, hastalık veya davranış değişikliği soruluyorsa veterinere görünmeyi nazikçe öner.',
+    '- "Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek" veya benzeri kesin sonuç/tedavi dili kullanma.',
     "- Finans temaları bütçe farkındalığı, yatırımları gözden geçirme, acele karar vermeme, riski dağıtma, 'tüm yumurtaları aynı sepete koymama' ve planlama diliyle anlatılabilir; belirli ürün/varlık için al-sat, borçlanma, kredi veya sigorta tavsiyesi verme.",
     '- Para veya kariyer konusunda kesin kazanç, garanti sonuç ya da kişiye özel finansal karar dili kullanma; olasılık ve dikkat diliyle kal.',
   ].join('\n');
 }
 
 function buildAddressPolicy(id: PersonaId, memorySnippet?: ProfileMemorySnippet | null) {
+  if (isAnimalMemorySnippet(memorySnippet)) {
+    return [
+      buildAnimalProfileInstructionFromMemory(memorySnippet),
+      'Hitap modu: seçili profil evcil hayvan. Metin boyunca hayvanı üçüncü tekil şahısla anlat; hesap sahibine yalnızca hayvanın sahibi/refakatçisi olarak pratik ve yumuşak öneriler ver.',
+      'Cinsiyetli insan hitapları, romantik/evlilik dili ve insan kariyeri dili yasak.',
+    ].join('\n');
+  }
   const identity = FORTUNE_PERSONA_DATA[id];
   const assistantAge = identity.age || ASSISTANT_AGE_FALLBACKS[id];
   const profileGender = memorySnippet?.profileInfo?.gender || memorySnippet?.profileGender;
@@ -157,10 +186,10 @@ function buildAddressPolicy(id: PersonaId, memorySnippet?: ProfileMemorySnippet 
     '- Hitapta profil cinsiyeti ve yaş farkı güvenlik kuralıdır; persona sıcaklığı bu kuralı ezemez.',
     "- 'yavrum', 'kızım', 'oğlum', 'evladım', 'güzel kızım', 'güzel oğlum' gibi aile-büyüğü hitaplarını gereksiz kullanma.",
   ];
-  if (assistantAge) lines.push(`- Falcı yaşı: yaklaşık ${assistantAge}.`);
+  if (assistantAge) lines.push(`- Yorumcu yaşı: yaklaşık ${assistantAge}.`);
   if (subjectAge) lines.push(`- Seçili profil yaşı: yaklaşık ${subjectAge}.`);
   if (['bahar-hanim', 'mert-bey', 'caner'].includes(id)) {
-    lines.push("- Bu falcı için 'yavrum', 'kızım', 'oğlum', 'evladım' ve benzeri büyük/ebeveyn hitapları tamamen yasak.");
+    lines.push("- Bu yorumcu için 'yavrum', 'kızım', 'oğlum', 'evladım' ve benzeri büyük/ebeveyn hitapları tamamen yasak.");
   } else if (familyStyleAllowed) {
     lines.push("- Dürdane/Hikmet bu profilden en az 10 yaş büyük görünüyor; yine de 'yavrum' gibi hitapları sık değil, nadiren ve doğal gelirse kullan.");
   } else {
@@ -178,8 +207,8 @@ export function buildMemoryContext(profileName: string, memorySnippet: ProfileMe
   if (!memorySnippet && !profileName) return '';
   const lines = [
     '## Subject Context',
-    `- Bu fal ${profileName || 'seçili kişi'} için bakılıyor.`,
-    `- Fal turu: ${readingType}.`,
+    `- Bu okuma ${profileName || 'seçili kişi'} için hazırlanıyor.`,
+    `- Okuma türü: ${readingType}.`,
     `- Kahve modu: ${coffeeMode}.`,
   ];
   if (coffeeMode === 'ai-brew') {
@@ -211,10 +240,12 @@ export function buildMemoryContext(profileName: string, memorySnippet: ProfileMe
   else if (memorySnippet.profileGender === 'kadin') lines.push("- Bu profile veya kullanıcıya 'oğlum' diye hitap etme; gerekirse 'evladım', 'kızım' veya ismiyle hitap et.");
   else if (memorySnippet.profileGender === 'hicbiri' || memorySnippet.profileGender === 'belirtmek_istemiyorum') lines.push("- Bu profil için cinsiyetli hitap kullanma; 'kızım', 'oğlum', 'güzel kızım', 'güzel oğlum' yerine 'evladım', 'canım' veya ismiyle hitap et.");
   if (memorySnippet.relationshipPrimary === 'evcil_hayvan') {
-    lines.push(`- Bu profil bir evcil hayvan profili. Tur bilgisi: ${memorySnippet.petSpecies || memorySnippet.relationshipLabel || 'evcil hayvan'}.`);
-    lines.push('- El falı seçildiyse insan eli değil, bu hayvanın patisi/ayağı üzerinden yorum beklenir.');
+    lines.push(buildAnimalProfileInstructionFromMemory(memorySnippet));
+    lines.push('- El okuması seçildiyse insan eli değil, bu hayvanın patisi/ayağı üzerinden yorum beklenir.');
   }
-  if (memorySnippet.isSelf) lines.push('- Bu profil hesap sahibinin kendisi. Ana anlatımda profil adını kullanma; kullanıcıya tutarlı biçimde sen/siz diye hitap et ve üçüncü tekil şahsa kayma.');
+  if (memorySnippet.relationshipPrimary === 'evcil_hayvan') {
+    lines.push(`- Bu okuma hesap sahibinin evcil hayvanı ${profileName || memorySnippet.profileName || 'bu profil'} için. Hayvanı üçüncü tekil şahısla anlat; hesap sahibine sahibi/refakatçisi olarak öneri ver.`);
+  } else if (memorySnippet.isSelf) lines.push('- Bu profil hesap sahibinin kendisi. Ana anlatımda profil adını kullanma; kullanıcıya tutarlı biçimde sen/siz diye hitap et ve üçüncü tekil şahsa kayma.');
   else lines.push(`- Bu okuma hesap sahibinden farklı biri için. Ana anlatımda gerekirse ${profileName} adını kullan; bu kişiyi üçüncü tekil şahısla anlat, hesap sahibine veya profile sonradan 'sen' diye dönme.`);
   lines.push(`- Seçili profil sabit: bu oturum sadece ${profileName || 'bu profil'} için. Sohbet içinde başka biri geçse bile görseli o kişiye aitmiş gibi yorumlama.`);
   if (memorySnippet.userStatedTopics?.length) lines.push(`- Kullanıcının yazdıklarında tekrar eden konular: ${memorySnippet.userStatedTopics.slice(0, 10).join(', ')}.`);
@@ -222,20 +253,20 @@ export function buildMemoryContext(profileName: string, memorySnippet: ProfileMe
   if (memorySnippet.userStatedPeople?.length) lines.push(`- Kullanıcının yazdıklarında öne çıkan kişiler: ${memorySnippet.userStatedPeople.slice(0, 3).join(', ')}.`);
   if (memorySnippet.prominentRelations?.length) lines.push(`- Tekilleştirilmiş öne çıkan ilişkiler: ${memorySnippet.prominentRelations.slice(0, 5).map((item) => `${item.label} (${item.relationship || 'ilgili kişi'})`).join(', ')}.`);
   if (memorySnippet.userStatedPatterns?.length) lines.push(`- Kullanıcının yazdıklarında görülen duygusal kalıplar: ${memorySnippet.userStatedPatterns.slice(0, 3).join(', ')}.`);
-  if (memorySnippet.readingTopics?.length) lines.push(`- Önceki fallarda çıkan düşük öncelikli temalar: ${memorySnippet.readingTopics.slice(0, 3).join(', ')}.`);
-  if (memorySnippet.readingTopicGroups?.length) lines.push(`- Falda daha önce açılmış düşük öncelikli konu hafızası: ${memorySnippet.readingTopicGroups.slice(0, 10).map((item) => `${item.group || 'Genel'} / ${item.subgroup || 'Diğer'}: ${item.label}`).join('; ')}.`);
-  if (memorySnippet.readingPeople?.length) lines.push(`- Önceki fallarda öne çıkan kişiler: ${memorySnippet.readingPeople.slice(0, 3).join(', ')}.`);
-  if (memorySnippet.readingPatterns?.length) lines.push(`- Önceki fallarda görülen kalıplar: ${memorySnippet.readingPatterns.slice(0, 3).join(', ')}.`);
-  const observations = (memorySnippet.relevantObservations || []).slice(0, 8).map((item) => [item.source === 'user-stated' ? 'kullanıcı' : 'fal', `${item.group || item.category || 'Genel'} / ${item.subgroup || 'Diğer konuşulanlar'}`, item.title, item.summary].filter(Boolean).join(' | '));
+  if (memorySnippet.readingTopics?.length) lines.push(`- Önceki okumalarda çıkan düşük öncelikli temalar: ${memorySnippet.readingTopics.slice(0, 3).join(', ')}.`);
+  if (memorySnippet.readingTopicGroups?.length) lines.push(`- Okumada daha önce açılmış düşük öncelikli konu hafızası: ${memorySnippet.readingTopicGroups.slice(0, 10).map((item) => `${item.group || 'Genel'} / ${item.subgroup || 'Diğer'}: ${item.label}`).join('; ')}.`);
+  if (memorySnippet.readingPeople?.length) lines.push(`- Önceki okumalarda öne çıkan kişiler: ${memorySnippet.readingPeople.slice(0, 3).join(', ')}.`);
+  if (memorySnippet.readingPatterns?.length) lines.push(`- Önceki okumalarda görülen kalıplar: ${memorySnippet.readingPatterns.slice(0, 3).join(', ')}.`);
+  const observations = (memorySnippet.relevantObservations || []).slice(0, 8).map((item) => [item.source === 'user-stated' ? 'kullanıcı' : 'yorum', `${item.group || item.category || 'Genel'} / ${item.subgroup || 'Diğer konuşulanlar'}`, item.title, item.summary].filter(Boolean).join(' | '));
   if (observations.length) lines.push(`- Akıllı seçilmiş olay/olgu hafızası: ${observations.join('; ')}.`);
   lines.push('- Bu hafızayı veri tabanı gibi değil, doğal bir tanışıklık hissi vermek için kullan.');
-  lines.push('- Kullanıcının kendi söylediği konular en güçlü sinyaldir; önceki falda çıkan konular ise düşük öncelikli farkındalık/çeşitlilik sinyalidir.');
-  lines.push('- Önceki falda çıkan bir temayı otomatik ana konu yapma; mevcut görsel, soru veya kullanıcının kendi sözleri desteklemiyorsa o temadan uzaklaş.');
+  lines.push('- Kullanıcının kendi söylediği konular en güçlü sinyaldir; önceki okumada çıkan konular ise düşük öncelikli farkındalık/çeşitlilik sinyalidir.');
+  lines.push('- Önceki okumada çıkan bir temayı otomatik ana konu yapma; mevcut görsel, soru veya kullanıcının kendi sözleri desteklemiyorsa o temadan uzaklaş.');
   lines.push('- Aynı profilde yakın zamanda tekrar edilmiş iş, para, ilişki, aile, sağlık veya telaş/yorgunluk temasını yeni ve güçlü bir işaret yoksa yeniden merkeze alma.');
   lines.push('- Sadece ilgiliyse hafızadan yararlan; aynı yanıtta 1-2 dokunuştan fazla yapma.');
   lines.push('- Olay/olgu hafızasını yalnızca mevcut soruyla ilişkiliyse kullan; kullanıcının karşısına ham kayıt gibi dökme.');
-  lines.push('- Hafıza, profil veya başka fal kaynaklarını açıkça anma; bilgiyi ancak cümlenin içine fark ettirmeden yedir.');
-  lines.push('- Kahve ve el falında burç, yükselen, Güneş/Ay burcu, doğum haritası veya numeroloji sayısını açıkça söyleme; kullanıcı özellikle sormadıkça bu kaynakları metne taşıma.');
+  lines.push('- Hafıza, profil veya başka okuma kaynaklarını açıkça anma; bilgiyi ancak cümlenin içine fark ettirmeden yedir.');
+  lines.push('- Kahve ve el okumalarında burç, yükselen, Güneş/Ay burcu, doğum haritası veya numeroloji sayısını açıkça söyleme; kullanıcı özellikle sormadıkça bu kaynakları metne taşıma.');
   return lines.join('\n');
 }
 
@@ -245,6 +276,7 @@ export function buildFortunePrompt(params: {
   profileName: string;
   readingType: FortuneReadingType;
   coffeeMode: CoffeeMode;
+  focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
   messages: FortuneMessage[];
   images: FortuneImages;
@@ -260,49 +292,83 @@ export function buildFortunePrompt(params: {
     params.images.palm ? 'kullanıcı avuç içi görseli gönderdi' : '',
   ].filter(Boolean).join(', ') || 'bu turda görsel gelmemiş olabilir';
   const isInitialReading = params.messages.length <= 1;
+  const focusQuestion = params.focusQuestion?.replace(/\s+/g, ' ').trim() || '';
+  const userHealthContext = userAskedHealthConcern(
+    [focusQuestion, ...params.messages.filter((message) => message.role === 'user').map((message) => message.text || '')].join(' '),
+  );
+  const isAnimalReading = params.memorySnippet?.relationshipPrimary === 'evcil_hayvan';
   const selectedReadingDomain =
     params.readingType === 'palm'
-      ? 'el falı / avuç içi çizgileri'
+      ? 'el okuması / avuç içi çizgileri'
       : params.coffeeMode === 'ai-brew'
-        ? 'kişinin niyetine içilmiş gibi kahve falı'
-        : 'kahve falı / fincan ve tabak';
+        ? 'kişinin niyetine içilmiş gibi kahve yorumu'
+        : 'kahve yorumu / fincan ve tabak';
   const crossDomainGuard =
     params.readingType === 'palm'
-      ? '- Bu el falında kahve, fincan, telve, tabak, tarot, kart, rune, I Ching veya başka fal malzemesi dili kullanma; yorumu avuç içi, el formu ve çizgi akışı üzerinden kur.'
-      : '- Bu kahve falında avuç içi, el çizgisi, tarot, kart, rune, I Ching veya başka fal malzemesi dili kullanma; yorumu kahve niyeti, fincan/tabak yüzeyi ve telve akışı üzerinden kur.';
+      ? '- Bu el okumasında kahve, fincan, telve, tabak, tarot, kart, rune, I Ching veya başka sembolik araç dili kullanma; yorumu avuç içi, el formu ve çizgi akışı üzerinden kur.'
+      : '- Bu kahve yorumunda avuç içi, el çizgisi, tarot, kart, rune, I Ching veya başka sembolik araç dili kullanma; yorumu kahve niyeti, fincan/tabak yüzeyi ve telve akışı üzerinden kur.';
   const runtimeRules = [
     '## Runtime Directives',
-    `- Bu oturumun fal türünü öncele: ${selectedReadingDomain}.`,
-    `- Falcının ana branşı yalnızca persona geçmişidir: ${identity.primaryDomainLabel}. Seçili fal türünden farklıysa bu branşın objelerini, yöntemini ve terminolojisini yoruma taşıma.`,
+    `- Bu oturumun okuma türünü öncele: ${selectedReadingDomain}.`,
+    `- Yorumcunun ana branşı yalnızca persona geçmişidir: ${identity.primaryDomainLabel}. Seçili okuma türünden farklıysa bu branşın objelerini, yöntemini ve terminolojisini yoruma taşıma.`,
     crossDomainGuard,
+    isAnimalReading
+      ? '- Seçili profil evcil hayvan. Bu okuma hiçbir noktada insan okuması gibi davranmayacak: kariyer, iş, para kazanma, okul, evlilik, romantik ilişki, insan sosyal çevresi veya yetişkin insan psikolojisi teması kurma.'
+      : '',
+    isAnimalReading
+      ? '- Evcil hayvan profilde yorumu hayvanın mizacı, oyun/uyku düzeni, pati/beden dili, duyuları, ev içi güveni, pencere ve dış dünya merakı, evdeki diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden kur.'
+      : '',
     `- Bu turda ${imageHint}.`,
     '- Yanıtını başlıksız, sohbet gibi akan düz yazı halinde ver.',
     '- Markdown biçimlendirmesi, yıldızlı vurgu, madde imi, numaralı liste, emoji, ikon veya dekoratif sembol üretme.',
-    "- Persona içinde kal ama kendini tanıtma; 'ben Dürdane olarak', 'ben Mert olarak', 'ben falcı olarak' gibi kalıplar kullanma.",
+    '- Kullanıcı bir konu/soru yazdıysa bunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
+    '- Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    '- Kullanıcı "fal", "falcı", "falıma bak" gibi kelimeler kullansa bile yanıtta bu kelimeleri tekrar etme; doğal biçimde "yorum", "okuma", "içgörü", "sembolik ritüel" diline çevir.',
+    '- "fal", "falcı", "kehanet", "vaat", "vaad", "geleceği görmek", "gelecek okuması", "gelecek yorumu" ifadeleri kullanıcıya görünen metinde yasak. Bunların yerine bağlama göre "yorum", "okuma", "içgörü", "sembolik yorum", "olasılıkları sezgisel değerlendirme" kullan.',
+    userHealthContext
+      ? '- Kullanıcı sağlıkla ilgili konu veya soru açtıysa spesifik tıbbi/veteriner tavsiye verme; insan sağlığı endişesinde doktora/uzmana, hayvan sağlığı endişesinde veterinere yönlendir.'
+      : '- Kullanıcı sağlıkla ilgili konu veya soru açmadı; ana yorumda sağlık teması, beden uyarısı veya doktor/veteriner yönlendirmesi üretme.',
+    '- Kahve için "demlemek/demlenmek" fiilini kullanma; Türk kahvesi yapılır, pişirilir veya kaynatılır.',
+    "- Persona içinde kal ama kendini tanıtma; adınla/rolünle başlama. 'Ben Dürdane Hanım...', 'Ben Hikmet Bey...', 'Ben Bahar Hanım...', 'ben yorumcu olarak' gibi kalıplar kesinlikle yok. Doğrudan yoruma gir.",
+    focusQuestion ? '- Kullanıcının yazdığı konu/soru bu okumanın ana eksenidir; ilk paragraftan itibaren doğrudan bu konuya cevap ver ve görsel yorumunu bu bağlamda şekillendir.' : '',
+    focusQuestion ? '- Hafıza, önceki life event/olay dizileri ve önceki okuma temaları yalnızca bu konuyla anlamlı biçimde ilişkiliyse kullanılabilir; sırf seçildi diye alakasız bir olayı yoruma sokma.' : '',
     "- Hitap kişisini metin boyunca sabit tut; üçüncü tekil şahısla başladıysan sonradan 'sen' diline dönme, 'sen' diliyle başladıysan üçüncü şahsa kayma.",
     "- Aynı şefkat hitabını yan yana veya aynı yanıtta sık kullanma; 'canım canım', 'tatlım tatlım', 'güzelim güzelim' gibi ikilemeler kesinlikle yok.",
-    '- Giriş bölümünü 1-2 cümlede tut; esas ağırlığı fal yorumuna ver.',
-    '- Paragrafları anlam akışına göre ayır: görselden çıkan ana iz, duygu/ilişki hattı, iş-para/yaşam hattı, yakın gelecek ve öneri ayrı akabilsin.',
+    '- Giriş bölümünü 1-2 cümlede tut; esas ağırlığı sembolik yoruma ver.',
+    isAnimalReading
+      ? '- Paragrafları anlam akışına göre ayır: görselden çıkan ana iz, hayvanın duygu/mizaç hattı, oyun-rutin-duyu dünyası, sahibiyle bağ ve uygulanabilir küçük öneri ayrı akabilsin.'
+      : '- Paragrafları anlam akışına göre ayır: görselden çıkan ana iz, duygu/ilişki hattı, iş-para/yaşam hattı, yakın gelecek ve öneri ayrı akabilsin.',
     '- Paragrafları TTS için rahat okunacak kısa-orta uzunlukta tut.',
     '- Her paragrafı veya ana düşünceyi tamamlanmış cümlelerle bitir.',
-    '- Falcı gibi konuşurken geçmiş izlerini, bugünkü olasılıkları ve yakın gelecek ihtimallerini birlikte dokumalısın; sadece mevcut durum analizi yapıp kalma.',
-    "- Yorumda kesin kehanet değil, olasılık dili kullan: 'görünen ihtimal', 'yakına düşen yol', 'bu enerji böyle giderse' gibi ifadelerle konuş.",
+    '- Yorumcu personasıyla konuşurken geçmiş izlerini, bugünkü olasılıkları ve yakın dönem ihtimallerini birlikte dokumalısın; sadece mevcut durum analizi yapıp kalma.',
+    "- Yorumda kesin hüküm değil, olasılık dili kullan: 'görünen ihtimal', 'yakına düşen yol', 'bu enerji böyle giderse' gibi ifadelerle konuş.",
     '- Geçmiş, şimdi ve gelecek dengesini koru: önce görselden çıkan geçmiş izi, sonra bugünün olasılıkları, sonra yakın gelecek kapıları ve tavsiye gelsin.',
-    '- Bu oturum boyunca sadece seçili profil için fal bak. Kullanıcı mesaj içinde başka biri için yorum isterse aynı görseli o kişiye aitmiş gibi yeniden yorumlama.',
-    '- Kullanıcı başka biri için de yorum isterse nazikçe bunun ayrı bir profil ve ayrı bir fal oturumu gerektirdiğini söyle.',
-    '- Profil, hafıza, doğum/harita, numeroloji veya başka fal verileri yalnızca arka plan sezgisi içindir; kullanıcı özellikle sormadıkça bunların kaynağını metinde söyleme.',
-    "- 'Profilinde gördüğüm', 'doğum haritana göre', 'önceki falında', 'hafızanda' gibi veri kaynağını göze sokan ifadeler kullanma.",
-    '- Kahve veya el falında astrolojik/numerolojik bilgiyi açıkça etiketleme; burç, yükselen, Güneş/Ay burcu, doğum haritası ve sayı raporu yazma.',
+    '- Bu oturum boyunca sadece seçili profil için yorum hazırla. Kullanıcı mesaj içinde başka biri için yorum isterse aynı görseli o kişiye aitmiş gibi yeniden yorumlama.',
+    '- Kullanıcı başka biri için de yorum isterse nazikçe bunun ayrı bir profil ve ayrı bir okuma oturumu gerektirdiğini söyle.',
+    '- Profil, hafıza, doğum/harita, numeroloji veya başka okuma verileri yalnızca arka plan sezgisi içindir; kullanıcı özellikle sormadıkça bunların kaynağını metinde söyleme.',
+    "- 'Profilinde gördüğüm', 'doğum haritana göre', 'önceki okumanda', 'hafızanda' gibi veri kaynağını göze sokan ifadeler kullanma.",
+    "- 'Önceki okumanda şunlar çıkmıştı', 'hafızanda gördüm', 'sana daha önce şu çıkmıştı' gibi hafızayı açık eden cümleler kurma.",
+    '- Kahve veya el okumasında astrolojik/numerolojik bilgiyi açıkça etiketleme; burç, yükselen, Güneş/Ay burcu, doğum haritası ve sayı raporu yazma.',
     '- Telaş, koşturma, yetişememe, acele ve günlük yoğunluk temasını kullanıcı özellikle sormadıysa veya görsel/mesaj çok güçlü göstermiyorsa ana konu yapma.',
-    isInitialReading ? '- Bu ilk ana fal açılışı. Yorumu katmanlı kur; toplam uzunluk hedefi yaklaşık 800-900 token aralığı olsun.' : '- Bu bir follow-up turu. Kullanıcı sorularına verilen yanıtı yaklaşık 300-400 token aralığında tut ve sert kesmeden toparlayarak bitir.',
+    isInitialReading ? `- ${PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION}` : `- ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
     '- Süre belirtirken aynı sayıyı sürekli tekrar etme. Özellikle 3 ve 6 ağırlıklı ama 1-9 arasında çeşitlendirilmiş ifade kullan.',
     '- Son kısımda yeni bir imza kapanış cümlesi üretme; sistem persona kapanışını sonradan ekleyecek.',
     '- Bu oturumda daha önce kullanılan kapanış cümlesinin aynısını veya çok yakın varyasyonunu üretme.',
     '- Kullanıcıya ses tanıma hatalarıyla gelmiş mesajlarda niyeti anlayıp doğal şekilde cevap ver.',
     '- Türkçe karakterleri daima UTF-8 doğru yaz: ç, ğ, ı, İ, ö, ş, ü.',
     '- Bozuk karakter dizileri kullanma.',
-  ].join('\n');
-  const parts = [identity.systemBody, runtimeRules, buildAddressPolicy(id, params.memorySnippet), buildSafetyPolicy()];
+  ].filter(Boolean).join('\n');
+  const parts = [sanitizeRestrictedReadingTerms(identity.systemBody), runtimeRules, buildAddressPolicy(id, params.memorySnippet), buildSafetyPolicy()];
+  if (focusQuestion) {
+    parts.push(
+      [
+        '## Kullanıcı Konusu / Sorusu',
+        focusQuestion,
+        '- Bu metin user-stated hafıza sinyalidir ve mevcut okumanın ana bağlamıdır.',
+        '- Görsel izler ve hafıza yalnızca bu konuya hizmet ettiği ölçüde kullanılmalı.',
+      ].join('\n'),
+    );
+  }
   if (params.devSettings.systemPrompt?.trim()) parts.push(`## Developer Override\n${params.devSettings.systemPrompt.trim()}`);
   const memoryContext = buildMemoryContext(params.profileName, params.memorySnippet, params.readingType, params.coffeeMode);
   if (memoryContext) parts.push(memoryContext);
@@ -313,6 +379,7 @@ export function buildFortunePrompt(params: {
     coffeeMode: params.coffeeMode,
     assistantId: id,
     messages: params.messages,
+    focusQuestion,
     memorySnippet: params.memorySnippet,
     isFollowUp: params.isFollowUp,
   });
@@ -320,20 +387,20 @@ export function buildFortunePrompt(params: {
   if (params.isFollowUp) {
     parts.push([
       '## Follow-up Yanıt Sözleşmesi',
-      '- Bu tur yeni bir fal açılışı değildir; önceki fal metnini yeniden yazma, özetleme veya kopyalama.',
+      '- Bu tur yeni bir okuma açılışı değildir; önceki okuma metnini yeniden yazma, özetleme veya kopyalama.',
       '- Yalnızca kullanıcının son mesajındaki soruya doğrudan cevap ver.',
-      '- Önceki falı sadece bağlam olarak kullan; görseli veya ana falı baştan yorumlamaya çalışma.',
+      '- Önceki okumayı sadece bağlam olarak kullan; görseli veya ana yorumu baştan yorumlamaya çalışma.',
       '- Yanıtı 2 kısa paragraf olarak ver; kısa geçiştirme yapma, soruya doyurucu biçimde cevap ver.',
-      '- İlk paragrafta net yanıtı, ikinci paragrafta fal bağlamından 1-2 gerekçeyi ve uygulanabilir kısa tavsiyeyi ver.',
-      '- Yaklaşık 120-170 token içinde tamamla.',
+      '- İlk paragrafta net yanıtı, ikinci paragrafta okuma bağlamından 1-2 gerekçeyi ve uygulanabilir kısa tavsiyeyi ver.',
+      `- ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
       '- Kullanıcının son mesajında önceki okumanın transkripsiyonu yanlışlıkla varsa onu yok say ve gerçek soruya odaklan.',
     ].join('\n'));
   }
   if (params.validatedSurfaces) {
-    const surfaceRules = ['## Görsel Yorum Disiplini', '- Sadece görselde seçilebilir telve/çizgi/lekelerden yorum üret.', '- Emin olmadığın şekli kesinmiş gibi söyleme; belirsizse belirsiz olduğunu belirt.', '- Fincan/tabak üzerindeki üretim desenleri (çiçek, süs, baskı, marka, kabartma) yorum unsuru değildir; bunları fal sembolü sayma.'];
+    const surfaceRules = ['## Görsel Yorum Disiplini', '- Sadece görselde seçilebilir telve/çizgi/lekelerden yorum üret.', '- Emin olmadığın şekli kesinmiş gibi söyleme; belirsizse belirsiz olduğunu belirt.', '- Fincan/tabak üzerindeki üretim desenleri (çiçek, süs, baskı, marka, kabartma) yorum unsuru değildir; bunları sembol sayma.'];
     if (params.readingType === 'palm') {
       surfaceRules.push('## Surface Guard');
-      surfaceRules.push('- Bu turda kullanıcı el falı için insan eli/avuç içi görseli doğrulandı.');
+      surfaceRules.push('- Bu turda kullanıcı el okuması için insan eli/avuç içi görseli doğrulandı.');
       surfaceRules.push('- Fincan veya tabak görmüş gibi konuşma.');
       surfaceRules.push('- Yorumu avuç içi çizgileri, parmak yerleşimi ve el formu üzerinden kur.');
       if (params.palmValidation && (!params.palmValidation.isInnerPalm || !params.palmValidation.handVisibleEnough)) surfaceRules.push('- Doğrulama görselin kısmi veya yeterince net olmayabileceğini söylüyor; bunu kesin hata sayma, yorumu temkinli ve kibar kur.');
@@ -349,7 +416,7 @@ export function buildFortunePrompt(params: {
   return {
     assistantId: id,
     systemInstruction: parts.filter(Boolean).join('\n\n'),
-    closingSentence: selectClosingSentence(id, params.messages, params.sessionId || 'default-session'),
+    closingSentence: selectClosingSentence(id, params.messages, params.sessionId || 'default-session', userHealthContext, isAnimalReading),
     specificityUsage: specificity.usage,
   };
 }

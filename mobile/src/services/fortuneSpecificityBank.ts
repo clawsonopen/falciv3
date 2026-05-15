@@ -1,5 +1,6 @@
 import type { ProfileMemorySnippet } from '../types/memory';
 import type { CoffeeMode, FortuneMessage, FortuneReadingType } from './fortunePromptBuilder';
+import { userAskedHealthConcern } from './personaClosingService';
 
 type SpecificityItem = {
   group: string;
@@ -1142,6 +1143,253 @@ const LIFE_EVENT_BANK: SpecificityItem[] = Object.entries(LIFE_EVENT_GROUPS).fla
   labels.slice(0, ITEMS_PER_GROUP).map((label) => ({ group, label })),
 );
 
+const ANIMAL_LIFE_EVENT_GROUPS: Record<string, string[]> = {
+  'Ev İçi Merak': list(`
+pencere önünde dışarıyı izleme
+perde arkasından geçen gölgeyi takip etme
+kapı aralığından gelen kokuyu yoklama
+eve giren kelebeği merakla izleme
+salonda yer değiştiren eşyayı koklama
+yeni bitkinin kokusuna takılma
+koltuğun altındaki küçük sesi dinleme
+poşet hışırtısına kulak kesilme
+kapı ziliyle bir anda irkilme
+koridorda kısa keşif turu
+eve gelen paketi koklayarak inceleme
+mutfaktan gelen sese yönelme
+camdan geçen kuşa dikkat kesilme
+halının kenarında oyuna dalma
+evin sessiz köşesini sahiplenme
+dolap kapağı açılınca yanına gelme
+yeni örtünün üstünde dönüp durma
+temizlik sonrası değişen kokuyu yoklama
+kapı önünde bekleyen ayakkabıları koklama
+gece evin içinde usulca dolaşma
+`),
+  'Oyun ve Hareket': list(`
+sevdiği oyuncağı saklandığı yerden çıkarma
+ani oyun isteğiyle sahibine yaklaşma
+top veya ip peşinde kısa koşu
+tünel ya da kutu içinde saklanma
+patiyle oyuncağı uzağa itme
+yüksek bir yere çıkıp etrafı izleme
+ev içinde küçük kovalamaca
+tırmalama tahtasına yönelme
+oyun sonrası sakin köşeye çekilme
+gezmeye çıkmak için kapıya bakma
+tasmanın sesini duyunca heyecanlanma
+bahçe ya da balkon havasını isteme
+güneşli noktaya doğru yer değiştirme
+enerjisini kısa patlamalarla boşaltma
+sevdiği minderin çevresinde dönme
+sahibinin peşinden odadan odaya gitme
+oyuncak seçerken kararsız kalma
+kutuya ya da çantaya girmeye çalışma
+ışık yansımasını takip etme
+oyun davetine geç ama tatlı karşılık verme
+`),
+  'Rahatlık ve Rutin': list(`
+güneşe yatmanın keyfini çıkarma
+uyku köşesini değiştirme
+su kabının yerini yoklama
+mama saatini sessizce hatırlatma
+kum veya tuvalet rutinini sahiplenme
+sevdiği battaniyeye kıvrılma
+sahibinin yanında sakinleşme
+gürültüden uzak köşeye geçme
+pencere kenarında uzun dinlenme
+akşam rutinini bekleme
+ev serinleyince sıcak noktayı arama
+hava ısınınca yerde serinleme
+tarama ya da bakım saatine tepki verme
+kendi kokusunun olduğu alana dönme
+kapalı kapı önünde sabırla bekleme
+gece daha sakin bir ritme geçme
+misafirden sonra dinlenme ihtiyacı
+evdeki düzen değişince uyum arama
+sahibinin ses tonuyla gevşeme
+tanıdık kokuyla rahatlama
+`),
+  'Bağ ve İletişim': list(`
+sahibinin yanına gelip sessizce bekleme
+bakışla istediğini anlatma
+sevgi isterken mesafeyi kendi belirleme
+kucağa gelmeden önce ortamı yoklama
+başını ele sürterek yakınlık kurma
+sahibini kapıda karşılama
+seslenince kısa tepki verme
+yan yana oturup temas kurma
+fazla ilgiden kaçıp sonra geri dönme
+sahibinin ruh halini sezme
+misafiri uzaktan gözlemleme
+tanıdık birine daha hızlı yaklaşma
+evdeki çocuk sesine dikkat kesilme
+başka hayvan kokusuna tepki verme
+sahibinin hareketinden dışarı çıkışı anlama
+yalnız kalınca sahibinin kokusuna gitme
+oyunla barışma teklif etme
+kapı arkasından sesle cevap verme
+sahibinin rutinini ezberlemiş gibi davranma
+yakınlık isterken küçük sınır koyma
+`),
+  'Evdeki Hayvan Dinamiği': list(`
+evdeki diğer hayvanın oyuncağına göz ucuyla bakma
+sevdiği minderi başka bir hayvan kapınca küçük kıskançlık gösterme
+mama kabının etrafında nazik sıra bekleme
+aynı güneş lekesine iki hayvanın birlikte kurulması
+oyuncağını alıp güvenli köşesine taşıma
+başka hayvanın kokusunu üstünde taşıyan sahibini uzun uzun koklama
+birlikte uyumadan önce kısa mesafe pazarlığı yapma
+sevgi dolu biçimde birbirini yalama
+oyun kovalamacasından sonra yan yana dinlenme
+alanını koruyup sonra usulca barışma
+diğer hayvanın sesine cevap verir gibi bakma
+sevilen kişinin kucağı için tatlı rekabet yaşama
+kapı önünde birlikte nöbet tutma
+aynı oyuncağı sırayla sahiplenme
+bir hayvan saklanınca diğerinin onu merakla araması
+uyku sırasında patisini diğerine dayama
+küçük bir hırlama ya da miyavdan sonra ortamı yumuşatma
+diğer hayvanın bakımına merakla yaklaşma
+yan yana mama beklerken birbirini kollama
+evin içinde sessiz bir ittifak kurma
+`),
+  'Dış Dünya ve Duyular': list(`
+balkondan gelen rüzgarı koklama
+yağmur sesine kulak verme
+kuş sesleriyle hareketlenme
+apartman seslerini ayırt etmeye çalışma
+dışarıdan gelen başka hayvan kokusu
+taşıma çantasını görünce mesafe alma
+araba ya da yol sesine tepki verme
+park ya da bahçe fikrine heyecanlanma
+kapı önündeki hareketliliği izleme
+yeni mevsim kokusunu fark etme
+çiçek ya da toprak kokusuna yönelme
+güneşin yer değiştirmesiyle alan değiştirme
+soğuk zeminden sıcak alana geçme
+havalandırılmış odada keşfe çıkma
+uzaktan gelen siren sesine irkilme
+komşu kapısındaki hareketi dinleme
+dışarı çıkma isteğini küçük işaretlerle gösterme
+gölgelerin hareketine dalma
+akşam serinliğinde daha canlı olma
+eve taşınan yeni kokuyu anlamaya çalışma
+`),
+  'Pencere Ziyaretçileri': list(`
+pencereye konan kuşu nefesini tutmuş gibi izleme
+camın önünden geçen kediyi uzun uzun takip etme
+bahçedeki köpeğin sesine kulak kabartma
+perde aralığından sokak hareketini gözetleme
+pencere önündeki gölge oyunlarına dalma
+camın dışındaki böceği patisiyle yakalamaya çalışma
+karşı balkondaki hareketi küçük bir merasim gibi izleme
+sabah pencere nöbetinde tanıdık sesleri ayırt etme
+yağmur damlalarının cama vuruşunu takip etme
+uçan yaprakları canlı bir oyuncak sanma
+kapı önünden geçen hayvanın kokusunu sonra arama
+pencere kenarında dışarıdaki dünyaya sessiz selam verme
+komşu hayvanın sesini duyunca sahibine bakma
+camın önünde kuyruk ya da kulakla heyecan belli etme
+gece dışarıdaki küçük seslere dikkat kesilme
+gün ışığı değişince pencere yerini yeniden seçme
+`),
+  'İnce Duyu Dünyası': list(`
+insanların duymadığı ince bir sese kulak kesilme
+uzaktan gelen asansör titreşimini sahibinden önce fark etme
+kapı açılmadan önce dışarıdaki kokuyu yakalama
+evin içinde görünmeyen bir kokunun peşine düşme
+mutfaktaki en küçük paket hışırtısını ayırt etme
+uzak odadaki adım ritmini tanıma
+temizlenmiş zemindeki yeni kokuyu uzun uzun yoklama
+sahibinin üstündeki dış dünya izlerini tek tek okuma
+duvar arkasındaki su ya da boru sesine kulak verme
+gece sessizliğinde evin minik çıtırtılarını takip etme
+rüzgarın getirdiği yabancı kokuyla yer değiştirme
+tanıdık kişinin gelişini sesten önce kokudan sezme
+yeni bitkinin toprağındaki kokuyu merak etme
+çok hafif bir ışık yansımasına oyun gibi kapılma
+başka hayvanın uzaktan kalan izini kokuyla yakalama
+`),
+  'Koku ve Küçük Zevkler': list(`
+yeni yıkanmış battaniyenin kokusunu sevme
+sahibinin çantasına sürtünme
+mama kabına sessizce gidip bakma
+sevdiği minderin kokusunu arama
+mutfaktan gelen sıcak kokuyu fark etme
+çiçek kokusuna uzaktan meraklanma
+temiz çarşaf üstünde yuvarlanma
+çamaşır sepetinin yanından ayrılmama
+yeni alınan oyuncağı önce koklayıp sonra benimseme
+kapıdan giren dış dünya kokusunu takip etme
+sahibinin üstündeki başka hayvan kokusunu yakalama
+halının güneş alan yerine kurulma
+serin fayansla sıcak minder arasında seçim yapma
+sevdiği kumaşa patisini bastırma
+evde pişen yemeğin kokusuyla uyanma
+odaya sıkılan kokudan uzak durma
+kuru yaprak ya da toprak kokusuna yönelme
+oyuncağın eski kokusunu arama
+pencere kenarındaki temiz hava molası
+sahibinin elindeki tanıdık kokuyla sakinleşme
+`),
+  'İnsan Kalbi ve Bağ': list(`
+sahibinin kalbinde özel bir yer tuttuğunu hissettiren sakin bakış
+eve dönen insanına küçük ama derin bir karşılama yapma
+üzgün birinin yanına sessizce sokulma
+sevdiği insanın ses tonuyla hemen yumuşama
+insanının yatağına ya da koltuğuna güvenli alan gibi yaklaşma
+uzak duran aile üyesine bile yavaş yavaş ısınma
+evdeki herkesin ayrı sevgi dilini ezberlemiş gibi davranma
+sevdiği kişinin kokusunu taşıyan eşyanın üstünde uyuma
+kalpteki yerini küçük temaslarla hatırlatma
+insanların telaşını izleyip sakin bir köşeden denge verme
+eve neşe getiren masum bir bakış bırakma
+insanına bağlılığını oyun, temas ya da sessiz bekleyişle gösterme
+sevgi görünce bütün beden diliyle gevşeme
+uzun bakışlarla “buradayım” der gibi durma
+insanının yanında olmayı küçük bir görev gibi sahiplenme
+`),
+  'Minik Törenler': list(`
+günün aynı saatinde pencere nöbeti
+güneş lekesi yer değiştirince onun peşinden gitme
+kutuyu krallık tahtı gibi sahiplenme
+sahibinin çalışma saatinde yanına kurulma
+kapı açılmadan önce sezmiş gibi bekleme
+evin en yüksek noktasından kontrol turu
+oyun öncesi kısa esneme ritüeli
+uyku öncesi aynı yeri yoğurma
+sahibinin ayak ucunda gece bekçiliği
+misafir gidince evi yeniden koklayarak gezme
+çantaya ya da montun üstüne yatma
+sehpanın altını gizli üs gibi kullanma
+kapalı odayı büyük sır sanma
+aynı oyuncağı her gün başka yere taşıma
+mamadan sonra kısa teşekkür teması
+ev sessizleşince daha oyuncu olma
+bir sesi duyup sonra hiçbir şey olmamış gibi davranma
+perdenin arkasından salonu izleme
+sevdiği kişiyi adım sesinden tanıma
+küçük trip atıp sonra usulca barışma
+`),
+  'Hayvan Sağlık Dikkati': list(`
+iştah değişikliğini gözleme
+su içme düzenini izleme
+rutin dışı uyku halini fark etme
+pati hassasiyetini takip etme
+tüy bakımında değişen tepki
+kum veya tuvalet düzeninde değişiklik
+hareket isteğinde azalma
+normalden fazla saklanma
+göz veya kulak hassasiyetini fark etme
+veteriner kontrolünü ertelememe
+`),
+};
+
+const ANIMAL_LIFE_EVENT_BANK: SpecificityItem[] = Object.entries(ANIMAL_LIFE_EVENT_GROUPS).flatMap(([group, labels]) =>
+  labels.slice(0, ITEMS_PER_GROUP).map((label) => ({ group, label })),
+);
+
 function recentText(memorySnippet?: ProfileMemorySnippet | null, messages: FortuneMessage[] = []) {
   return [
     ...(memorySnippet?.readingTopicGroups || []).map((item) => `${item.group || ''} ${item.label || ''}`),
@@ -1155,9 +1403,11 @@ function recentText(memorySnippet?: ProfileMemorySnippet | null, messages: Fortu
     .toLocaleLowerCase('tr-TR');
 }
 
-function selectEvents(seedText: string, recent: string) {
+function selectEvents(seedText: string, recent: string, allowHealthEvents = false) {
   const candidates = shuffleSeeded(
-    LIFE_EVENT_BANK.filter((item) => !recent.includes(item.label.toLocaleLowerCase('tr-TR'))),
+    LIFE_EVENT_BANK.filter(
+      (item) => !recent.includes(item.label.toLocaleLowerCase('tr-TR')) && (allowHealthEvents || item.group !== 'Sağlık Rutini'),
+    ),
     seedText,
   );
   const selected: SpecificityItem[] = [];
@@ -1167,6 +1417,104 @@ function selectEvents(seedText: string, recent: string) {
     if (selected.length >= PICKS_PER_READING) break;
   }
   return selected;
+}
+
+function selectAnimalEvents(seedText: string, recent: string, allowHealthEvents = false, allowedGroups?: Set<string>, count = PICKS_PER_READING) {
+  const candidates = shuffleSeeded(
+    ANIMAL_LIFE_EVENT_BANK.filter(
+      (item) =>
+        (!allowedGroups || allowedGroups.has(item.group)) &&
+        !recent.includes(item.label.toLocaleLowerCase('tr-TR')) &&
+        (allowHealthEvents || item.group !== 'Hayvan Sağlık Dikkati'),
+    ),
+    seedText,
+  );
+  const selected: SpecificityItem[] = [];
+  for (const item of candidates) {
+    if (selected.some((chosen) => chosen.group === item.group)) continue;
+    selected.push(item);
+    if (selected.length >= count) break;
+  }
+  return selected;
+}
+
+const NUMEROLOGY_EVENT_GROUPS: Record<number, string[]> = {
+  1: ['İş ve Görev', 'Resmi İş', 'Sınır ve Planlama', 'Dijital Hayat'],
+  2: ['Aile', 'Sosyal Çevre', 'Duygusal Alan', 'Komşu ve Mahalle'],
+  3: ['Haberleşme', 'Sosyal Çevre', 'Yaratıcı İş', 'Eğitim ve Öğrenme'],
+  4: ['Ev Düzeni', 'İş ve Görev', 'Resmi İş', 'Sınır ve Planlama'],
+  5: ['Yol ve Ulaşım', 'Dijital Hayat', 'Alışveriş ve Eşya', 'Sosyal Çevre'],
+  6: ['Aile', 'Ev Düzeni', 'Misafir ve Ağırlama', 'Evcil Hayvan'],
+  7: ['Eğitim ve Öğrenme', 'Duygusal Alan', 'Yaratıcı İş', 'Gündelik Rutin'],
+  8: ['Para ve Bütçe', 'İş ve Görev', 'Resmi İş', 'Sınır ve Planlama'],
+  9: ['Duygusal Alan', 'Ev Düzeni', 'Sosyal Çevre', 'Taşınma ve Tadilat'],
+  11: ['Duygusal Alan', 'Yaratıcı İş', 'Haberleşme', 'Eğitim ve Öğrenme'],
+  22: ['İş ve Görev', 'Para ve Bütçe', 'Resmi İş', 'Sınır ve Planlama'],
+  33: ['Aile', 'Duygusal Alan', 'Misafir ve Ağırlama', 'Evcil Hayvan'],
+};
+
+const ANIMAL_NUMEROLOGY_EVENT_GROUPS: Record<number, string[]> = {
+  1: ['Oyun ve Hareket', 'Evdeki Hayvan Dinamiği', 'Minik Törenler'],
+  2: ['Bağ ve İletişim', 'İnsan Kalbi ve Bağ', 'Rahatlık ve Rutin'],
+  3: ['Ev İçi Merak', 'Oyun ve Hareket', 'Pencere Ziyaretçileri'],
+  4: ['Rahatlık ve Rutin', 'Evdeki Hayvan Dinamiği', 'Koku ve Küçük Zevkler'],
+  5: ['Dış Dünya ve Duyular', 'Pencere Ziyaretçileri', 'İnce Duyu Dünyası'],
+  6: ['Bağ ve İletişim', 'İnsan Kalbi ve Bağ', 'Evdeki Hayvan Dinamiği'],
+  7: ['Ev İçi Merak', 'İnce Duyu Dünyası', 'Koku ve Küçük Zevkler'],
+  8: ['Rahatlık ve Rutin', 'Evdeki Hayvan Dinamiği', 'Minik Törenler'],
+  9: ['Bağ ve İletişim', 'İnsan Kalbi ve Bağ', 'Dış Dünya ve Duyular'],
+  11: ['Bağ ve İletişim', 'İnce Duyu Dünyası', 'Pencere Ziyaretçileri'],
+  22: ['Rahatlık ve Rutin', 'Ev İçi Merak', 'Evdeki Hayvan Dinamiği'],
+  33: ['İnsan Kalbi ve Bağ', 'Bağ ve İletişim', 'Evdeki Hayvan Dinamiği'],
+};
+
+export function selectNumerologyLifeEvents(params: {
+  seed: string;
+  numbers: number[];
+  memorySnippet?: ProfileMemorySnippet | null;
+  count?: number;
+}) {
+  const isAnimalProfile = params.memorySnippet?.relationshipPrimary === 'evcil_hayvan';
+  if (isAnimalProfile) {
+    const animalGroups = new Set(
+      params.numbers.flatMap((number) => ANIMAL_NUMEROLOGY_EVENT_GROUPS[number] || ANIMAL_NUMEROLOGY_EVENT_GROUPS[reduceNumerologySeed(number)] || []),
+    );
+    const recent = recentText(params.memorySnippet, []);
+    const picked = selectAnimalEvents(`${params.seed}:animal-numerology-events`, recent, false, animalGroups, params.count || 3);
+    if (picked.length >= (params.count || 3)) return picked;
+    const fallback = selectAnimalEvents(`${params.seed}:animal-numerology-events:fallback`, recent, false, undefined, params.count || 3);
+    return [...picked, ...fallback.filter((item) => !picked.some((existing) => existing.label === item.label))].slice(0, params.count || 3);
+  }
+  const groups = new Set(
+    params.numbers.flatMap((number) => NUMEROLOGY_EVENT_GROUPS[number] || NUMEROLOGY_EVENT_GROUPS[reduceNumerologySeed(number)] || []),
+  );
+  const recent = recentText(params.memorySnippet, []);
+  const candidates = shuffleSeeded(
+    LIFE_EVENT_BANK.filter(
+      (item) =>
+        groups.has(item.group) &&
+        item.group !== 'Sağlık Rutini' &&
+        !recent.includes(item.label.toLocaleLowerCase('tr-TR')),
+    ),
+    `${params.seed}:numerology-events`,
+  );
+  const selected: SpecificityItem[] = [];
+  for (const item of candidates) {
+    if (selected.some((chosen) => chosen.group === item.group)) continue;
+    selected.push(item);
+    if (selected.length >= (params.count || 3)) break;
+  }
+  return selected;
+}
+
+function reduceNumerologySeed(value: number) {
+  let current = Math.abs(value);
+  while (current > 9 && current !== 11 && current !== 22 && current !== 33) {
+    current = String(current)
+      .split('')
+      .reduce((sum, digit) => sum + Number(digit), 0);
+  }
+  return current;
 }
 
 function selectCues(seedText: string, recent: string) {
@@ -1183,6 +1531,7 @@ export function buildSpecificityContext(params: {
   coffeeMode: CoffeeMode;
   assistantId?: string;
   messages: FortuneMessage[];
+  focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
   isFollowUp?: boolean;
 }): { text: string; usage: SpecificityUsage } {
@@ -1207,22 +1556,36 @@ export function buildSpecificityContext(params: {
     params.messages.map((message) => message.text).join('|').slice(0, 500),
   ].join(':');
   const recent = recentText(params.memorySnippet, params.messages);
-  const selectedEvents = selectEvents(seedText, recent);
+  const allowHealthEvents = userAskedHealthConcern(
+    [params.focusQuestion || '', ...params.messages.filter((message) => message.role === 'user').map((message) => message.text || '')].join(' '),
+  );
+  const isAnimalProfile = params.memorySnippet?.relationshipPrimary === 'evcil_hayvan';
+  const selectedEvents = isAnimalProfile
+    ? selectAnimalEvents(seedText, recent, allowHealthEvents)
+    : selectEvents(seedText, recent, allowHealthEvents);
   const selectedCues = selectCues(seedText, recent);
 
   return {
     text: [
     '## Somut Hayat Malzemesi',
-    '- Fal soyut ruh hali yazısı değil; aşağıdaki gündelik olay/olgu adaylarından 3-4 tanesini seçip telve veya çizgi izlerine bağla.',
-    '- Aşağıdaki yüzey cue adaylarından 3-4 tanesini kullan; aynı cue ve aynı olay labelını bu fal içinde tekrar etme.',
+    isAnimalProfile
+      ? '- Seçili profil evcil hayvan olduğu için aşağıdaki adaylar yalnızca hayvanın dünyasından seçildi. İnsan hayatı olayları, iş, ilişki, para, okul, evlilik veya kariyer temaları ekleme.'
+      : '- Okuma soyut ruh hali yazısı değil; aşağıdaki gündelik olay/olgu adaylarından 3-4 tanesini seçip telve veya çizgi izlerine bağla.',
+    isAnimalProfile
+      ? '- Hayvan olaylarını sahibine dönük pratik gözlem diliyle anlat; kesin bilgi gibi değil, sembolik izlenim gibi kur.'
+      : '',
+    '- Aşağıdaki yüzey cue adaylarından 3-4 tanesini kullan; aynı cue ve aynı olay labelını bu okuma içinde tekrar etme.',
     '- Olayları 3-4 farklı gruptan seç; aynı gruba yığılma.',
-    '- Hepsini kullanma, liste gibi sayma, kesin olmuş gibi konuşma. Seçtiğin olayları fal diliyle doğal cümlelerin içine yedir.',
-    '- Bu adaylar kehanet değildir; “olacak” diye hüküm verme. “Görünene göre”, “yakına düşen ihtimal”, “bu iz şunu düşündürüyor” gibi olasılık dili kullan.',
-    '- Para başlıklarında yatırım, al-sat, kredi, borçlanma veya belirli finansal karar tavsiyesi verme; sadece bütçe, ödeme takibi ve dikkat diliyle kal.',
-    '- Önceki fallarda veya bu oturumda geçen olay labellarını ve yüzey cue ifadelerini güçlü yeni işaret yoksa tekrar etme.',
+    '- Hepsini kullanma, liste gibi sayma, kesin olmuş gibi konuşma. Seçtiğin olayları sembolik yorum diliyle doğal cümlelerin içine yedir.',
+    '- Bu adaylar kesin bilgi değildir; “olacak” diye hüküm verme. “Görünene göre”, “yakına düşen ihtimal”, “bu iz şunu düşündürüyor” gibi olasılık dili kullan.',
+    isAnimalProfile
+      ? '- Hayvan profilde renkli, canlı ve çeşitli bir dünya kur: kokular, ışıklar, güneş alanları, oyuncaklar, pencere merakı, evdeki diğer hayvanlarla küçük kıskançlık/barışma halleri, insanların duymadığı sesler ve kokular, pencereye gelen hayvanlar, bitkiler, misafir kokuları ve insanlarının kalbindeki yeri öne çıkabilir.'
+      : '- Para başlıklarında yatırım, al-sat, kredi, borçlanma veya belirli finansal karar tavsiyesi verme; sadece bütçe, ödeme takibi ve dikkat diliyle kal.',
+    '- Sağlık başlıklarında teşhis, tedavi, ilaç, doz, beslenme reçetesi veya kesin iyileşme dili verme; insan sağlığı endişesinde doktor/uygun sağlık uzmanı, hayvan sağlığı endişesinde veteriner kontrolü öner.',
+    '- Önceki okumalarda veya bu oturumda geçen olay labellarını ve yüzey cue ifadelerini güçlü yeni işaret yoksa tekrar etme.',
     `- Olay adayları: ${selectedEvents.map((item) => `${item.group}: ${item.label}`).join('; ')}.`,
     `- Yüzey cue adayları: ${selectedCues.join('; ')}.`,
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
     usage: { events: selectedEvents, cues: selectedCues },
   };
 }

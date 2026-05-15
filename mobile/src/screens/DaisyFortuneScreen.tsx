@@ -70,7 +70,7 @@ export function DaisyFortuneScreen({}: Props) {
             </View>
 
             <View style={styles.cardContent}>
-              <Text style={styles.title} adjustsFontSizeToFit numberOfLines={2}>Papatya ile Hızlı EVET/HAYIR Falı</Text>
+              <Text style={styles.title} adjustsFontSizeToFit numberOfLines={2}>Papatya ile Hızlı EVET/HAYIR Ritüeli</Text>
               <Text style={styles.prompt}>Aklındaki soru için</Text>
               <Text style={styles.yesNo}>EVET / HAYIR</Text>
 

@@ -21,6 +21,8 @@ type ReadingTypeItem = {
     | 'astro-personal'
     | 'tarot-personal'
     | 'numerology-personal'
+    | 'numerology-core'
+    | 'numerology-period'
     | 'angel-personal'
     | 'manifest-chat'
     | 'dream-interpretation';
@@ -30,11 +32,12 @@ type ReadingTypeItem = {
   currentlyAvailable: boolean;
 };
 
-type TestTypeItem = {
-  id: 'mbti' | 'compatibility' | 'big-five' | 'attachment' | 'values' | 'coping-style';
+type InsightCardItem = ReadingTypeItem | {
+  id: 'tests';
   title: string;
-  meta: string;
+  shortTitle: string;
   description: string;
+  currentlyAvailable: true;
 };
 
 function profileBadge(profile: SubjectProfile) {
@@ -100,7 +103,7 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
     [profiles, selectedProfileId],
   );
 
-  const types: ReadingTypeItem[] = useMemo(
+  const oneTimeTypes: ReadingTypeItem[] = useMemo(
     () => [
       {
         id: 'birth-chart',
@@ -110,6 +113,33 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         currentlyAvailable: true,
       },
       {
+        id: 'numerology-core',
+        title: 'Temel Numeroloji Haritası',
+        shortTitle: 'TEMEL NUMEROLOJİ',
+        description: 'İsim ve doğum tarihinden yaşam yolu, kader, ruh arzusu ve ana sayı haritası çıkarılır.',
+        currentlyAvailable: true,
+      },
+    ],
+    [],
+  );
+
+  const insightTypes: InsightCardItem[] = useMemo(
+    () => [
+      ...oneTimeTypes,
+      {
+        id: 'tests',
+        title: 'Testler',
+        shortTitle: 'TESTLER',
+        description: 'Kişilik, uyum, bağlanma, değerler ve stresle başa çıkma testleri arasından seçim yap.',
+        currentlyAvailable: true,
+      },
+    ],
+    [oneTimeTypes],
+  );
+
+  const flowTypes: ReadingTypeItem[] = useMemo(
+    () => [
+      {
         id: 'astro-personal',
         title: 'Astroloji',
         shortTitle: 'ASTROLOJİ',
@@ -118,14 +148,14 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
       },
       {
         id: 'coffee',
-        title: 'Kahve Falı',
+        title: 'Kahve Yorumu',
         shortTitle: 'KAHVE',
         description: 'Fincan ve tabak görsellerinden semboller, yollar, niyetler ve yakın dönem işaretleri okunur.',
         currentlyAvailable: true,
       },
       {
         id: 'palm',
-        title: 'El / Pati Falı',
+        title: 'El / Pati Okuması',
         shortTitle: 'EL / PATİ',
         description: 'El çizgileri ya da pati formundan mizacın, içgüdülerin ve yaşam akışın yorumlanır.',
         currentlyAvailable: true,
@@ -134,14 +164,14 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         id: 'tarot-personal',
         title: 'Kişiye Özel Tarot',
         shortTitle: 'TAROT',
-        description: 'Seçtiğin açılıma göre kartlar, niyetin ve falcı personası birlikte yorumlanır.',
+        description: 'Seçtiğin açılıma göre kartlar, niyetin ve yorumcu personası birlikte yorumlanır.',
         currentlyAvailable: true,
       },
       {
-        id: 'numerology-personal',
-        title: 'Kişiye Özel Numeroloji',
+        id: 'numerology-period',
+        title: 'Numeroloji',
         shortTitle: 'NUMEROLOJİ',
-        description: 'İsim ve doğum tarihinden yaşam yolu, kişisel yıl ve ana sayı titreşimleri çıkarılır.',
+        description: 'Profil sayılarınla birleşen günlük, haftalık ve aylık dönemsel numeroloji yorumları.',
         currentlyAvailable: true,
       },
       {
@@ -162,56 +192,21 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
     [],
   );
 
-  const tests: TestTypeItem[] = useMemo(
-    () => [
-      {
-        id: 'mbti',
-        title: 'MBTI Kişilik Testi',
-        meta: '32 soru, yaklaşık 12-15 dakika',
-        description: 'Karar alma, enerji toplama ve dünyayı algılama biçimini 16 kişilik tipi üzerinden tanır.',
-      },
-      {
-        id: 'compatibility',
-        title: 'Uyumluluk Testi',
-        meta: '20 soru, yaklaşık 7-9 dakika',
-        description: 'İki kişinin iletişim, beklenti, ritim ve ilişki ihtiyaçlarının nerede örtüştüğünü gösterir.',
-      },
-      {
-        id: 'big-five',
-        title: 'Beş Faktör Testi',
-        meta: '25 soru, yaklaşık 8-10 dakika',
-        description: 'Dışadönüklük, uyumluluk, sorumluluk, duygusal denge ve açıklık eğilimlerini ölçer.',
-      },
-      {
-        id: 'attachment',
-        title: 'Bağlanma Stili Testi',
-        meta: '20 soru, yaklaşık 7-9 dakika',
-        description: 'Yakın ilişkilerde güven, mesafe, kaygı ve ihtiyaç ifade etme kalıplarını anlamaya yardım eder.',
-      },
-      {
-        id: 'values',
-        title: 'Değerler Pusulası',
-        meta: '20 soru, yaklaşık 7-9 dakika',
-        description: 'Hayatta neyi öncelediğini, kararlarını hangi değerlerin yönlendirdiğini görünür kılar.',
-      },
-      {
-        id: 'coping-style',
-        title: 'Stresle Başa Çıkma Testi',
-        meta: '20 soru, yaklaşık 7-9 dakika',
-        description: 'Zorlanınca kaçınma, çözüm arama, destek isteme ya da içe çekilme eğilimlerini çıkarır.',
-      },
-    ],
-    [],
-  );
-
   const handleTypePress = useCallback(
-    (item: ReadingTypeItem) => {
+    (item: InsightCardItem) => {
       if (!selectedProfile) {
         setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: APP_NAME,
-          message: 'Fal bakabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
+          message: 'Okuma hazırlayabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
+        });
+        return;
+      }
+
+      if (item.id === 'tests') {
+        navigation.navigate('MbtiTest', {
+          profileId: selectedProfile.profileId,
         });
         return;
       }
@@ -254,12 +249,21 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         return;
       }
 
-      if (item.id === 'numerology-personal' && !hasRequiredNumerologyInputs(selectedProfile)) {
+      if ((item.id === 'numerology-personal' || item.id === 'numerology-core' || item.id === 'numerology-period') && !hasRequiredNumerologyInputs(selectedProfile)) {
         setInfoAction('profile');
         setInfoModal({
           visible: true,
           title: 'Profil Bilgisi Gerekli',
           message: 'Kişisel numeroloji için profil adı ve doğum tarihi olmalı. Profil Ayarları ekranından tamamlayabilirsin.',
+        });
+        return;
+      }
+
+      if (item.id === 'numerology-core') {
+        navigation.navigate('PersonalNumerologyReading', {
+          profileId: selectedProfile.profileId,
+          assistantId: 'mert-bey',
+          initialMode: 'core',
         });
         return;
       }
@@ -270,31 +274,12 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
     [navigation, selectedProfile],
   );
 
-  const handleTestPress = useCallback(
-    (item: TestTypeItem) => {
-      if (!selectedProfile) {
-        setInfoAction('profile');
-        setInfoModal({
-          visible: true,
-          title: APP_NAME,
-          message: 'Testi başlatabilmemiz için önce bir profil oluşturmalı veya seçmelisin.',
-        });
-        return;
-      }
-      navigation.navigate('MbtiTest', {
-        profileId: selectedProfile.profileId,
-        testId: item.id,
-      });
-    },
-    [navigation, selectedProfile],
-  );
-
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <BrandedScrollView contentContainerStyle={styles.content} showScrollToTop>
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Kimin İçin Baktıracaksın?</Text>
-          <Text style={styles.helperText}>Kişiye özel akışta önce profili seç, sonra aynı ekrandan fal tipine geç.</Text>
+          <Text style={styles.helperText}>Önce profili seç, sonra aşağıdan okumaya geç.</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {profiles.map((profile) => {
               const selected = profile.profileId === selectedProfileId;
@@ -313,9 +298,15 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Kişiye Özel Fal Türleri</Text>
+          <Text style={styles.panelTitle}>Haritalar ve Öz Farkındalık</Text>
+          <Text style={styles.sectionHelperText}>
+            Doğum haritası ve temel numeroloji haritası her profil için uzmanı tarafından bir kez hazırlanır. Sonrasında dilediğin zaman geri dönüp haritan üzerinden soru sorabilirsin.
+          </Text>
+          <Text style={styles.sectionHelperText}>
+            Testler profilin kişilik, bağlanma, değerler, uyum ve başa çıkma eğilimlerini görünür kılar. Psikolojik profil, tanı veya danışmanlık yerine geçmez; eğlence amaçlı yapay zeka destekli içgörü sunar.
+          </Text>
           <View style={styles.grid}>
-            {types.map((item) => (
+            {insightTypes.map((item) => (
               <TouchableOpacity
                 key={item.id}
                 style={[styles.typeSquareCard, !item.currentlyAvailable && styles.typeSquareCardDisabled]}
@@ -329,17 +320,24 @@ export function PersonalReadingsScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Testler</Text>
+          <Text style={styles.panelTitle}>Yorum, İçgörü ve Okumalar</Text>
+          <Text style={styles.sectionHelperText}>
+            Burada dönemsel ya da konu odaklı yorum alabilir, fotoğraf yükleyerek sembolleri okutabilir, rüyanı anlatabilir veya hazırlanan okuma üzerinden takip soruları sorabilirsin. Kesin öngörü iddiası içermez; sezgisel, sembolik ve eğlence amaçlı yapay zeka destekli içgörüler sunar.
+          </Text>
           <View style={styles.grid}>
-            {tests.map((item) => (
-              <TouchableOpacity key={item.id} style={styles.typeSquareCard} activeOpacity={0.82} onPress={() => handleTestPress(item)}>
-                <Text style={styles.typeSquareTitle}>{item.title.toLocaleUpperCase('tr-TR')}</Text>
-                <Text style={styles.typeSquareMeta}>{item.meta}</Text>
+            {flowTypes.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.typeSquareCard, !item.currentlyAvailable && styles.typeSquareCardDisabled]}
+                onPress={() => handleTypePress(item)}
+              >
+                <Text style={styles.typeSquareTitle}>{item.shortTitle}</Text>
                 <Text style={styles.typeSquareDescription}>{item.description}</Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
+
       </BrandedScrollView>
 
       <BrandedConfirmModal
@@ -402,12 +400,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(168,130,82,0.18)',
   },
   panelTitle: { color: '#E8C49A', fontSize: 16, fontWeight: '700', marginBottom: 10 },
-  helperText: { color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 18, marginBottom: 10 },
+  helperText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, lineHeight: 16, marginBottom: 10 },
+  sectionHelperText: { color: 'rgba(255,255,255,0.66)', fontSize: 10, fontStyle: 'italic', lineHeight: 15, marginBottom: 10 },
   profileCard: {
-    width: 140,
+    width: 100,
     minHeight: 90,
     marginRight: 10,
-    padding: 12,
+    padding: 10,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.18)',
@@ -423,14 +422,12 @@ const styles = StyleSheet.create({
   },
   typeSquareCard: {
     width: '48.5%',
-    minHeight: 132,
     borderRadius: 14,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(168,130,82,0.2)',
     backgroundColor: 'rgba(0,0,0,0.16)',
     padding: 12,
-    justifyContent: 'space-between',
   },
   typeSquareCardDisabled: { opacity: 0.72 },
   typeSquareTitle: {

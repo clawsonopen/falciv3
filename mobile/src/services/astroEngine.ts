@@ -1,10 +1,23 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Astronomy from 'astronomy-engine';
 import type { ProfileMemorySnippet, SubjectProfile } from '../types/memory';
+import {
+  PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
+  PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION,
+  PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+  PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
+} from '../config/llmTokenPolicy';
 import { resolveAstroLocation } from './astroLocationService';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
-import { completeWithPersonaClosing } from './personaClosingService';
+import {
+  appendHealthProfessionalReminder,
+  completeWithPersonaClosing,
+  sanitizePublicReadingLanguage,
+  stripPersonaSelfIntroduction,
+  userAskedHealthConcern,
+} from './personaClosingService';
+import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile, isAnimalProfile } from './animalProfilePrompt';
 
 export type AstroPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -694,7 +707,7 @@ function sanitizeAffectionateRepetition(text: string) {
 }
 
 function cleanGeneratedTurkishText(text: string) {
-  return sanitizeAffectionateRepetition(repairMojibakeTurkish(text));
+  return sanitizePublicReadingLanguage(sanitizeAffectionateRepetition(repairMojibakeTurkish(text)));
 }
 
 function normalizeSignLabel(sign: string | null | undefined) {
@@ -983,17 +996,23 @@ function buildRelationshipPrompt(params: {
   const hasPet = params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan');
   const systemText = [
     `Sen ${params.assistantLabel} adlı Türkçe konuşan kişisel astrologsun.`,
+    `Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben astrolog olarak" gibi girişler yapma. Doğrudan yoruma başla.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
     'Yalnızca verilen doğum verileri, gezegen yerleşimleri ve sinastri/aile haritası bağlamıyla konuş.',
     'Kahve, fincan, telve, el çizgisi, tarot veya kart dili kullanma.',
     'Teknik astrolojiyi boğmadan açıkla; Güneş, Ay, Merkür, Venüs, Mars, Satürn, Ay düğümleri ve yükselen/ev bilgisi varsa ilişki dinamiğine çevir.',
     'Doğum saati veya yer bilgisi eksikse bunu yalnızca belirsizlik payı olarak bil; şehir, ilçe, koordinat veya varsayılan konum adlarını asla söyleme.',
-    hasPet ? 'Evcil hayvanlar aile bireyidir; pet olan özneyi romantik, cinsel veya yetişkin insan ilişkisi diliyle yorumlama.' : '',
+    hasPet
+      ? 'Evcil hayvanlar aile bireyidir; pet olan özneyi romantik, cinsel veya yetişkin insan ilişkisi diliyle yorumlama. İş, para kazanma, okul, evlilik veya insan sosyal çevresi teması yükleme; hayvanın güveni, rutini, duyuları, ev içi alanı, diğer hayvanlarla ilişkisi ve insanlarıyla bağı üzerinden konuş.'
+      : '',
     'Kesin kader hükmü verme; uyumu potansiyel, ritim, ihtiyaç, gerilim ve gelişim alanı olarak anlat.',
   ].filter(Boolean).join(' ');
   const userText = [
     `Okuma tipi: ${relationshipModeLabel(params.mode)}`,
     params.compatibilityContext ? `Uyum bağlamı: ${params.compatibilityContext}` : '',
-    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    personaContext ? `Yorumcu persona kartı:\n${personaContext}` : '',
     memoryContext ? `Hafıza ve tekrar koruması:\n${memoryContext}` : '',
     `Kişiler JSON:\n${JSON.stringify(params.subjects.map((subject) => subject.compact))}`,
     synastry.length ? `Ana sinastri açıları JSON:\n${JSON.stringify(synastry)}` : '',
@@ -1001,11 +1020,11 @@ function buildRelationshipPrompt(params: {
     params.mode === 'compatibility'
       ? [
           'Detaylı astrolojik uyum analizi yaz.',
-          'İlk paragrafta iki tarafın ilişki ritmini net özetle.',
-          'Sonra duygusal uyum, iletişim/zihin, çekim/enerji, güven-sorumluluk, çatışma tetikleri ve birlikte büyüme alanlarını ayrı kısa paragraflarla işle.',
-          'Uyum bağlamı aşk değilse romantik varsayım yapma; iş, dostluk, ev arkadaşlığı, komşuluk veya genel bağlam neyse ona göre dil kur.',
+          hasPet ? 'İlk paragrafta evcil hayvanın dahil olduğu bağın ritmini güven, alışma, oyun, alan ve temas diliyle özetle.' : 'İlk paragrafta iki tarafın ilişki ritmini net özetle.',
+          hasPet ? 'Sonra duygusal güven, iletişim işaretleri, enerji/oyun ritmi, sınır ve alan ihtiyacı, hassasiyet tetikleri ve birlikte rahatlama alanlarını ayrı kısa paragraflarla işle.' : 'Sonra duygusal uyum, iletişim/zihin, çekim/enerji, güven-sorumluluk, çatışma tetikleri ve birlikte büyüme alanlarını ayrı kısa paragraflarla işle.',
+          hasPet ? 'Pet olan özne varsa aşk, iş, evlilik veya yetişkin insan uyumu varsayımı yapma; bağlamı sahip-refakatçi, ev arkadaşı, aile veya hayvanlar arası uyum olarak kur.' : 'Uyum bağlamı aşk değilse romantik varsayım yapma; iş, dostluk, ev arkadaşlığı, komşuluk veya genel bağlam neyse ona göre dil kur.',
           'İki kişinin doğum verilerindeki eksikler varsa yorumun güven aralığını abartmadan koru; eksik şehir/ilçe adı söyleme.',
-          'Yaklaşık 1200-1500 token içinde tamamla; son cümleyi bitir.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
         ].join(' ')
       : [
           'Detaylı astrolojik aile okuması yaz.',
@@ -1014,7 +1033,7 @@ function buildRelationshipPrompt(params: {
           'Ardından ikili dinamiklerde destek/gerilim noktalarını ve ev içi denge önerilerini ver.',
           'Pet varsa onu ailenin duygusal düzenleyicisi, alışkanlık ritmi ve bağ kurma biçimi olarak yorumla; insan gibi sorumluluk yükleme.',
           'Eksik doğum saatlerini yalnızca hassasiyet sınırı olarak dikkate al; şehir/ilçe adı veya varsayılan konum söyleme.',
-          'Yaklaşık 1500-1800 token içinde tamamla; son cümleyi bitir.',
+          PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
         ].join(' '),
   ].filter(Boolean).join('\n\n');
   return {
@@ -1022,7 +1041,7 @@ function buildRelationshipPrompt(params: {
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.7,
-      maxOutputTokens: params.mode === 'family' ? 2400 : 2000,
+      maxOutputTokens: PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
     },
   };
 }
@@ -1082,7 +1101,7 @@ function buildBirthChartInterpretationPayload(params: {
     notes: params.chart.transitNotes,
   };
   const systemText =
-    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Yalnızca verilen doğum haritası verilerini kullan. Teknik bilgiyi boğmadan, her konumu kişinin hayatı, ilişki biçimi, karar alma tarzı, dönemleri ve iç dünyasıyla anlamlandır. Kesin karakter hükmü verme; insanın dinamik olduğunu hissettir.';
+    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Kendini tanıtma; "Ben Bahar Hanım..." veya "Bahar Hanım olarak..." diye başlama, doğrudan yoruma gir. Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan. Sağlık ve finans alanlarında spesifik tavsiye verme; insan sağlığı endişesinde doktora/uzmana, hayvan sağlığı endişesinde veterinere yönlendir. Yalnızca verilen doğum haritası verilerini kullan. Teknik bilgiyi boğmadan, her konumu kişinin hayatı, ilişki biçimi, karar alma tarzı, dönemleri ve iç dünyasıyla anlamlandır. Kesin karakter hükmü verme; insanın dinamik olduğunu hissettir.';
   const userText = [
     `Profil: ${params.profile.displayName}`,
     `Anlatım tonu: ${birthChartAssistantStyleHint()}`,
@@ -1141,7 +1160,7 @@ function buildBirthChartContinuationPayload(params: {
     aspects: params.chart.aspects,
   };
   const systemText =
-    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Önceki doğum haritası yorumu token sınırı yüzünden yarım kalmış olabilir; metni tekrar etmeden doğal biçimde tamamla.';
+    'Sen Bahar Hanım adlı Türkçe konuşan kişisel astrologsun. Kendini tanıtma; "Ben Bahar Hanım..." veya "Bahar Hanım olarak..." diye başlama. Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan. Sağlık ve finans alanlarında spesifik tavsiye verme; insan sağlığı endişesinde doktora/uzmana, hayvan sağlığı endişesinde veterinere yönlendir. Önceki doğum haritası yorumu token sınırı yüzünden yarım kalmış olabilir; metni tekrar etmeden doğal biçimde tamamla.';
   const userText = [
     `Profil: ${params.profile.displayName}`,
     `Harita özeti JSON:\n${JSON.stringify(chartSummary)}`,
@@ -1199,7 +1218,9 @@ export async function createBirthChartInterpretation(params: {
     };
   }
   return {
-    text,
+    text: appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(text)), {
+      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+    }),
     sign: normalizeSignLabel(chart.sign),
     risingSign: chart.ascendant,
     timezoneUsed: location.timezone,
@@ -1247,7 +1268,11 @@ export async function createBirthChartFollowUp(params: {
   const systemText = [
     'Sen Bahar Hanım adlı astrologsun.',
     'Cevabı mevcut doğum haritası yorumu ve soru-cevap akışı üzerinden ver.',
-    'Kendini tekrar tanıtma; "ben Bahar" gibi girişler yapma.',
+    'Kendini tekrar tanıtma; "Ben Bahar Hanım...", "Bahar Hanım olarak..." veya "ben astrolog olarak" gibi girişler yapma.',
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+    'Kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
     'Ana yorumu veya kişinin Güneş/Ay/yükselen bilgisini yeniden özetleme.',
     'Kullanıcı özellikle sormadıkça veri kaynağını anlatma; harita bilgisini cevaba ince ve doğal biçimde yedir.',
     'Teknik bilgiyi kısa tut; asıl anlatımı kişinin hayatındaki karşılığına çevir.',
@@ -1262,30 +1287,40 @@ export async function createBirthChartFollowUp(params: {
     `Kullanıcının sorusu:\n${params.question}`,
     'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta harita bağlamından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Yaklaşık 120-170 token içinde tamamla.',
   ].filter(Boolean).join('\n\n');
-  const data = await generateGeminiTextDirect({
-    system_instruction: { parts: [{ text: systemText }] },
-    contents: [{ role: 'user', parts: [{ text: userText }] }],
-    generationConfig: {
-      temperature: 0.62,
-      maxOutputTokens: 520,
+  const data = await generateGeminiTextDirect(
+    {
+      system_instruction: { parts: [{ text: systemText }] },
+      contents: [{ role: 'user', parts: [{ text: userText }] }],
+      generationConfig: {
+        temperature: 0.62,
+        maxOutputTokens: 520,
+      },
     },
-  });
-  return { text: cleanGeneratedTurkishText(data.text), modelName: data.model, usage: data.usage };
+    45000,
+  );
+  return {
+    text: appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(cleanGeneratedTurkishText(data.text))), {
+      userText: params.question,
+      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+    }),
+    modelName: data.model,
+    usage: data.usage,
+  };
 }
 
 function personalAstroAssistantStyleHint(assistantId: string, assistantLabel: string) {
   const styles: Record<string, string> = {
     'bahar-hanim': 'Bahar Hanım tonu: modern, rafine, farkındalık dili yüksek; teknik astrolojiyi zarif ve net bir içgörüye çevirir.',
     'mert-bey': 'Mert Bey tonu: analitik, sade, dost gibi yakın; ihtimalleri gereksiz süslemeden mantıklı bir plana bağlar.',
-    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul fal dili hissedilir ama aşırı şekerli hitap kullanmaz.',
+    'durdane-hanim': 'Dürdane Hanım tonu: anaç, sıcak, sezgisel ve koruyucu; eski usul bilgelik hissedilir ama aşırı şekerli hitap kullanmaz.',
     'hikmet-bey': 'Hikmet Bey tonu: babacan, felsefi, sakin ve psikolojik derinliği olan; kısa öğütleri hayat tecrübesi gibi verir.',
     caner: 'Caner tonu: sezgisel, yumuşak, sanatsal ve hafif melankolik; sembolleri duygu ve atmosferle okur.',
   };
-  return styles[assistantId] || `${assistantLabel || 'Falcı'} tonu: sıcak, doğal ve persona içinde kalan.`;
+  return styles[assistantId] || `${assistantLabel || 'Yorumcu'} tonu: sıcak, doğal ve persona içinde kalan.`;
 }
 
 const NON_ASTRO_PERSONA_DOMAIN_TERMS =
-  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el falı|el fal|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i;
+  /kahve|fincan|telve|tabak|görsel|fotoğraf|avuç|el okuması|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i;
 
 function domainNeutralPersonaSignature(assistantId: string) {
   const signatures: Record<string, string> = {
@@ -1300,22 +1335,22 @@ function domainNeutralPersonaSignature(assistantId: string) {
       'Duyguyu küçümsemeden, çözüm ve plan tarafını görünür kılar.',
     ].join(' '),
     'durdane-hanim': [
-      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir fal malzemesine yaslanmaz.',
+      'Anaç, sıcak, sezgisel ve koruyucu konuşur; eski usul bilgelik hissi verir ama hiçbir sembolik araca yaslanmaz.',
       'Hane, kalp, niyet, kısmet, yol, yakın çevre ve iç direnç gibi hayat alanlarını doğal ve çeşitli biçimde okuyabilir.',
       'Şefkatli hitapları ölçülü kullanır; telaş, yük ve koşturma temasına takılı kalmaz.',
     ].join(' '),
     'hikmet-bey': [
       'Babacan, sakin, felsefi ve psikolojik derinliği olan bir sesle konuşur.',
       'Cümleleri ölçülü öğüt, hayat tecrübesi ve iç denge hissi taşır.',
-      'Keskin kehanet yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
+      'Keskin hüküm yerine ağırbaşlı sezgi, sabır, erdem ve karar olgunluğu verir.',
     ].join(' '),
     caner: [
       'Sezgisel, yumuşak, sanatsal ve hafif melankolik konuşur.',
       'Duygu ritmi, iç ses, atmosfer, kırılgan umut ve estetik sezgi öne çıkar.',
-      'Cümleleri şiirsel olabilir ama anlaşılır kalır; fal malzemesi değil insanın iç dünyası üzerinden imge kurar.',
+      'Cümleleri şiirsel olabilir ama anlaşılır kalır; sembolik araç değil insanın iç dünyası üzerinden imge kurar.',
     ].join(' '),
   };
-  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili falcının kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
+  return signatures[assistantId] || 'Sıcak, doğal, tutarlı ve seçili yorumcunun kendine özgü hitap ritmini taşıyan bir yorum dili kullanır.';
 }
 
 function astroSafePersonaText(text?: string) {
@@ -1337,11 +1372,18 @@ function assistantPersonaContext(assistantId: string) {
     `Persona adı: ${identity.displayName}`,
     `İmza üslup:\n${domainNeutralPersonaSignature(assistantId)}`,
     voice ? `Ses ve mizaç (yalnızca üslup için):\n${voice}` : '',
-    'Astroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanılmaz.',
+    'Astroloji sınırı: Persona yalnızca ses, hitap, ritim ve tavır olarak taşınır; kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanılmaz.',
   ].filter(Boolean).join('\n\n');
 }
 
 function addressPolicyForProfile(profile: SubjectProfile, profileName: string) {
+  if (isAnimalProfile(profile)) {
+    return [
+      buildAnimalProfileInstructionFromProfile(profile),
+      'Hitap modu: seçili profil evcil hayvan. Metin boyunca hayvanı üçüncü tekil şahısla anlat; hesap sahibine hayvanın sahibi/refakatçisi olarak öneri ver.',
+      'Astrolojik göstergeleri insan kariyeri, romantik ilişki, evlilik, okul veya para kazanma eksenine çevirme; hayvanın mizacı, güven ihtiyacı, ev rutini ve sahibiyle bağı üzerinden yorumla.',
+    ].join(' ');
+  }
   const isSelf = profile.isPrimary || profile.relationshipPrimary === 'kendi';
   const genderHint = profile.gender
     ? `Profil cinsiyeti: ${profile.gender}; cinsiyetli hitap seçerken buna uy.`
@@ -1373,6 +1415,7 @@ function buildPersonalAstroGeminiPayload(params: {
   addressPolicy: string;
   focusQuestion?: string | null;
   memorySnippet?: ProfileMemorySnippet | null;
+  isAnimalProfile?: boolean;
 }) {
   const periodLabel = { daily: 'günlük', weekly: 'haftalık', monthly: 'aylık', yearly: 'yıllık' }[params.period];
   const data = params.astroPayload.data;
@@ -1396,18 +1439,30 @@ function buildPersonalAstroGeminiPayload(params: {
   const memoryContext = formatAstroAvoidanceMemory(params.memorySnippet);
   const personaContext = assistantPersonaContext(params.assistantId);
   const focusQuestion = params.focusQuestion?.replace(/\s+/g, ' ').trim() || '';
+  const isAnimalAstro = Boolean(params.isAnimalProfile || params.memorySnippet?.relationshipPrimary === 'evcil_hayvan');
   const focus = {
-    daily: 'Bugünün kişisel odağı, duygu ritmi, ilişki/iş akışı ve kısa öneri.',
-    weekly: 'Haftanın ana teması, ilişki ve iş para ritmi, içsel denge ve uygulanabilir öneri.',
-    monthly: 'Ayın ana evresi, ilişki ve kariyer/para temaları, enerji dalgalanması ve öneri.',
-    yearly: 'Yılın büyük temaları, ilişki, kariyer/para, kişisel gelişim, kritik dönemler ve öneri.',
+    daily: isAnimalAstro
+      ? 'Bugünün evcil hayvan odağı, mizaç/duyu ritmi, oyun-dinlenme akışı, ev içi güven ve sahibine kısa öneri.'
+      : 'Bugünün kişisel odağı, duygu ritmi, ilişki/iş akışı ve kısa öneri.',
+    weekly: isAnimalAstro
+      ? 'Haftanın evcil hayvan ana teması, oyun ve dinlenme düzeni, pencere/dış dünya merakı, evdeki bağlar ve uygulanabilir öneri.'
+      : 'Haftanın ana teması, ilişki ve iş para ritmi, içsel denge ve uygulanabilir öneri.',
+    monthly: isAnimalAstro
+      ? 'Ayın evcil hayvan ana ritmi, ev içi güven, duyu hassasiyeti, sahibiyle bağ, diğer hayvanlarla minik sosyal dinamikler ve öneri.'
+      : 'Ayın ana evresi, ilişki ve kariyer/para temaları, enerji dalgalanması ve öneri.',
+    yearly: isAnimalAstro
+      ? 'Yılın evcil hayvan ana ritimleri, güven, rutin, oyun, duyu dünyası, evdeki ilişkiler ve sahibine öneri.'
+      : 'Yılın büyük temaları, ilişki, kariyer/para, kişisel gelişim, kritik dönemler ve öneri.',
   }[params.period];
   const systemText = [
-    `Sen ${params.assistantLabel} adlı falcısın; kişiye özel astrolojiyi bu falcının aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
+    `Sen ${params.assistantLabel} adlı yorumcusun; kişiye özel astrolojiyi bu yorumcunun aynı persona sesi, hitap ritmi ve konuşma sıcaklığıyla yorumlarsın.`,
     'Use only the provided on-device astronomy JSON. Do not invent houses, ascendant, exact Moon degree or birth-time-sensitive claims when timeKnown is false.',
     'A personal reading must compare natal placements/aspects with the selected period transits, transit-to-natal aspects and transit movement through natal houses when available; do not collapse it into a generic sky report.',
-    'Astroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; natal yerleşimler, transitler ve dönem akışı üzerinden konuş.',
-    'Persona sesi teknik astroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili falcıya ait olmalı. Kendini tanıtma.',
+    'Astroloji yorumunda kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanma; natal yerleşimler, transitler ve dönem akışı üzerinden konuş.',
+    `Persona sesi teknik astroloji dilinin üstünde hissedilmeli: kelime seçimi, ritim, hitap ve tavsiye tonu seçili yorumcuya ait olmalı. Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcu olarak" diye başlama.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
   ].join(' ');
   const userText = [
     `Profile: ${params.profileName || 'Profil'}`,
@@ -1425,6 +1480,7 @@ function buildPersonalAstroGeminiPayload(params: {
     [
       'Türkçe yaz. Başlık atma; düz, akıcı ve premium bir yorum ver.',
       focusQuestion ? 'Bu yorumda ilk paragraftan itibaren kullanıcının verdiği konuya doğrudan cevap ver; konuyu genel astroloji yorumunun arasında kaybetme.' : '',
+      focusQuestion ? 'Kullanıcının konusu ana eksendir; hafıza ve önceki life event/olay sinyallerini yalnızca bu konuyla gerçek bağ kuruyorsa kullan, alakasız temaları zorla merkeze alma.' : '',
       'Metni anlam akışına göre 3-5 kısa paragrafta ver; her paragraf ayrı bir konu taşısın ve konu değişiminde boş satır bırak.',
       'Persona içinde kal ama kendini tanıtma.',
       'Hitap modunu metin boyunca değiştirme; üçüncü tekil şahısla başladıysan "sen" diline geçme, "sen" diliyle başladıysan profil adıyla dışarıdan anlatmaya dönme.',
@@ -1432,12 +1488,16 @@ function buildPersonalAstroGeminiPayload(params: {
       'Bu kişiye özel astroloji yorumu genel burç yorumu gibi yazılmamalı; natal yerleşimler, natal açılar, transitlerin natal noktalara yaptığı açılar ve varsa transitlerin natal evlerden geçişi birlikte okunmalı.',
       'Teknik omurga şu olsun: doğumdaki bir yerleşim/açı hangi hayat alanını hassaslaştırıyor, seçilen dönemdeki gerçek transit bunu nasıl tetikliyor, kişi bunu bugün/hafta/ay/yıl içinde nasıl hissedebilir.',
       'Kullanıcıya sürekli "doğum haritana göre", "yükselenin", "Güneş burcun" diye kaynak tabelası gösterme; ama gerektiğinde "doğumdaki Ay vurgun" veya "Marsın şu alana dokunuyor" gibi doğal ve teknik olarak anlamlı bağ kur.',
-      'Para ve finans, kariyer, aşk, sağlık, ilişkiler veya benzeri alanlarda o alanın dönemsel etkisini natal-transit karşılaştırmasıyla anlat; genel transit cümleleriyle yetinme.',
+      isAnimalAstro
+        ? 'Evcil hayvan profilde natal-transit karşılaştırmasını insan hayat alanlarına çevirme; mizaç, güven, ev rutini, oyun, uyku, duyu hassasiyeti, pencere/dış dünya merakı, evdeki diğer hayvanlarla ilişki ve sahibiyle bağ üzerinden anlat.'
+        : 'Para ve finans, kariyer, aşk, sağlık, ilişkiler veya benzeri alanlarda o alanın dönemsel etkisini natal-transit karşılaştırmasıyla anlat; genel transit cümleleriyle yetinme.',
+      'Sağlık konusu geçerse tıbbi tavsiye, tedavi, ilaç, doz, beslenme reçetesi veya kesin iyileşme dili kurma; insan için doktor/uzman, hayvan için veteriner yönlendirmesi yap.',
       'Period timeline verisini kullan: günlük için bugünü, haftalık/aylık/yıllık için ara tarihlerde güçlenen veya zayıflayan temaları sezdir.',
-      'Memory bölümündeki eski temaları birebir tekrar etme; gerekiyorsa yalnızca yeni bir açıdan kısa gönderme yap.',
+      'Memory bölümündeki eski temaları birebir tekrar etme; gerekiyorsa yalnızca yeni bir açıdan kısa gönderme yap. Kullanıcının sorusuyla ilgisiz eski tema veya life event kayıtlarını yoruma sokma.',
       'Son paragraf mutlaka Öneriler hissi taşısın: ne yapmalı, neyi zorlamamalı, hangi davranış beklemeli. Yeni soru sormadan tamamla.',
       'Doğum saati bilinmiyorsa yükselen/ev yorumu yapma; eksik bilgiyi bir kez nazikçe belirtip kalan bilinen verilerle güçlü yorum kur.',
       'İlçe, şehir merkezi, koordinat hassasiyeti veya yaklaşık konum hesabından bahsetme.',
+      PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION,
       'Son cümleyi yarım bırakma; token sınırına yaklaşmadan doğal ve tamamlanmış bir kapanış yap.',
     ].join(' '),
   ].filter(Boolean).join('\n\n');
@@ -1446,7 +1506,7 @@ function buildPersonalAstroGeminiPayload(params: {
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.72,
-      maxOutputTokens: { daily: 750, weekly: 1050, monthly: 1550, yearly: 1800 }[params.period],
+      maxOutputTokens: PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
     },
   };
 }
@@ -1478,6 +1538,7 @@ export async function createPersonalAstroReading(params: {
     addressPolicy: addressPolicyForProfile(params.profile, params.profile.displayName),
     focusQuestion: params.focusQuestion,
     memorySnippet: params.memorySnippet,
+    isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
   const currentPeriodKey = periodKey(params.period);
   const fingerprint = profileFingerprint(params.profile);
@@ -1489,17 +1550,22 @@ export async function createPersonalAstroReading(params: {
   }
 
   try {
-    const data = await generateGeminiTextDirect(geminiPayload);
+    const data = await generateGeminiTextDirect(geminiPayload, 45000, { usageMode: 'raw' });
     const text = completeWithPersonaClosing({
       text: cleanGeneratedTurkishText(data.text),
       assistantId: params.assistantId,
       domain: 'astro',
       seed: `${params.profile.profileId}:${params.period}:${currentPeriodKey}`,
       forceClosing: data.finishReason === 'MAX_TOKENS',
+      allowHealthClosing: userAskedHealthConcern(params.focusQuestion),
+      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
     });
 
     const reading: AstroReadingResult = {
-      text,
+      text: appendHealthProfessionalReminder(text, {
+        userText: params.focusQuestion,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      }),
       sign: normalizeSignLabel(chart.sign),
       risingSign: chart.ascendant,
       timezoneUsed: location.timezone,
@@ -1572,13 +1638,26 @@ export async function createPersonalAstroFollowUp(params: {
     .join('\n');
   const addressPolicy = params.profile
     ? addressPolicyForProfile(params.profile, params.profileName)
-    : 'Hitap modunu önceki kişisel astroloji yorumuyla tutarlı sürdür; aynı cevap içinde üçüncü tekil şahıs ve sen dili arasında geçiş yapma.';
+    : buildAnimalProfileInstructionFromMemory(params.memorySnippet) ||
+      'Hitap modunu önceki kişisel astroloji yorumuyla tutarlı sürdür; aynı cevap içinde üçüncü tekil şahıs ve sen dili arasında geçiş yapma.';
   const personaContext = assistantPersonaContext(params.assistantId);
+  const isAnimalAstro = Boolean(params.profile?.relationshipPrimary === 'evcil_hayvan' || params.memorySnippet?.relationshipPrimary === 'evcil_hayvan');
   const systemText = [
-    `Sen ${params.assistantLabel} adlı falcısın.`,
+    `Sen ${params.assistantLabel} adlı yorumcusun.`,
     'Türkçe, sıcak, net ve kişiye özel konuş.',
-    'Persona sesini koru; kişiye özel astrolojide falcının aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
-    'Astroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka fal malzemesi dili kullanma; natal-transit bağlamı ve son soru üzerinden konuş.',
+    `Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben yorumcu olarak" gibi girişler yapma.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+    'Kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
+    'Persona sesini koru; kişiye özel astrolojide yorumcunun aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
+    'Astroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanma; natal-transit bağlamı ve son soru üzerinden konuş.',
+    isAnimalAstro
+      ? 'Seçili profil evcil hayvansa cevabı insan okuması gibi yazma; kariyer, iş, para kazanma, okul, evlilik, romantik ilişki, insan sosyal çevresi veya yetişkin insan psikolojisi teması kurma.'
+      : '',
+    isAnimalAstro
+      ? 'Evcil hayvan profilde natal-transit bağını hayvanın mizacı, rutinleri, oyun/uyku düzeni, ev içi güveni, duyuları, diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden açıkla; hesap sahibine sahibi/refakatçisi olarak öneri ver.'
+      : '',
     'Cevabı daha önce üretilmiş kişisel astroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
     'Son soruya göre natal yerleşimler ile mevcut/periyot transitlerini birlikte oku; cevabı genel gökyüzü yorumu gibi verme.',
     'Kullanıcı özellikle sormadıkça "doğum haritana göre", "önceki yorumda", "hafızada" gibi kaynak gösteren ifadeleri tekrarlama; teknik bağı doğal cümle içinde kur.',
@@ -1589,32 +1668,43 @@ export async function createPersonalAstroFollowUp(params: {
   const userText = [
     `Profil: ${params.profileName}`,
     `Dönem: ${params.period}`,
-    `Falcı kimliği: ${params.assistantId}`,
-    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    `Yorumcu kimliği: ${params.assistantId}`,
+    personaContext ? `Yorumcu persona kartı:\n${personaContext}` : '',
     `Hitap politikası: ${addressPolicy}`,
     currentAstroContext ? `Güncel gökyüzü/transit JSON:\n${currentAstroContext}` : '',
     relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Önceki kişisel astroloji yorumu:\n${params.readingText}`,
     previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta natal-transit karşılaştırmasından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Doğum haritasına doğrudan atıf gerekiyorsa teknik ve doğal biçimde kullan. Yaklaşık 170-230 token içinde, son cümleyi tamamlayarak bitir.',
+    isAnimalAstro
+      ? `Yanıtı 2-3 kısa paragraf olarak ver: ilk paragrafta net cevap, sonra natal-transit karşılaştırmasından hayvanın dünyasına uygun 1-2 gerekçe ve sahibine uygulanabilir kısa tavsiye olsun. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`
+      : `Yanıtı 2-3 kısa paragraf olarak ver: ilk paragrafta net cevap, sonra natal-transit karşılaştırmasından 1-2 gerekçe ve uygulanabilir kısa tavsiye olsun. Doğum haritasına doğrudan atıf gerekiyorsa teknik ve doğal biçimde kullan. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
   ].filter(Boolean).join('\n\n');
   const data = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.68,
-      maxOutputTokens: 680,
+      maxOutputTokens: PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
     },
-  });
+  }, 45000, { usageMode: 'raw' });
   const text = completeWithPersonaClosing({
     text: cleanGeneratedTurkishText(data.text),
     assistantId: params.assistantId,
     domain: 'astro',
     seed: `${params.profileName}:${params.period}:${params.question}`,
     forceClosing: data.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
-  return { text, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(text, {
+      userText: params.question,
+      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+    }),
+    modelName: data.model,
+    usage: data.usage,
+  };
 }
 
 export async function createAstroRelationshipReading(params: {
@@ -1641,6 +1731,8 @@ export async function createAstroRelationshipReading(params: {
       compatibilityContext: params.compatibilityContext,
       memorySnippet: params.memorySnippet,
     }),
+    45000,
+    { usageMode: 'raw' },
   );
   const seed = `${params.mode}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}:${params.compatibilityContext || ''}`;
   const text = completeWithPersonaClosing({
@@ -1649,9 +1741,14 @@ export async function createAstroRelationshipReading(params: {
     domain: 'astro',
     seed,
     forceClosing: data.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(String(params.compatibilityContext || '')),
+    isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
   return {
-    text,
+    text: appendHealthProfessionalReminder(text, {
+      userText: String(params.compatibilityContext || ''),
+      isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+    }),
     sign: params.mode === 'family' ? 'Aile' : 'Uyum',
     timezoneUsed: 'Çoklu doğum verisi',
     periodKey: todayIsoDate(),
@@ -1694,6 +1791,11 @@ export async function createAstroRelationshipFollowUp(params: {
         );
   const systemText = [
     `Sen ${params.assistantLabel} adlı Türkçe konuşan kişisel astrologsun.`,
+    `Kendini tanıtma; "Ben ${params.assistantLabel}...", "${params.assistantLabel} olarak..." veya "ben astrolog olarak" gibi girişler yapma.`,
+    'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
+    'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
+    '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
+    'Kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
     'Cevabı yalnızca bu oturumdaki astrolojik uyum/aile okuması, verilen doğum verileri ve son soru üzerinden ver.',
     'Kahve, fincan, telve, tarot, kart, el çizgisi veya görsel dili kullanma.',
     'Pet bir özne varsa onu aile bireyi olarak ele al; romantik veya cinsel ilişki dili kurma.',
@@ -1702,31 +1804,40 @@ export async function createAstroRelationshipFollowUp(params: {
   const userText = [
     `Okuma tipi: ${relationshipModeLabel(params.mode)}`,
     params.compatibilityContext ? `Uyum bağlamı: ${params.compatibilityContext}` : '',
-    personaContext ? `Falcı persona kartı:\n${personaContext}` : '',
+    personaContext ? `Yorumcu persona kartı:\n${personaContext}` : '',
     relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Kişiler JSON:\n${JSON.stringify(subjectContext.map((subject) => subject.compact))}`,
     `İlişki/aile temasları JSON:\n${JSON.stringify(pairData)}`,
     `Ana yorum:\n${params.readingText}`,
     previousFollowUpText ? `Bu oturumdaki önceki soru-cevap akışı:\n${previousFollowUpText}` : '',
     `Kullanıcının sorusu:\n${params.question}`,
-    'Yanıtı 2 kısa paragraf olarak ver: ilk paragrafta net cevap, ikinci paragrafta doğum verisi/sinastri bağından 1-2 gerekçe ve uygulanabilir kısa öneri olsun. Yaklaşık 180-260 token içinde tamamla.',
+    `Yanıtı 2-3 kısa paragraf olarak ver: ilk paragrafta net cevap, sonra doğum verisi/sinastri bağından 1-2 gerekçe ve uygulanabilir kısa öneri olsun. ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
   ].filter(Boolean).join('\n\n');
   const data = await generateGeminiTextDirect({
     system_instruction: { parts: [{ text: systemText }] },
     contents: [{ role: 'user', parts: [{ text: userText }] }],
     generationConfig: {
       temperature: 0.68,
-      maxOutputTokens: 760,
+      maxOutputTokens: PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
     },
-  });
+  }, 45000, { usageMode: 'raw' });
   const text = completeWithPersonaClosing({
     text: cleanGeneratedTurkishText(data.text),
     assistantId: params.assistantId,
     domain: 'astro',
     seed: `${params.mode}:${params.question}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}`,
     forceClosing: data.finishReason === 'MAX_TOKENS',
+    allowHealthClosing: userAskedHealthConcern(params.question),
+    isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
-  return { text, modelName: data.model, usage: data.usage };
+  return {
+    text: appendHealthProfessionalReminder(text, {
+      userText: params.question,
+      isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+    }),
+    modelName: data.model,
+    usage: data.usage,
+  };
 }
 
 export async function createGeneralAstroReading(params: {

@@ -10,6 +10,7 @@ import type {
   ProfileGender,
   ProfileMemoryBundle,
   ProfileMemorySnippet,
+  ProfileTopicMemory,
   ReadingDerivedMemoryFile,
   ReadingSummary,
   ReadingSurface,
@@ -1404,7 +1405,11 @@ export async function loadProfileMemorySnippet(
       })),
     ],
     options?.semanticQuery,
-  );
+  ).map(sanitizeObservationForPrompt);
+  const userTopicsForPrompt = bundle.userStated.recurringTopics.map(sanitizeTopicForPrompt);
+  const readingTopicsForPrompt = bundle.readingDerived.recurringTopics.map(sanitizeTopicForPrompt);
+  const userObservationsForPrompt = userObservations.map(sanitizeObservationForPrompt);
+  const readingObservationsForPrompt = readingObservations.map(sanitizeObservationForPrompt);
 
   return {
     profileName: profile.displayName,
@@ -1444,8 +1449,8 @@ export async function loadProfileMemorySnippet(
       hasExactBirthTime: Boolean(birth.time && birth.timeKnown),
     },
     prominentRelations,
-    userStatedTopics: bundle.userStated.recurringTopics.map((item) => item.label).slice(0, 3),
-    userTopicGroups: bundle.userStated.recurringTopics
+    userStatedTopics: userTopicsForPrompt.map((item) => item.label).slice(0, 3),
+    userTopicGroups: userTopicsForPrompt
       .slice(-MAX_MEMORY_ITEMS)
       .map((item) => ({
         key: item.key,
@@ -1457,10 +1462,10 @@ export async function loadProfileMemorySnippet(
       })),
     userStatedPeople: userPeople.map((item) => item.label).slice(0, 3),
     userStatedPatterns: bundle.userStated.emotionalPatterns.map((item) => item.label).slice(0, 3),
-    userObservations,
+    userObservations: userObservationsForPrompt,
     userCategoryCandidates: bundle.userStated.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
-    readingTopics: bundle.readingDerived.recurringTopics.map((item) => item.label).slice(0, 3),
-    readingTopicGroups: bundle.readingDerived.recurringTopics
+    readingTopics: readingTopicsForPrompt.map((item) => item.label).slice(0, 3),
+    readingTopicGroups: readingTopicsForPrompt
       .slice(-10)
       .map((item) => {
         const fallback = topicGroupFor(item.key, item.label);
@@ -1475,7 +1480,7 @@ export async function loadProfileMemorySnippet(
       }),
     readingPeople: readingPeople.map((item) => item.label).slice(0, 3),
     readingPatterns: bundle.readingDerived.emotionalPatterns.map((item) => item.label).slice(0, 3),
-    readingObservations,
+    readingObservations: readingObservationsForPrompt,
     readingCategoryCandidates: bundle.readingDerived.categoryCandidates.slice(0, MAX_MEMORY_ITEMS),
     usedLifeEvents: bundle.readingDerived.usedLifeEvents || [],
     usedSurfaceCues: bundle.readingDerived.usedSurfaceCues || [],
@@ -1504,6 +1509,51 @@ function selectRelevantObservations(observations: MemoryObservation[], semanticQ
     })
     .slice(0, 8)
     .map(({ item }) => item);
+}
+
+const MBTI_RESULT_CODE_RE = /\b(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b/iu;
+const TEST_SOURCE_RE = /\b(?:MBTI\s+Kişilik\s+Testi|Kişilik\s+Testi|Uyumluluk\s+Testi|Beş\s+Faktör\s+Testi|Bağlanma\s+Stili\s+Testi|Değerler\s+Pusulası|Stresle\s+Başa\s+Çıkma\s+Testi)\b/iu;
+const MBTI_RESULT_CODE_REPLACE = /\b(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b/giu;
+const TEST_SOURCE_REPLACE = /\b(?:MBTI\s+Kişilik\s+Testi|Kişilik\s+Testi|Uyumluluk\s+Testi|Beş\s+Faktör\s+Testi|Bağlanma\s+Stili\s+Testi|Değerler\s+Pusulası|Stresle\s+Başa\s+Çıkma\s+Testi)\b/giu;
+const TEST_RESULT_LEAD_RE = /\b[^.!?]{0,80}?\bsonucu\s*:?\s*[^.!?]{0,80}[.!?]?\s*/giu;
+
+function isTestMemoryText(text?: string | null) {
+  const value = text || '';
+  return TEST_SOURCE_RE.test(value) || MBTI_RESULT_CODE_RE.test(value);
+}
+
+function sanitizeTestMemoryTextForPrompt(text?: string | null) {
+  if (!text) return '';
+  const cleaned = text
+    .replace(TEST_RESULT_LEAD_RE, '')
+    .replace(TEST_SOURCE_REPLACE, 'kişilik eğilimi')
+    .replace(MBTI_RESULT_CODE_REPLACE, 'kişilik eğilimi')
+    .replace(/\b(?:test sonucu|kişilik testi)\b/giu, 'kişisel eğilim')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned || 'Profilde bazı kişisel eğilimler daha belirgin görünüyor.';
+}
+
+function sanitizeTopicForPrompt(item: ProfileTopicMemory): ProfileTopicMemory {
+  if (!isTestMemoryText(`${item.label} ${item.detailGroup || ''} ${item.subgroup || ''}`)) return item;
+  return {
+    ...item,
+    label: sanitizeTestMemoryTextForPrompt(item.detailGroup || item.label),
+    subgroup: 'kişisel eğilim',
+    detailGroup: undefined,
+  };
+}
+
+function sanitizeObservationForPrompt(item: MemoryObservation): MemoryObservation {
+  if (!item.key.startsWith('test:') && !isTestMemoryText(`${item.title} ${item.summary}`)) return item;
+  return {
+    ...item,
+    title: 'Kişisel eğilim',
+    summary: sanitizeTestMemoryTextForPrompt(item.summary || item.title),
+    category: 'profil',
+    subgroup: 'kişisel eğilim',
+    detailGroup: undefined,
+  };
 }
 
 export async function appendUserConversationMemory(profileId: string, text: string): Promise<void> {
@@ -1894,7 +1944,7 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
     return periodLabel ? `Kişiye Özel Astroloji - ${periodLabel}` : 'Kişiye Özel Astroloji';
   }
   if (reading.readingType === 'personal-numerology') {
-    return 'Kişiye Özel Numeroloji';
+    return periodLabel ? `Kişiye Özel Numeroloji - ${periodLabel}` : 'Temel Numeroloji Haritası';
   }
   if (reading.readingType === 'birth-chart') {
     return 'Doğum Haritası';
@@ -1915,14 +1965,14 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
     return 'Astrolojik Aile Okuması';
   }
   if (reading.readingType === 'palm') {
-    return 'El Falı';
+    return 'El Okuması';
   }
   if (reading.readingType === 'coffee') {
-    if (reading.coffeeMode === 'ai-brew') return 'Kahve Falı - Benim yerime iç';
-    if (surfaces.length === 2) return 'Kahve Falı - Fincan ve Tabak';
-    if (surfaces[0] === 'cup') return 'Kahve Falı - Fincan';
-    if (surfaces[0] === 'saucer') return 'Kahve Falı - Tabak';
-    return 'Kahve Falı';
+    if (reading.coffeeMode === 'ai-brew') return 'Kahve Yorumu - Benim yerime iç';
+    if (surfaces.length === 2) return 'Kahve Yorumu - Fincan ve Tabak';
+    if (surfaces[0] === 'cup') return 'Kahve Yorumu - Fincan';
+    if (surfaces[0] === 'saucer') return 'Kahve Yorumu - Tabak';
+    return 'Kahve Yorumu';
   }
-  return 'Fal';
+  return 'Okuma';
 }

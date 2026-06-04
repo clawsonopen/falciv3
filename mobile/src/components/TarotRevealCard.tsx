@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, Image, StyleSheet, View } from 'react-native';
-import { TAROT_BACK_IMAGE, TAROT_FRONT_IMAGE_MAP } from '../data/tarotImageMap';
+import { getTarotDeckImages } from '../data/tarotImageMap';
 
 const BORDER_IMAGE = require('../../assets/border.png');
 
@@ -8,13 +8,15 @@ type Props = {
   cardName: string;
   isReversed: boolean;
   nonce: number;
+  deckId?: string | null;
 };
 
-export function TarotRevealCard({ cardName, isReversed, nonce }: Props) {
+export function TarotRevealCard({ cardName, isReversed, nonce, deckId }: Props) {
   const flip = useRef(new Animated.Value(0)).current;
   const zoom = useRef(new Animated.Value(0.88)).current;
 
-  const frontImage = useMemo(() => TAROT_FRONT_IMAGE_MAP[cardName] || TAROT_BACK_IMAGE, [cardName]);
+  const deckImages = useMemo(() => getTarotDeckImages(deckId), [deckId]);
+  const frontImage = useMemo(() => deckImages.front[cardName] || deckImages.back, [cardName, deckImages]);
 
   useEffect(() => {
     flip.setValue(0);
@@ -72,7 +74,7 @@ export function TarotRevealCard({ cardName, isReversed, nonce }: Props) {
             },
           ]}
         >
-          <Image source={TAROT_BACK_IMAGE} style={styles.cardImage} resizeMode="cover" />
+          <Image source={deckImages.back} style={styles.cardImage} resizeMode="cover" />
           <Image source={BORDER_IMAGE} style={styles.borderOverlay} resizeMode="stretch" />
         </Animated.View>
 
@@ -137,4 +139,3 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '180deg' }],
   },
 });
-

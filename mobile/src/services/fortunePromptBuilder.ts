@@ -446,7 +446,6 @@ export function buildFortunePrompt(params: {
       surfaceRules.push('- Bu turda kullanıcı el okuması için insan eli/avuç içi görseli doğrulandı.');
       surfaceRules.push('- Fincan veya tabak görmüş gibi konuşma.');
       surfaceRules.push('- Yorumu avuç içi çizgileri, parmak yerleşimi ve el formu üzerinden kur.');
-      if (params.palmValidation && (!params.palmValidation.isInnerPalm || !params.palmValidation.handVisibleEnough)) surfaceRules.push('- Doğrulama görselin kısmi veya yeterince net olmayabileceğini söylüyor; bunu kesin hata sayma, yorumu temkinli ve kibar kur.');
     } else if (params.validatedSurfaces.length === 1 && params.validatedSurfaces[0] === 'cup') {
       surfaceRules.push('## Surface Guard', '- Bu turda yalnızca fincan içi doğrulandı.', '- Tabak görmüş gibi konuşma.', '- Yorumu fincan içi derinliği, kenar akışı ve iç yüzey üzerinden kur.');
     } else if (params.validatedSurfaces.length === 1 && params.validatedSurfaces[0] === 'saucer') {

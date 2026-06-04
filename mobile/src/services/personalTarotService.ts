@@ -21,6 +21,7 @@ import {
 import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile } from './animalProfilePrompt';
 import { formatPromptMemoryPack } from './memoryPromptPackFormatter';
 import { formatPetMentionMemoryContext, formatStandardPersonalMemoryContext } from './personalMemoryPromptContext';
+import { cleanFollowUpReply, FOLLOW_UP_CHAT_CONTRACT } from './followUpResponseService';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 
@@ -381,14 +382,17 @@ export async function createPersonalTarotFollowUp(params: {
   memorySnippet?: ProfileMemorySnippet | null;
   usedClosings?: string[];
 }) {
-  const systemText = buildBaseSystem({
-    assistantId: params.assistantId,
-    assistantLabel: params.assistantLabel,
-    profileName: params.profileName,
-    memorySnippet: params.memorySnippet,
-    usedClosings: params.usedClosings,
-    isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-  });
+  const systemText = [
+    buildBaseSystem({
+      assistantId: params.assistantId,
+      assistantLabel: params.assistantLabel,
+      profileName: params.profileName,
+      memorySnippet: params.memorySnippet,
+      usedClosings: params.usedClosings,
+      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+    }),
+    FOLLOW_UP_CHAT_CONTRACT,
+  ].join('\n');
   const conversation = (params.previousFollowUps || [])
     .map((message) => `${message.role === 'user' ? 'Kullanıcı' : 'Yorumcu'}: ${message.text}`)
     .join('\n');
@@ -429,7 +433,7 @@ export async function createPersonalTarotFollowUp(params: {
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(completed.text, {
+      appendHealthProfessionalReminder(cleanFollowUpReply(completed.text), {
         userText: params.question,
         isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
       }),

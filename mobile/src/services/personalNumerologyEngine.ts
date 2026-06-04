@@ -21,6 +21,7 @@ import {
 import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile, isAnimalProfile, isAnimalMemorySnippet } from './animalProfilePrompt';
 import { formatPromptMemoryPack } from './memoryPromptPackFormatter';
 import { formatPetMentionMemoryContext, formatStandardPersonalMemoryContext } from './personalMemoryPromptContext';
+import { cleanFollowUpReply, FOLLOW_UP_CHAT_CONTRACT } from './followUpResponseService';
 
 export type PersonalNumerologyMode = 'core' | 'daily' | 'weekly' | 'monthly';
 export type PersonalNumerologyPeriod = Exclude<PersonalNumerologyMode, 'core'>;
@@ -1070,6 +1071,7 @@ export async function createPersonalNumerologyFollowUp(params: {
     'Persona sesini koru; kişiye özel numerolojide yorumcunun aynı üslubu, ritmi, hitabı ve tavsiye dili hissedilsin.',
     'Numeroloji cevabında kahve, fincan, telve, tabak, avuç içi, el çizgisi, görsel, kart, tarot veya başka sembolik araç dili kullanma; sayılar ve soru bağlamı üzerinden konuş.',
     'Cevabı daha önce üretilmiş kişisel numeroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
+    FOLLOW_UP_CHAT_CONTRACT,
     'Kullanıcı özellikle sormadıkça önceki yorum, profil, hafıza veya sayı haritası kaynağını açıkça anma.',
     'Hitap modunu değiştirme; aynı yanıtta "canım", "tatlım", "güzelim" gibi şefkat hitaplarını tekrarlama.',
     'Önceki follow-up cevaplarıyla çelişme; son soru önceki bir soruya gönderme yapıyorsa o bağı sürdür.',
@@ -1105,7 +1107,7 @@ export async function createPersonalNumerologyFollowUp(params: {
       isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
     });
   const text = sanitizeGenderedAddress(
-    appendHealthProfessionalReminder(completed.text, {
+    appendHealthProfessionalReminder(cleanFollowUpReply(completed.text), {
       userText: params.question,
       isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
     }),

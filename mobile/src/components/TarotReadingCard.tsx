@@ -18,6 +18,7 @@ interface TarotReadingCardProps {
   nonce: number;
   text: string;
   width?: number;
+  deckId?: string | null;
 }
 
 const TarotReadingCard: React.FC<TarotReadingCardProps> = ({ 
@@ -25,7 +26,8 @@ const TarotReadingCard: React.FC<TarotReadingCardProps> = ({
   isReversed,
   nonce,
   text,
-  width = Dimensions.get('window').width * 0.85 
+  width = Dimensions.get('window').width * 0.85,
+  deckId,
 }) => {
   const height = (width * 650) / 400;
   
@@ -72,7 +74,7 @@ const TarotReadingCard: React.FC<TarotReadingCardProps> = ({
         {/* İçerik Düzeni */}
         <View style={styles.content}>
           <View style={styles.cardArea}>
-            <TarotRevealCard cardName={cardName} isReversed={isReversed} nonce={nonce} />
+            <TarotRevealCard cardName={cardName} isReversed={isReversed} nonce={nonce} deckId={deckId} />
           </View>
 
           <View style={styles.scrollContent}>

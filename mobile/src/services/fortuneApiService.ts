@@ -322,8 +322,8 @@ async function classifyPalmImage(imageData: string) {
   );
 }
 
-function isHumanHandVisual(result: PalmClassification) {
-  return result.visualType === 'human_palm' || result.visualType === 'human_hand_back' || Boolean(result.handVisibleEnough);
+function isHumanPalmVisual(result: PalmClassification) {
+  return result.visualType === 'human_palm' && result.isInnerPalm === true;
 }
 
 function isAnimalPawVisual(result: PalmClassification) {
@@ -379,13 +379,10 @@ async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileM
     if (!isAnimalPawVisual(result)) {
       throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Patinin daha net göründüğü bir ${expectedLabel} fotoğrafıyla yeniden deneyelim.`, usage);
     }
-    if (isClearlyDifferentPetSpecies(result, expectedSpecies)) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin; profil ${expectedLabel} olarak kayıtlı fakat ${speciesTr(result.animalSpecies)} patisi yükledin. ${expectedLabel} patisinin daha net göründüğü bir fotoğraf yükleyelim.`, usage);
-    }
     return { validation: result, usage };
   }
-  if (!isHumanHandVisual(result)) {
-    throw jsonPayloadError(`El okuması istemiştin fakat ${loadedLabel} yükledin. Avuç içi ya da el çizgilerinin seçildiği daha net bir fotoğrafla yeniden deneyelim.`, usage);
+  if (!isHumanPalmVisual(result)) {
+    throw jsonPayloadError(`El okuması için yalnızca insan avuç içi kabul edilir; el sırtı, dış yüz veya başka bir görsel yüklenirse okuyamam. Avuç içi çizgilerinin seçildiği net bir fotoğrafla yeniden deneyelim.`, usage);
   }
   return { validation: result, usage };
 }
@@ -629,7 +626,9 @@ function buildContents(params: {
         ? 'Yalnızca fincan içi görselini inceleyip yoruma devam et.'
         : surfaces.length === 1 && surfaces[0] === 'saucer'
           ? 'Yalnızca kahve tabağı görselini inceleyip yoruma devam et.'
-          : 'Doğrulanmış fincan ve/veya tabak görsellerini inceleyip yoruma devam et.';
+          : surfaces.length
+            ? 'Doğrulanmış fincan ve/veya tabak görsellerini inceleyip yoruma devam et.'
+            : 'Yüklenen kahve görsellerini doğrudan inceleyip yoruma devam et; teknik slot adlarına göre değil, görselde ne görüyorsan ona göre oku.';
     const parts: Array<Record<string, unknown>> = [{ text: [promptText, buildCoffeeMultiImageContinuityInstruction(params.images)].filter(Boolean).join('\n') }];
     if (includeCup && params.images.cup) {
       parts.push({ text: 'Kahve görseli 1 yüklendi. Bu teknik slot fincan, tabak veya fincan+tabak olabilir; doğrulanmış yüzeye göre oku.' });
@@ -655,12 +654,7 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
     let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
     let coffeeImageAnalyses: CoffeeImageAnalysis[] | null = null;
     let palmValidation: PalmClassification | null = null;
-    if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
-      const result = await validateCoffeeImages(images);
-      addUsage(usage, result.usage);
-      validatedSurfaces = result.surfaces;
-      coffeeImageAnalyses = result.analyses;
-    } else if (!body.isFollowUp && body.readingType === 'palm') {
+    if (!body.isFollowUp && body.readingType === 'palm') {
       const result = await validatePalmImage(images, body.memorySnippet);
       addUsage(usage, result.usage);
       validatedSurfaces = ['palm'];

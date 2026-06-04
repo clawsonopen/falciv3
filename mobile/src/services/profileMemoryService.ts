@@ -1104,6 +1104,7 @@ export async function loadAccountState(): Promise<AccountState> {
       reading.readingType === 'dream-interpretation' ||
       reading.readingType === 'personal-tarot' ||
       reading.readingType === 'personality-test' ||
+      reading.readingType === 'general-astro' ||
       reading.readingType === 'astro-compatibility' ||
       reading.readingType === 'astro-family'
         ? reading.readingType
@@ -1124,6 +1125,7 @@ export async function loadAccountState(): Promise<AccountState> {
       reading.readingType === 'dream-interpretation' ||
       reading.readingType === 'personal-tarot' ||
       reading.readingType === 'personality-test' ||
+      reading.readingType === 'general-astro' ||
       reading.readingType === 'astro-compatibility' ||
       reading.readingType === 'astro-family'
         ? undefined
@@ -3063,6 +3065,9 @@ export function getReadingTypeLabel(reading: ReadingSummary): string {
   }
   if (reading.readingType === 'personality-test') {
     return reading.testResult?.testName ? `Test - ${reading.testResult.testName}` : 'Kişilik Testi';
+  }
+  if (reading.readingType === 'general-astro') {
+    return periodLabel ? `Genel Astroloji - ${periodLabel}` : 'Genel Astroloji';
   }
   if (reading.readingType === 'astro-compatibility') {
     return 'Astrolojik Uyum Analizi';

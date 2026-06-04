@@ -27,6 +27,7 @@ import {
   generateLocalGemmaText,
   type LocalGemmaModelId,
 } from './localGemmaService';
+import { cleanFollowUpReply, FOLLOW_UP_CHAT_CONTRACT } from './followUpResponseService';
 
 export type AstroPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
@@ -1422,6 +1423,7 @@ export async function createBirthChartFollowUp(params: {
   const systemText = [
     'Seçili persona sıcak, modern ve kişisel astrolog sesini belirler.',
     'Cevabı mevcut doğum haritası yorumu ve soru-cevap akışı üzerinden ver.',
+    FOLLOW_UP_CHAT_CONTRACT,
     'Kendini tekrar tanıtma; kullanıcıya görünen metinde yorumcu/persona adı, public label veya rol tanıtımı yazma.',
     'Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan.',
     'Sağlık ve finans alanlarında spesifik tavsiye verme. İnsan sağlığıyla ilgili endişede doktora/uygun sağlık uzmanına, hayvan sağlığıyla ilgili endişede veterinere görünmeyi nazikçe öner.',
@@ -1455,7 +1457,7 @@ export async function createBirthChartFollowUp(params: {
   );
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(cleanGeneratedTurkishText(data.text))), {
+      appendHealthProfessionalReminder(cleanFollowUpReply(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(cleanGeneratedTurkishText(data.text)))), {
         userText: params.question,
         isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
       }),
@@ -1851,6 +1853,7 @@ export async function createPersonalAstroFollowUp(params: {
       ? 'Evcil hayvan profilde natal-transit bağını hayvanın mizacı, rutinleri, oyun/uyku düzeni, ev içi güveni, duyuları, diğer hayvanlarla ilişkisi ve sahibiyle bağı üzerinden açıkla; hesap sahibine sahibi/refakatçisi olarak öneri ver.'
       : '',
     'Cevabı daha önce üretilmiş kişisel astroloji yorumu, mevcut soru-cevap akışı ve kullanıcının son sorusu üzerinden ver.',
+    FOLLOW_UP_CHAT_CONTRACT,
     'Son soruya göre natal yerleşimler ile mevcut/periyot transitlerini birlikte oku; cevabı genel gökyüzü yorumu gibi verme.',
     'Kullanıcı özellikle sormadıkça "doğum haritana göre", "önceki yorumda", "hafızada" gibi kaynak gösteren ifadeleri tekrarlama; teknik bağı doğal cümle içinde kur.',
     'Hitap modunu değiştirme; aynı yanıtta "canım", "tatlım", "güzelim" gibi şefkat hitaplarını tekrarlama.',
@@ -1914,7 +1917,7 @@ export async function createPersonalAstroFollowUp(params: {
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text.text, {
+      appendHealthProfessionalReminder(cleanFollowUpReply(text.text), {
         userText: params.question,
         isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
       }),
@@ -1963,7 +1966,7 @@ export async function createAstroRelationshipReading(params: {
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text.text, {
+      appendHealthProfessionalReminder(cleanFollowUpReply(text.text), {
         userText: String(params.compatibilityContext || ''),
         isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
       }),
@@ -2021,6 +2024,7 @@ export async function createAstroRelationshipFollowUp(params: {
     '"Şunu ye/iç geçer", "kesin geçecek", "kesin iyileşecek", ilaç/doz/tedavi/beslenme reçetesi veya kesin sonuç dili yasak.',
     'Kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenme; "aklıma geldi", "şimdi aklıma geldi" gibi ifadeler kullanma.',
     'Cevabı yalnızca bu oturumdaki astrolojik uyum/aile okuması, verilen doğum verileri ve son soru üzerinden ver.',
+    FOLLOW_UP_CHAT_CONTRACT,
     'Kahve, fincan, telve, tarot, kart, el çizgisi veya görsel dili kullanma.',
     'Pet bir özne varsa onu aile bireyi olarak ele al; romantik veya cinsel ilişki dili kurma.',
     'Önceki cevaplarla çelişme, son soruya doğrudan cevap ver.',
@@ -2056,7 +2060,7 @@ export async function createAstroRelationshipFollowUp(params: {
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text.text, {
+      appendHealthProfessionalReminder(cleanFollowUpReply(text.text), {
         userText: params.question,
         isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
       }),

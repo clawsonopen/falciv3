@@ -4,7 +4,7 @@ Bu doküman restore sürecinin ana checklist/pusulasıdır. Adımlar burada tutu
 
 Kontrol ve karşılaştırma için ayrıca aynı klasördeki `31 MAYIS SILINEN KURTARMA HAKKINDA CHAT.txt` dosyası kullanılmalı. Bu dosya bu restore dokümanından önce oluşturuldu; içinde 25 Mayıs son backup bilgisi, D drive recovery konumu, silinen app'i yaparkenki chatler/session logları ve başka path notları olabilir. Restore sırasında yalnızca 29-31 Mayıs loglarına kilitlenmeden, gerektiğinde bu eski chat dosyasındaki 25 Mayıs backup ve recovery path bilgileriyle çapraz kontrol yapılacak.
 
-Geçici directive notu: Restore süreci tamamen kapanıp normal geliştirmeye dönüldüğünde `AGENTS.md` içindeki “Restore Çalışması Direktifi” bölümü kaldırılmalı. Bu, final cleanup adımlarından biridir.
+Final notu: Restore süreci kapatılırken `AGENTS.md` içindeki geçici “Restore Çalışması Direktifi” bölümü kaldırıldı. Bu doküman artık restore arşivi ve yapılan işlerin kaydı olarak tutuluyor.
 
 Haklısın. Ben sıradaki adımı bağlama göre değiştirince takip çizgisi dağılıyor. Bundan sonra restore işini şu **tek ana doküman/checklist** üzerinden götürelim. Hiçbir başlığı “unutulmuş” saymayacağız; sadece durumunu değiştireceğiz.
 
@@ -344,26 +344,15 @@ Uygulananlar:
 - `/general-astro` endpoint'inin zorunlu backend endpoint'i olmadığı, mobil tarafta opsiyonel cache denemesi olduğu belirtildi.
 
 10. **Final clean git / commit / push**
-Durum: Henüz final değil.
+Durum: Uygulandı.
 
-Şu ana kadar ara restore commit’leri atıldı ve pushlandı. Ama tüm restore bitince:
-- son genel testler
-- temiz working tree
-- final commit/push
-- mümkünse restore summary dokümanı
+Yapıldı:
+- Son genel testler çalıştırıldı.
+- Restore ana maddeleri ve remembered closing alt fazı kapatıldı.
+- Geçici restore direktifi `AGENTS.md` içinden kaldırıldı.
+- Restore dokümanı final arşiv/kapanış kaydı olarak güncellendi.
+- Final commit/push bu maddeyle birlikte yapılacak.
 
 **Bundan Sonra Sıra**
 
-Benim önerdiğim tek sıra artık şu olsun:
-
-1. `profileMemoryService deep restore / küçük son ayarlar`
-2. Rüya yorum akışı
-3. El/pati görsel doğrulama yumuşatma
-4. Kısa okuma genişletme sistemi: kahve/el
-5. Merkezi `genderedAddressSanitizer + persona closing` yayılımı
-6. Astro ailesi kalan son kontrol
-7. Token usage ana ekran/genel sayaçlar
-8. Backend agent endpoint/cache kontrolü
-9. Final test, commit, push, restore kapanış özeti
-
-Bundan sonra sen “sıradaki” dediğinde bu listenin en üstteki açık maddesinden ilerleyeceğim.
+Restore checklist'i kapandı. Bundan sonra normal geliştirme veya yeni QA/iyileştirme işleri ayrı iş sırası olarak ele alınmalı.

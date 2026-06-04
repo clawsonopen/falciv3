@@ -1,19 +1,5 @@
 # FALCI v3 — Genel Proje Kuralları
 
-## Restore Çalışması Direktifi
-
-Geçici not: Restore tamamlanıp normal geliştirmeye dönülünce bu bölüm `AGENTS.md` dosyasından kaldırılmalı. Kalıcı proje kuralı değil, yalnızca 31 Mayıs kurtarma sürecinin çalışma pusulasıdır.
-
-31 Mayıs silinmesi/bozuk restore sonrası kurtarma işlerinde ana ilerleme kaynağı:
-- `C:\Users\ozany\Documents\FALCI v3\FALCI v3 Restore Durum Dokümanı.md`
-
-Restore adımlarını bu dokümandaki açık/kapanmış maddelere göre sırayla yürüt. Yeni bulunan her sonuç, uygulanan commit ve açık kalan madde bu dokümanda güncel tutulmalı; paralel listeler oluşturarak restore sırasını dağıtma.
-
-Kontrol ve kaynak karşılaştırması için ayrıca şu eski chat dosyasını kullan:
-- `C:\Users\ozany\Documents\FALCI v3\31 MAYIS SILINEN KURTARMA HAKKINDA CHAT.txt`
-
-Bu eski chat, `FALCI v3 Restore Durum Dokümanı.md` oluşturulmadan önceki kurtarma konuşmasıdır. İçinde 25 Mayıs son backup bilgisi, D drive recovery yolu, silinen app'i yaparkenki chat/session yönlendirmeleri ve başka path notları bulunabilir. Sadece 29-31 Mayıs loglarına kilitlenme; gerektiğinde bu dosyadaki 25 Mayıs backup/recovery path bilgileriyle karşılaştır.
-
 ## ⚠️ KRİTİK: Türkçe Karakter Kuralları (Tüm Proje)
 
 Bu proje Türkçe bir uygulamadır. **Tüm kullanıcıya görünen metinlerde** doğru UTF-8 Türkçe karakterler zorunludur.

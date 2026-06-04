@@ -206,7 +206,8 @@ async function validateCoffeeImages(images: FortuneImages) {
   const analyses: CoffeeImageAnalysis[] = [];
   const usage = emptyUsage();
   let suggestedPalm = false;
-  let sawCoffeeSurfaceWithoutGrounds = false;
+  const rejectedLabels: string[] = [];
+  const groundlessLabels: string[] = [];
   const clearlyGroundlessLabels: string[] = [];
   let invalidReason = '';
   let loadedCoffeeImageCount = 0;
@@ -229,6 +230,7 @@ async function validateCoffeeImages(images: FortuneImages) {
     const isCoffeeRelevant = Boolean(result.isCoffeeRelevant || surfaceCode || hasGrounds);
     if (!isCoffeeRelevant) {
       suggestedPalm = suggestedPalm || result.suggestedReadingType === 'palm';
+      rejectedLabels.push(COFFEE_SLOT_LABELS[slot]);
       invalidReason ||= `${COFFEE_SLOT_LABELS[slot]} kahve yorumu için uygun görünmedi.`;
       continue;
     }
@@ -236,11 +238,12 @@ async function validateCoffeeImages(images: FortuneImages) {
       surfaceCode = 'fincan+tabak';
     }
     if (!surfaceCode) {
+      rejectedLabels.push(COFFEE_SLOT_LABELS[slot]);
       invalidReason ||= `${COFFEE_SLOT_LABELS[slot]} fincan, tabak veya fincan+tabak olarak okunamadı.`;
       continue;
     }
     if (!hasGrounds) {
-      sawCoffeeSurfaceWithoutGrounds = true;
+      groundlessLabels.push(COFFEE_SLOT_LABELS[slot]);
       clearlyGroundlessLabels.push(COFFEE_SLOT_LABELS[slot]);
       continue;
     }
@@ -255,6 +258,20 @@ async function validateCoffeeImages(images: FortuneImages) {
   }
   if (!loadedCoffeeImageCount) {
     throw jsonPayloadError('Kahve yorumu için en az bir telveli kahve görseli yükle.', usage);
+  }
+  if (rejectedLabels.length) {
+    throw jsonPayloadError(
+      suggestedPalm
+        ? 'Bu görsel kahve telvesinden çok avuç içi gibi görünüyor; kahve yorumu için telveli fincan veya tabak fotoğrafı yükle.'
+        : `${rejectedLabels.join(', ')} telveli fincan veya tabak içermiyor. Kahve yorumu için en az bir telve izi görünen fincan ya da tabak fotoğrafını yeniden yükle.`,
+      usage,
+    );
+  }
+  if (groundlessLabels.length) {
+    throw jsonPayloadError(
+      `${groundlessLabels.join(', ')} telvesiz/temiz görünüyor. Kahve yorumu için fincan veya tabakta telve izi, damla, akıntı ya da kalıntı görünen fotoğraf yükle.`,
+      usage,
+    );
   }
   if (!analyses.length && (invalidReason || suggestedPalm)) {
     throw jsonPayloadError(
@@ -272,9 +289,7 @@ async function validateCoffeeImages(images: FortuneImages) {
   }
   if (!surfaces.length) {
     throw jsonPayloadError(
-      sawCoffeeSurfaceWithoutGrounds
-        ? 'Bu fincan veya tabakta telve görünmüyor canım. Kahve yorumu için en azından küçük bir telve izi, damla ya da akıntı görünmeli.'
-        : 'Kahve yorumu için uygun bir fincan içi veya tabak görseli bulamadım canım. Telveyi daha net gösteren bir kareyle yeniden deneyelim.',
+      'Kahve yorumu için uygun bir telveli fincan veya tabak görseli bulamadım. Telveyi daha net gösteren bir kareyle yeniden deneyelim.',
       usage,
     );
   }
@@ -362,7 +377,7 @@ function speciesTr(species?: string | null, fallback?: string | null) {
 async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileMemorySnippet | null) {
   const image = images.palm;
   const usage = emptyUsage();
-  if (!image) throw jsonPayloadError('El okuması için fotoğraf gerekli.', usage);
+  if (!image) throw jsonPayloadError('El/pati okuması için fotoğraf gerekli.', usage);
   let result: PalmClassification;
   try {
     const classified = await classifyPalmImage(image);
@@ -377,7 +392,7 @@ async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileM
     const expectedSpecies = normalizePetSpecies(memorySnippet?.petSpecies);
     const expectedLabel = speciesTr(expectedSpecies, memorySnippet?.petSpecies);
     if (!isAnimalPawVisual(result)) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Patinin daha net göründüğü bir ${expectedLabel} fotoğrafıyla yeniden deneyelim.`, usage);
+      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Pati okumasında yalnızca hayvan patisi fotoğrafı kabul edilir; patinin net göründüğü bir ${expectedLabel} fotoğrafıyla yeniden deneyelim.`, usage);
     }
     return { validation: result, usage };
   }
@@ -654,7 +669,12 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
     let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
     let coffeeImageAnalyses: CoffeeImageAnalysis[] | null = null;
     let palmValidation: PalmClassification | null = null;
-    if (!body.isFollowUp && body.readingType === 'palm') {
+    if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
+      const result = await validateCoffeeImages(images);
+      addUsage(usage, result.usage);
+      validatedSurfaces = result.surfaces;
+      coffeeImageAnalyses = result.analyses;
+    } else if (!body.isFollowUp && body.readingType === 'palm') {
       const result = await validatePalmImage(images, body.memorySnippet);
       addUsage(usage, result.usage);
       validatedSurfaces = ['palm'];

@@ -7,6 +7,7 @@ import { sanitizePublicReadingLanguage } from './personaClosingService';
 import { AGENT_API_URL } from '../config/constants';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { appendReadingSummary, loadAccountState } from './profileMemoryService';
+import { addPersonalTokenUsage } from './tokenLedgerService';
 
 const SIGN_ORDER = [
   'aries',
@@ -42,6 +43,12 @@ const PERIOD_TR: Record<Exclude<AstroPeriod, 'yearly'>, string> = {
   daily: 'günlük',
   weekly: 'haftalık',
   monthly: 'aylık',
+};
+
+const PERIOD_TITLE_TR: Record<Exclude<AstroPeriod, 'yearly'>, string> = {
+  daily: 'Günlük',
+  weekly: 'Haftalık',
+  monthly: 'Aylık',
 };
 
 const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
@@ -374,6 +381,15 @@ async function generateGeneralAstroWithGemini(params: {
   const response = await generateGeminiTextDirect(payload, 45000, { usageMode: 'raw' });
   const text = response.text.trim();
   if (!text) throw new Error('Genel astro Gemini yanıtı boş döndü.');
+  await addPersonalTokenUsage({
+    modelName: response.model || 'gemini-2.5-flash-lite',
+    readingName: `Genel Astro ${PERIOD_TITLE_TR[params.period]}`,
+    textInputTokens: response.usage.inputTokens || 0,
+    outputTokens: response.usage.outputTokens || 0,
+    rawPromptTokens: response.usage.inputTokens || 0,
+    rawOutputTokens: response.usage.outputTokens || 0,
+    rawTotalTokens: response.usage.totalTokens || (response.usage.inputTokens || 0) + (response.usage.outputTokens || 0),
+  }).catch(() => {});
   return {
     text,
     modelName: response.model || 'gemini-2.5-flash-lite',

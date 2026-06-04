@@ -289,16 +289,29 @@ Uygulananlar:
 - Suzan identity kaynağındaki `Kisa karşılama` -> `Kısa karşılama` düzeltildi ve generated dosya yeniden üretildi.
 
 8. **Token usage ana ekran / genel sayaçlar**
-Durum: Açık veya kısmen restore edilmiş olabilir, net kontrol gerekiyor.
+Durum: Uygulandı.
 
 Sen özellikle demiştin:
 “usage genel token sayaçları main screen’de görünüyordu.”
 
-Bakılacaklar:
+Bakılanlar:
 - Ana ekranda genel token usage görünümü var mı
 - Okuma bazlı usage yazılıyor mu
 - Görsel tokenları, metin tokenları, input/output ayrımı duruyor mu
 - Multi-image coffee sonrası token hesabı doğru mu
+- Gemini embedding ve hafıza analizi usage satırları ana tabloya düşüyor mu
+
+Bulgu:
+- `HomeScreen` içinde “Genel Token Sayaçları” paneli mevcut.
+- Panel `tokenLedgerService` üzerinden satırları okuyor; image input, text input, output, total, raw prompt/output/total, USD/TRY ve safety K simülasyon toplamlarını gösteriyor.
+- Kahve/el/pati akışı `useSession` üzerinden görsel token tahmini + text/output ayrımıyla ledger’a yazıyor; çoklu kahve fotoğrafı akışı da aynı image token ayrımına dahil.
+- Rüya, tarot, kişisel astro, ilişki astro, doğum haritası ve numeroloji ekranları okuma/follow-up usage satırlarını yazıyor.
+- Hafıza analizi ve Gemini embedding çağrıları da ayrı “Hafıza Analizi”, “Hafıza Embedding” ve “Hafıza Arama Embedding” satırları olarak genel tabloya yazılıyor.
+- Genel astro Gemini üretimi raw usage alıyordu ama ledger’a yazmıyordu.
+
+Uygulananlar:
+- Genel astro Gemini üretimi artık `Genel Astro Günlük/Haftalık/Aylık` adıyla token ledger’a yazılıyor.
+- Server cache veya lokal fallback dönen genel astro metinleri için sahte token yazılmıyor; yalnız gerçek Gemini çağrısı sayılıyor.
 
 9. **Agent backend restore kontrolü**
 Durum: Açık.

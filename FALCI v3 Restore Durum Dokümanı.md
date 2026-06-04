@@ -241,19 +241,26 @@ Açık kalan kontrollü alt madde:
 - Astro/numeroloji/tarot kapanışlarını `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirmek ayrıca değerlendirilecek. Özellikle tarot özel domain filtresi nedeniyle bu ayrı test isteyen bir iş.
 
 6. **Astro ailesi son kontrolü**
-Durum: Kısmen tamamlandı, açık.
+Durum: Uygulandı; remembered closing alt fazı 5. maddede açık tutuluyor.
 
 Tamamlanan:
 - Genel astro generation/cache/repeat/Gemini hattı.
+- Kişisel astro initial/follow-up memory snippet hattı mevcut.
+- Compatibility/family astro initial/follow-up memory snippet hattı mevcut.
+- Astro ailesi final metinleri merkezi gendered sanitizer’dan geçiriliyor.
 
-Açık:
-- Kişisel astro
-- Doğum haritası
-- Astro follow-up
-- Compatibility astro
-- Family astro
-- Astro memory snippet / prompt pack farkları
-- Persona closing yayılımı
+Bulgu:
+- Doğum haritası follow-up servisinde memory snippet desteği vardı, fakat ekran bu snippet’i göndermiyordu.
+- Doğum haritası initial yorumu ise hiç memory snippet almıyordu; kişisel astro ekranındaki hafıza çizgisinden kopuktu.
+
+Uygulananlar:
+- `createBirthChartInterpretation` memory snippet alacak şekilde genişletildi.
+- Doğum haritası initial prompt’una seçilmiş hafıza bağlamı eklendi.
+- `BirthChartInterpretationScreen` initial yorumdan önce profile memory snippet yüklüyor.
+- Doğum haritası follow-up sorularında soru bazlı semantic memory snippet yüklenip servise gönderiliyor.
+
+Açık kalan kontrollü alt madde:
+- Astro kapanışlarının `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirilmesi 5. maddedeki remembered closing ikinci fazına bağlı.
 
 7. **Prompt restore genel taraması**
 Durum: Açık.

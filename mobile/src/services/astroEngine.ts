@@ -1208,6 +1208,7 @@ function buildBirthChartInterpretationPayload(params: {
   chart: BirthChartSnapshot;
   locationLabel: string;
   locationPrecision: string;
+  memorySnippet?: ProfileMemorySnippet | null;
 }) {
   const keyPlacements = {
     sunSign: params.chart.sign,
@@ -1243,12 +1244,14 @@ function buildBirthChartInterpretationPayload(params: {
     })),
     notes: params.chart.transitNotes,
   };
+  const relevantMemory = formatRelevantMemory(params.memorySnippet, null, 'doğum haritası yorumu');
   const systemText =
     'Türkçe konuşan kişisel astrolog sesiyle yaz. Kendini tanıtma; yorumcu/persona adı, public label veya rol tanıtımı yazma, doğrudan yoruma gir. Kullanıcıya görünen metinde hukuken kesin gelecek iddiası kurma; "yorum", "okuma", "sembolik ritüel", "sembolik yorum", "izlenim", "olasılık", "eğilim" dili kullan. Sağlık ve finans alanlarında spesifik tavsiye verme; insan sağlığı endişesinde doktora/uzmana, hayvan sağlığı endişesinde veterinere yönlendir. Yalnızca verilen doğum haritası verilerini kullan. Teknik bilgiyi boğmadan, her konumu kişinin hayatı, ilişki biçimi, karar alma tarzı, dönemleri ve iç dünyasıyla anlamlandır. Kesin karakter hükmü verme; insanın dinamik olduğunu hissettir.';
   const userText = [
     `Profil: ${params.profile.displayName}`,
     `Anlatım tonu: ${birthChartAssistantStyleHint()}`,
     `Hitap politikası: ${addressPolicyForProfile(params.profile, params.profile.displayName)}`,
+    relevantMemory ? `Seçilmiş hafıza bağlamı:\n${relevantMemory}` : '',
     `Ana yerleşimler JSON:\n${JSON.stringify(keyPlacements)}`,
     `Doğum haritası verisi JSON:\n${JSON.stringify(chartData)}`,
     [
@@ -1329,6 +1332,7 @@ function buildBirthChartContinuationPayload(params: {
 export async function createBirthChartInterpretation(params: {
   profile: SubjectProfile;
   chart?: BirthChartSnapshot;
+  memorySnippet?: ProfileMemorySnippet | null;
 }): Promise<AstroReadingResult> {
   const location = resolveAstroLocation(params.profile.birth.location);
   if (!params.profile.birth.date || !location) {
@@ -1340,6 +1344,7 @@ export async function createBirthChartInterpretation(params: {
     chart,
     locationLabel: location.label,
     locationPrecision: location.precision,
+    memorySnippet: params.memorySnippet,
   });
   const data = await generateGeminiTextDirect(payload, 70000);
   let text = cleanGeneratedTurkishText(data.text);
@@ -1365,7 +1370,10 @@ export async function createBirthChartInterpretation(params: {
       appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(text)), {
         isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
       }),
-      { isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan' },
+      {
+        memorySnippet: params.memorySnippet,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      },
     ),
     sign: normalizeSignLabel(chart.sign),
     risingSign: chart.ascendant,

@@ -24,7 +24,7 @@ import {
   type BirthChartFollowUpMessage,
   type BirthChartInterpretationSession,
 } from '../services/birthChartInterpretationStore';
-import { appendUserConversationMemory, loadAccountState } from '../services/profileMemoryService';
+import { appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import {
   addPersonalTokenUsage,
   GEMINI_FLASH_LITE_INPUT_PRICE_USD_PER_M,
@@ -138,7 +138,10 @@ export function BirthChartInterpretationScreen({ route, navigation }: Props) {
       }
 
       const chart = await createBirthChartSnapshot(profile);
-      const reading = await createBirthChartInterpretation({ profile, chart });
+      const memorySnippet = await loadProfileMemorySnippet(account, profileId, {
+        semanticQuery: `${profile.displayName} doğum haritası kişisel astroloji`,
+      }).catch(() => null);
+      const reading = await createBirthChartInterpretation({ profile, chart, memorySnippet });
       if (reading.usage) {
         const inputTokens = reading.usage.inputTokens || 0;
         const outputTokens = reading.usage.outputTokens || 0;
@@ -266,12 +269,15 @@ export function BirthChartInterpretationScreen({ route, navigation }: Props) {
     setIsSendingQuestion(true);
     try {
       await appendUserConversationMemory(profileId, question).catch(() => {});
+      const account = await loadAccountState();
+      const memorySnippet = await loadProfileMemorySnippet(account, profileId, { semanticQuery: question }).catch(() => null);
       const answer = await createBirthChartFollowUp({
         profileName: session.profileName,
         chart: session.chart,
         interpretationText: session.interpretationText,
         question,
         previousFollowUps,
+        memorySnippet,
       });
       const assistantMessage = makeMessage('assistant', answer.text);
       const inputTokens = answer.usage.inputTokens || 0;

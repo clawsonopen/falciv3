@@ -3,8 +3,18 @@ import type { ProfileMemorySnippet } from '../types/memory';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import { PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS, PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS } from '../config/llmTokenPolicy';
 import type { SpecificityUsage } from './fortuneSpecificityBank';
-import { buildFortunePrompt, type CoffeeMode, type FortuneImages, type FortuneMessage as BuilderFortuneMessage, type FortuneReadingType } from './fortunePromptBuilder';
+import {
+  buildFortunePrompt,
+  buildCoffeeMultiImageContinuityInstruction,
+  type CoffeeImageAnalysis,
+  type CoffeeImageSlot,
+  type CoffeeMode,
+  type FortuneImages,
+  type FortuneMessage as BuilderFortuneMessage,
+  type FortuneReadingType,
+} from './fortunePromptBuilder';
 import { appendHealthProfessionalReminder, sanitizePublicReadingLanguage, stripPersonaSelfIntroduction } from './personaClosingService';
+import { cleanFollowUpReply, getSimpleFollowUpReply } from './followUpResponseService';
 
 export type FortuneMessage = BuilderFortuneMessage;
 
@@ -89,6 +99,8 @@ type CoffeeClassification = {
   containsSaucer?: boolean;
   hasCoffeeGrounds?: boolean;
   isCoffeeRelevant?: boolean;
+  groundsAmount?: 'none' | 'trace' | 'light' | 'visible' | 'heavy';
+  confidence?: number;
   suggestedReadingType?: 'coffee' | 'palm' | 'none';
   reason?: string;
 };
@@ -126,10 +138,12 @@ async function classifyCoffeeImage(imageData: string) {
       containsSaucer: { type: 'boolean' },
       hasCoffeeGrounds: { type: 'boolean' },
       isCoffeeRelevant: { type: 'boolean' },
+      groundsAmount: { type: 'string', enum: ['none', 'trace', 'light', 'visible', 'heavy'] },
+      confidence: { type: 'number' },
       suggestedReadingType: { type: 'string', enum: ['coffee', 'palm', 'none'] },
       reason: { type: 'string' },
     },
-    required: ['containsCup', 'containsSaucer', 'hasCoffeeGrounds', 'isCoffeeRelevant', 'suggestedReadingType', 'reason'],
+    required: ['containsCup', 'containsSaucer', 'hasCoffeeGrounds', 'isCoffeeRelevant', 'groundsAmount', 'confidence', 'suggestedReadingType', 'reason'],
   };
   return generateJson<CoffeeClassification>(
     {
@@ -139,7 +153,7 @@ async function classifyCoffeeImage(imageData: string) {
           parts: [
             {
               text:
-                'Bu görseli kahve yorumu yüzeyi olarak sınıflandır. containsCup = fincan içi net görünüyorsa true. containsSaucer = kahve tabağı veya tabak yüzeyi net görünüyorsa true. Aynı görselde ikisi birden varsa ikisini de true yap. hasCoffeeGrounds = fincan veya tabakta kahve telvesi/kalıntısı/leke/akıntı/damla varsa true; bir damla telve bile true. Tamamen temiz, telvesiz fincan veya tabakta false. isCoffeeRelevant = görsel kahve yorumuyla alakalıysa true. suggestedReadingType = görsel daha çok avuç içi ise palm, kahveye uygunsa coffee, hiçbiri değilse none.',
+                'Bu görseli kahve yorumu yüzeyi olarak sınıflandır. Görsel hangi teknik yükleme alanından gelirse gelsin fincan, tabak veya fincan+tabak olabilir; yükleme alanı adına göre karar verme. containsCup = fincanın içi, fincan kenarı veya fincan gövdesi yorumlanabilir biçimde görünüyorsa true. containsSaucer = kahve tabağı veya tabak yüzeyi görünüyorsa true; tabakta desen, baskı, marka, çiçek veya süs olması containsSaucer değerini false yapmaz. Aynı görselde fincan ve tabak birlikte varsa ikisini de true yap. hasCoffeeGrounds = fincan veya tabakta kahve telvesi/kalıntısı/leke/akıntı/damla varsa true; bir damla telve bile true. groundsAmount = none, trace, light, visible veya heavy. Işık, açı, gölge, kadraj veya hafif bulanıklık yüzünden tamamen emin olamasan bile fincan/tabak/telve seçiliyorsa kahveye uygun kabul et ve en yakın yüzeyi seç. Desen, baskı veya süsleri telve sayma ama tabak yüzeyi olarak kabul et. Tamamen temiz, telvesiz fincan veya tabakta hasCoffeeGrounds false ve groundsAmount none. isCoffeeRelevant = fincan, tabak veya telve görüyorsan true. confidence = sınıflandırma güvenin 0 ile 1 arasında. suggestedReadingType = görsel açıkça avuç içi ise palm, kahve yüzeyi varsa coffee, hiçbiri değilse none.',
             },
             inlineImage(imageData),
           ],
@@ -152,18 +166,41 @@ async function classifyCoffeeImage(imageData: string) {
         responseJsonSchema: schema,
       },
     },
-    { isCoffeeRelevant: false, hasCoffeeGrounds: false, suggestedReadingType: 'none' },
+    { isCoffeeRelevant: false, hasCoffeeGrounds: false, groundsAmount: 'none', confidence: 0, suggestedReadingType: 'none' },
   );
+}
+
+const COFFEE_SLOT_LABELS: Record<CoffeeImageSlot, string> = {
+  cup: 'Kahve görseli 1',
+  cup2: 'Kahve görseli 2',
+  saucer: 'Kahve görseli 3',
+};
+
+function coffeeSurfaceCode(result: CoffeeClassification): CoffeeImageAnalysis['surfaceCode'] | null {
+  if (result.containsCup && result.containsSaucer) return 'fincan+tabak';
+  if (result.containsCup) return 'fincan';
+  if (result.containsSaucer) return 'tabak';
+  return null;
+}
+
+function addSurfaceFromCode(surfaces: Array<'cup' | 'saucer'>, surfaceCode: CoffeeImageAnalysis['surfaceCode']) {
+  if ((surfaceCode === 'fincan' || surfaceCode === 'fincan+tabak') && !surfaces.includes('cup')) surfaces.push('cup');
+  if ((surfaceCode === 'tabak' || surfaceCode === 'fincan+tabak') && !surfaces.includes('saucer')) surfaces.push('saucer');
 }
 
 async function validateCoffeeImages(images: FortuneImages) {
   const surfaces: Array<'cup' | 'saucer'> = [];
+  const analyses: CoffeeImageAnalysis[] = [];
   const usage = emptyUsage();
   let suggestedPalm = false;
   let sawCoffeeSurfaceWithoutGrounds = false;
-  for (const slot of ['cup', 'saucer'] as const) {
+  const clearlyGroundlessLabels: string[] = [];
+  let invalidReason = '';
+  let loadedCoffeeImageCount = 0;
+  for (const slot of ['cup', 'cup2', 'saucer'] as const) {
     const image = images[slot];
     if (!image) continue;
+    loadedCoffeeImageCount += 1;
     let result: CoffeeClassification;
     try {
       const classified = await classifyCoffeeImage(image);
@@ -172,21 +209,53 @@ async function validateCoffeeImages(images: FortuneImages) {
     } catch {
       throw jsonPayloadError(PHOTO_RETRY_MESSAGE, usage);
     }
-    if (!result.isCoffeeRelevant) {
+    let surfaceCode = coffeeSurfaceCode(result);
+    const hasGrounds =
+      Boolean(result.hasCoffeeGrounds) ||
+      Boolean(result.groundsAmount && result.groundsAmount !== 'none');
+    const isCoffeeRelevant = Boolean(result.isCoffeeRelevant || surfaceCode || hasGrounds);
+    if (!isCoffeeRelevant) {
       suggestedPalm = suggestedPalm || result.suggestedReadingType === 'palm';
-      throw jsonPayloadError(
-        suggestedPalm
-          ? "Bu kare kahve telvesinden çok avuç içi gibi görünüyor. İstersen el okumasına geçip aynı fotoğrafla devam edebilirsin."
-          : 'Bu kare kahve yorumu için uygun görünmüyor canım. Telveyi net gösteren fincan içi ya da tabak fotoğrafı yüklersen birlikte devam ederiz.',
-        usage,
-      );
-    }
-    if (!result.hasCoffeeGrounds) {
-      sawCoffeeSurfaceWithoutGrounds = true;
+      invalidReason ||= `${COFFEE_SLOT_LABELS[slot]} kahve yorumu için uygun görünmedi.`;
       continue;
     }
-    if (result.containsCup && !surfaces.includes('cup')) surfaces.push('cup');
-    if (result.containsSaucer && !surfaces.includes('saucer')) surfaces.push('saucer');
+    if (!surfaceCode && hasGrounds && isCoffeeRelevant && result.suggestedReadingType !== 'palm') {
+      surfaceCode = 'fincan+tabak';
+    }
+    if (!surfaceCode) {
+      invalidReason ||= `${COFFEE_SLOT_LABELS[slot]} fincan, tabak veya fincan+tabak olarak okunamadı.`;
+      continue;
+    }
+    if (!hasGrounds) {
+      sawCoffeeSurfaceWithoutGrounds = true;
+      clearlyGroundlessLabels.push(COFFEE_SLOT_LABELS[slot]);
+      continue;
+    }
+    analyses.push({
+      slot,
+      label: COFFEE_SLOT_LABELS[slot],
+      surfaceCode,
+      hasCoffeeGrounds: hasGrounds,
+      groundsAmount: hasGrounds ? result.groundsAmount || 'visible' : 'none',
+    });
+    addSurfaceFromCode(surfaces, surfaceCode);
+  }
+  if (!loadedCoffeeImageCount) {
+    throw jsonPayloadError('Kahve yorumu için en az bir telveli kahve görseli yükle.', usage);
+  }
+  if (!analyses.length && (invalidReason || suggestedPalm)) {
+    throw jsonPayloadError(
+      suggestedPalm
+        ? 'Bu kare kahve telvesinden çok avuç içi gibi görünüyor; el okuması için ayrı akışa geçebilirsin.'
+        : `${invalidReason || 'Lütfen telveyi gösteren uygun kahve görselleri yükle.'}`,
+      usage,
+    );
+  }
+  if (!analyses.length && clearlyGroundlessLabels.length) {
+    throw jsonPayloadError(
+      `${clearlyGroundlessLabels.join(', ')} telvesiz/temiz görünüyor; kahve yorumu için telve izi, damla, akıntı veya kalıntı görünen fotoğraf yükle.`,
+      usage,
+    );
   }
   if (!surfaces.length) {
     throw jsonPayloadError(
@@ -196,7 +265,7 @@ async function validateCoffeeImages(images: FortuneImages) {
       usage,
     );
   }
-  return { surfaces, usage };
+  return { surfaces, analyses, usage };
 }
 
 async function classifyPalmImage(imageData: string) {
@@ -321,6 +390,16 @@ function appendClosing(text: string, closingSentence: string) {
   return `${cleaned} ${closingSentence}`;
 }
 
+function completeWithRememberedPersonaClosing(params: {
+  text: string;
+  closingSentence: string;
+  messages: FortuneMessage[];
+}) {
+  const sessionText = params.messages.map((message) => message.text || '').join(' ');
+  if (!params.closingSentence || sessionText.includes(params.closingSentence)) return (params.text || '').trim();
+  return appendClosing(params.text, params.closingSentence);
+}
+
 function canUseFamilyAddress(devSettings: DevSettings, memorySnippet?: ProfileMemorySnippet | null) {
   const assistantAge = { 'suzan': 58, 'teoman': 60, 'selin': 34, 'berk': 36, arin: 29 }[devSettings.assistantId || ''];
   const birthDate = memorySnippet?.birthChartData?.birthDate || '';
@@ -426,7 +505,11 @@ function cleanFortuneText(params: {
   const noAstroLeak = stripExplicitAstroLeaks(aligned, params.readingType);
   const noPaceLoop = stripUnaskedPaceTheme(noAstroLeak, params.messages);
   const noReopener = params.isFollowUp ? stripFollowUpReopeners(noPaceLoop) : noPaceLoop;
-  const withClosing = appendClosing(noReopener, params.closingSentence);
+  const withClosing = completeWithRememberedPersonaClosing({
+    text: noReopener,
+    closingSentence: params.closingSentence,
+    messages: params.messages,
+  });
   const addressed = sanitizeGenderedAddress(withClosing, params.memorySnippet, params.devSettings);
   const nonRomantic = stripRomanticForNonRomanticRelations(addressed, params.memorySnippet);
   const noRepeat = sanitizeAffectionateRepetition(nonRomantic);
@@ -444,6 +527,7 @@ function buildContents(params: {
   isFollowUp?: boolean;
   readingType: FortuneReadingType;
   validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'>;
+  coffeeImageAnalyses?: CoffeeImageAnalysis[] | null;
   memorySnippet?: ProfileMemorySnippet | null;
 }) {
   const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = params.messages
@@ -462,23 +546,30 @@ function buildContents(params: {
         inlineImage(params.images.palm),
       ],
     });
-  } else if (params.images.cup || params.images.saucer) {
+  } else if (params.images.cup || params.images.cup2 || params.images.saucer) {
     const surfaces = params.validatedSurfaces || [];
-    const includeCup = Boolean(params.images.cup && (!surfaces.length || surfaces.includes('cup')));
-    const includeSaucer = Boolean(params.images.saucer && (!surfaces.length || surfaces.includes('saucer')));
+    const validSlots = new Set((params.coffeeImageAnalyses || []).map((item) => item.slot));
+    const hasSlotAudit = validSlots.size > 0;
+    const includeCup = Boolean(params.images.cup && (hasSlotAudit ? validSlots.has('cup') : !surfaces.length || surfaces.includes('cup')));
+    const includeCup2 = Boolean(params.images.cup2 && (hasSlotAudit ? validSlots.has('cup2') : !surfaces.length || surfaces.includes('cup') || surfaces.includes('saucer')));
+    const includeSaucer = Boolean(params.images.saucer && (hasSlotAudit ? validSlots.has('saucer') : !surfaces.length || surfaces.includes('saucer')));
     const promptText =
       surfaces.length === 1 && surfaces[0] === 'cup'
         ? 'Yalnızca fincan içi görselini inceleyip yoruma devam et.'
         : surfaces.length === 1 && surfaces[0] === 'saucer'
           ? 'Yalnızca kahve tabağı görselini inceleyip yoruma devam et.'
           : 'Doğrulanmış fincan ve/veya tabak görsellerini inceleyip yoruma devam et.';
-    const parts: Array<Record<string, unknown>> = [{ text: promptText }];
+    const parts: Array<Record<string, unknown>> = [{ text: [promptText, buildCoffeeMultiImageContinuityInstruction(params.images)].filter(Boolean).join('\n') }];
     if (includeCup && params.images.cup) {
-      parts.push({ text: 'Fincan içi görseli yüklendi. Bunu fincanın iç yüzeyi, derinliği, kenar akışı ve telve birikimi olarak oku.' });
+      parts.push({ text: 'Kahve görseli 1 yüklendi. Bu teknik slot fincan, tabak veya fincan+tabak olabilir; doğrulanmış yüzeye göre oku.' });
       parts.push(inlineImage(params.images.cup));
     }
+    if (includeCup2 && params.images.cup2) {
+      parts.push({ text: 'Kahve görseli 2 yüklendi. Bu aynı kahvenin farklı açısı olabilir; ayrı kahve ya da ikinci fincan gibi anlatma.' });
+      parts.push(inlineImage(params.images.cup2));
+    }
     if (includeSaucer && params.images.saucer) {
-      parts.push({ text: 'Kahve tabağı görseli yüklendi. Bunu tabak yüzeyi, yayılma, göllenme ve dış dünya yansıması olarak oku.' });
+      parts.push({ text: 'Kahve görseli 3 yüklendi. Bu teknik slot fincan, tabak veya fincan+tabak olabilir; doğrulanmış yüzeye göre oku.' });
       parts.push(inlineImage(params.images.saucer));
     }
     contents.unshift({ role: 'user', parts });
@@ -491,11 +582,13 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
   const images = body.images || {};
   try {
     let validatedSurfaces: Array<'cup' | 'saucer' | 'palm'> | null = null;
+    let coffeeImageAnalyses: CoffeeImageAnalysis[] | null = null;
     let palmValidation: PalmClassification | null = null;
     if (!body.isFollowUp && body.readingType === 'coffee' && (body.coffeeMode || 'upload') === 'upload') {
       const result = await validateCoffeeImages(images);
       addUsage(usage, result.usage);
       validatedSurfaces = result.surfaces;
+      coffeeImageAnalyses = result.analyses;
     } else if (!body.isFollowUp && body.readingType === 'palm') {
       const result = await validatePalmImage(images, body.memorySnippet);
       addUsage(usage, result.usage);
@@ -514,6 +607,7 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
       images,
       isFollowUp: body.isFollowUp,
       validatedSurfaces,
+      coffeeImageAnalyses,
       palmValidation,
     });
     const response = await generateGeminiTextDirect(
@@ -525,6 +619,7 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
           isFollowUp: body.isFollowUp,
           readingType: body.readingType,
           validatedSurfaces: validatedSurfaces || undefined,
+          coffeeImageAnalyses,
           memorySnippet: body.memorySnippet,
         }),
         generationConfig: {
@@ -536,9 +631,13 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
       { usageMode: 'raw' },
     );
     addUsage(usage, response.usage);
+    const simpleFollowUp = body.isFollowUp
+      ? getSimpleFollowUpReply([...body.messages].reverse().find((message) => message.role === 'user')?.text || '')
+      : '';
+    const responseText = simpleFollowUp || (body.isFollowUp ? cleanFollowUpReply(response.text) : response.text);
     return {
       text: cleanFortuneText({
-        text: response.text,
+        text: responseText,
         closingSentence: prompt.closingSentence,
         messages: body.messages,
         memorySnippet: body.memorySnippet,

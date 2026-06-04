@@ -29,11 +29,11 @@ function readingNameForConfig(config: SessionConfig) {
   return config.coffeeMode === 'ai-brew' ? 'Kahve Yorumu - Benim Yerime İç' : 'Kahve Yorumu';
 }
 
-function estimateImageInputTokens(config: SessionConfig, images: { cup?: string; saucer?: string; palm?: string }, isFollowUp: boolean) {
+function estimateImageInputTokens(config: SessionConfig, images: { cup?: string; cup2?: string; saucer?: string; palm?: string }, isFollowUp: boolean) {
   if (isFollowUp) return 0;
   if (config.readingType === 'palm') return images.palm ? GEMINI_IMAGE_TOKENS_768 * 2 : 0;
   if (config.coffeeMode !== 'upload') return 0;
-  const imageCount = [images.cup, images.saucer].filter(Boolean).length;
+  const imageCount = [images.cup, images.cup2, images.saucer].filter(Boolean).length;
   return imageCount * GEMINI_IMAGE_TOKENS_768 * 2;
 }
 
@@ -84,7 +84,7 @@ export function useSession() {
   const messageIdCounter = useRef(0);
   const configRef = useRef<SessionConfig | null>(null);
   const sessionIdRef = useRef('');
-  const imagesRef = useRef<{ cup?: string; saucer?: string; palm?: string }>({});
+  const imagesRef = useRef<{ cup?: string; cup2?: string; saucer?: string; palm?: string }>({});
   const messagesRef = useRef<ChatMessage[]>([]);
   const statusRef = useRef<SessionState['status']>('idle');
   const userSpeakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -157,10 +157,16 @@ export function useSession() {
 
     const target = config.profileIsSelf ? 'Benim' : `${config.profileName} için`;
     const hasCup = Boolean(config.cupImageUri);
+    const hasCup2 = Boolean(config.secondCupImageUri);
     const hasSaucer = Boolean(config.saucerImageUri);
-    const surfaces = hasCup && hasSaucer ? 'fincan içi ve tabak' : hasSaucer ? 'tabak' : 'fincan içi';
+    const coffeeImageCount = [hasCup, hasCup2, hasSaucer].filter(Boolean).length;
     return [
-      `${target} ${surfaces} görsellerini gönderdim.`,
+      coffeeImageCount > 1
+        ? `${target} ${coffeeImageCount} kahve görseli gönderdim.`
+        : `${target} kahve görseli gönderdim.`,
+      coffeeImageCount > 1
+        ? 'Bunlar aynı içilmiş kahvenin/fincanın/tabağın farklı açılardan çekilmiş kareleri olabilir; ayrı kahveler gibi yorumlama.'
+        : '',
       focusNotice,
       'Yorumuma başla lütfen.',
       retryNotice,
@@ -271,8 +277,9 @@ export function useSession() {
         isUserSpeaking: false,
       }));
 
-      const images: { cup?: string; saucer?: string; palm?: string } = {};
+      const images: { cup?: string; cup2?: string; saucer?: string; palm?: string } = {};
       if (config.cupImageUri) images.cup = (await compressImage(config.cupImageUri)).base64;
+      if (config.secondCupImageUri) images.cup2 = (await compressImage(config.secondCupImageUri)).base64;
       if (config.saucerImageUri) images.saucer = (await compressImage(config.saucerImageUri)).base64;
       if (config.palmImageUri) images.palm = (await compressImage(config.palmImageUri)).base64;
       imagesRef.current = images;
@@ -322,7 +329,7 @@ export function useSession() {
     [addMessage, askAgent, setUserSpeakingActive],
   );
 
-  const updateSessionImage = useCallback(async (slot: 'cup' | 'saucer' | 'palm', uri: string) => {
+  const updateSessionImage = useCallback(async (slot: 'cup' | 'cup2' | 'saucer' | 'palm', uri: string) => {
     if (!uri) return;
     const compressed = await compressImage(uri);
     imagesRef.current = {

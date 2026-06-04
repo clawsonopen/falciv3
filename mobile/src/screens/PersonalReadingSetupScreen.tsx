@@ -31,8 +31,9 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(route.params?.preselectedProfileId || null);
   const [topicText, setTopicText] = useState('');
   const [topicEditorVisible, setTopicEditorVisible] = useState(false);
-  const [imageState, setImageState] = useState<{ cup: string | null; saucer: string | null; palm: string | null }>({
+  const [imageState, setImageState] = useState<{ cup: string | null; cup2: string | null; saucer: string | null; palm: string | null }>({
     cup: null,
+    cup2: null,
     saucer: null,
     palm: null,
   });
@@ -109,8 +110,8 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
       return;
     }
 
-    if (readingType === 'coffee' && coffeeMode === 'upload' && !imageState.cup && !imageState.saucer) {
-      setInfoModal({ visible: true, title: 'Eksik', message: 'Kahve yorumunda en azından fincan ya da tabak fotoğrafı gerekli.' });
+    if (readingType === 'coffee' && coffeeMode === 'upload' && !imageState.cup && !imageState.cup2 && !imageState.saucer) {
+      setInfoModal({ visible: true, title: 'Eksik', message: 'Kahve yorumunda en az bir telveli kahve görseli gerekli.' });
       return;
     }
 
@@ -134,6 +135,7 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
         readingType,
         coffeeMode: readingType === 'coffee' ? coffeeMode : undefined,
         cupImageUri: readingType === 'coffee' && coffeeMode === 'upload' ? imageState.cup : null,
+        secondCupImageUri: readingType === 'coffee' && coffeeMode === 'upload' ? imageState.cup2 : null,
         saucerImageUri: readingType === 'coffee' && coffeeMode === 'upload' ? imageState.saucer : null,
         palmImageUri: readingType === 'palm' ? imageState.palm : null,
         profileId: selectedProfile.profileId,
@@ -240,24 +242,36 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
                   <>
                     <View style={styles.photosRow}>
                       <View style={styles.imageSlot}>
-                        <Text style={styles.imageSlotLabel}>Fincan içi</Text>
+                        <Text style={styles.imageSlotLabel}>Kahve görseli 1</Text>
                         <ImageUploader
                           hideLabel
-                          label="Fincan içi"
+                          label="Kahve görseli 1"
                           imageUri={imageState.cup}
                           onImageSelected={(uri) => setImageState((prev) => ({ ...prev, cup: uri }))}
                         />
                       </View>
                       <View style={styles.imageSlot}>
-                        <Text style={styles.imageSlotLabel}>Tabak</Text>
+                        <Text style={styles.imageSlotLabel}>Kahve görseli 2</Text>
                         <ImageUploader
                           hideLabel
-                          label="Fincan tabağı"
+                          label="Kahve görseli 2"
+                          imageUri={imageState.cup2}
+                          onImageSelected={(uri) => setImageState((prev) => ({ ...prev, cup2: uri }))}
+                        />
+                      </View>
+                      <View style={styles.imageSlot}>
+                        <Text style={styles.imageSlotLabel}>Kahve görseli 3</Text>
+                        <ImageUploader
+                          hideLabel
+                          label="Kahve görseli 3"
                           imageUri={imageState.saucer}
                           onImageSelected={(uri) => setImageState((prev) => ({ ...prev, saucer: uri }))}
                         />
                       </View>
                     </View>
+                    <Text style={styles.helperText}>
+                      Her slot fincan, tabak veya fincan+tabak olabilir. Aynı kahvenin farklı açılardan çekilmiş karelerini yükleyebilirsin.
+                    </Text>
                     <Text style={styles.creditWarning}>
                       Her yanlış yüklenen görsel kredi hesabına dahil edilir. Yanlış denemeler bir sonraki okumanın açılışına da not düşülür.
                     </Text>
@@ -445,8 +459,8 @@ const styles = StyleSheet.create({
   modeCardSelected: { borderColor: '#D4A574', backgroundColor: 'rgba(212,165,116,0.14)' },
   modeTitle: { color: '#FFF5E8', fontSize: 13, fontWeight: '700', marginBottom: 4 },
   modeText: { color: 'rgba(255,255,255,0.7)', fontSize: 12, lineHeight: 17 },
-  photosRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  imageSlot: { width: '47%', alignItems: 'center' },
+  photosRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12, gap: 8 },
+  imageSlot: { flex: 1, minWidth: 0, alignItems: 'center' },
   imageSlotLabel: { color: '#D4A574', fontSize: 12, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
   singleImageWrap: { alignItems: 'center', marginBottom: 12 },
   primaryButton: {

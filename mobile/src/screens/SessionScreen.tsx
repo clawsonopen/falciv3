@@ -107,6 +107,7 @@ export function SessionScreen({ route, navigation }: Props) {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [sessionImageUris, setSessionImageUris] = useState({
     cup: config.cupImageUri,
+    cup2: config.secondCupImageUri || null,
     saucer: config.saucerImageUri,
     palm: config.palmImageUri || null,
   });
@@ -345,7 +346,7 @@ export function SessionScreen({ route, navigation }: Props) {
     setMessageActionModal({ visible: true, text: value });
   };
 
-  const handleSessionImageSelected = async (slot: 'cup' | 'saucer' | 'palm', uri: string) => {
+  const handleSessionImageSelected = async (slot: 'cup' | 'cup2' | 'saucer' | 'palm', uri: string) => {
     setSessionImageUris((prev) => ({ ...prev, [slot]: uri }));
     await updateSessionImage(slot, uri).catch((err: any) => {
       setInfoModal({ visible: true, title: 'Görsel Hata', message: err?.message || 'Görsel işlenemedi.' });
@@ -427,7 +428,7 @@ export function SessionScreen({ route, navigation }: Props) {
         : config.coffeeMode === 'ai-brew'
           ? []
           : ([
-              config.cupImageUri ? 'cup' : null,
+              config.cupImageUri || config.secondCupImageUri ? 'cup' : null,
               config.saucerImageUri ? 'saucer' : null,
             ].filter(Boolean) as Array<'cup' | 'saucer'>);
     const summaryText =
@@ -528,10 +529,30 @@ export function SessionScreen({ route, navigation }: Props) {
                 <ImageUploader
                   compact
                   hideLabel
-                  label="Fincan İçi"
+                  label="Kahve görseli 1"
                   imageUri={sessionImageUris.cup}
                   onImageSelected={(uri) => {
                     void handleSessionImageSelected('cup', uri);
+                  }}
+                />
+              </View>
+            )}
+            {sessionImageUris.cup2 ? (
+              <TouchableOpacity onPress={() => setViewerUri(sessionImageUris.cup2)}>
+                <View style={styles.previewWrap}>
+                  <Image source={{ uri: sessionImageUris.cup2 }} style={styles.previewImage} />
+                  <Text style={styles.previewHintText}>Büyütmek için dokun</Text>
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.sessionImageSlot}>
+                <ImageUploader
+                  compact
+                  hideLabel
+                  label="Kahve görseli 2"
+                  imageUri={sessionImageUris.cup2}
+                  onImageSelected={(uri) => {
+                    void handleSessionImageSelected('cup2', uri);
                   }}
                 />
               </View>
@@ -548,7 +569,7 @@ export function SessionScreen({ route, navigation }: Props) {
                 <ImageUploader
                   compact
                   hideLabel
-                  label="Fincan Tabağı"
+                  label="Kahve görseli 3"
                   imageUri={sessionImageUris.saucer}
                   onImageSelected={(uri) => {
                     void handleSessionImageSelected('saucer', uri);

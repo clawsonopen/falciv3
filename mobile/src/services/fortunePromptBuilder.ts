@@ -4,18 +4,38 @@ import { PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION, PERSONAL_INITIAL_READING_TOKEN_IN
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import { buildSpecificityContext } from './fortuneSpecificityBank';
 import { isHealthClosingSentence, sanitizeRestrictedReadingTerms, selectAnimalClosingSentence, userAskedHealthConcern } from './personaClosingService';
+import { FOLLOW_UP_CHAT_CONTRACT } from './followUpResponseService';
 import { buildAnimalProfileInstructionFromMemory, isAnimalMemorySnippet } from './animalProfilePrompt';
 import { formatPromptMemoryPack } from './memoryPromptPackFormatter';
 import { formatPetMentionMemoryContext, formatStandardPersonalMemoryContext } from './personalMemoryPromptContext';
 import { ensureLoreGraphIndexed, selectLoreCrumbs } from './loreGraphService';
 
 export type FortuneMessage = { role: 'user' | 'assistant'; text: string };
-export type FortuneImages = { cup?: string; saucer?: string; palm?: string };
+export type CoffeeImageSlot = 'cup' | 'cup2' | 'saucer';
+export type CoffeeSurfaceCode = 'fincan' | 'tabak' | 'fincan+tabak';
+export type CoffeeImageAnalysis = {
+  slot: CoffeeImageSlot;
+  label: string;
+  surfaceCode: CoffeeSurfaceCode;
+  hasCoffeeGrounds: boolean;
+  groundsAmount?: 'none' | 'trace' | 'light' | 'visible' | 'heavy';
+};
+export type FortuneImages = { cup?: string; cup2?: string; saucer?: string; palm?: string };
 export type FortuneReadingType = 'coffee' | 'palm';
 export type CoffeeMode = 'upload' | 'ai-brew';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 type ClosingTone = keyof (typeof FORTUNE_PERSONA_DATA)[PersonaId]['closingLibrary'];
+
+export function buildCoffeeMultiImageContinuityInstruction(images: FortuneImages) {
+  const coffeeImageCount = [images.cup, images.cup2, images.saucer].filter(Boolean).length;
+  if (coffeeImageCount < 2) return '';
+  return [
+    '- Çoklu kahve görseli kuralı: Yüklenen birden fazla fincan/tabak fotoğrafı ayrı kahveler, ayrı fincanlar veya ayrı tabaklar değildir; aynı içilmiş kahvenin, aynı fincanın ve/veya aynı tabağın farklı açılardan çekilmiş kareleri olarak kabul et.',
+    '- Kahve görseli 1, Kahve görseli 2 ve Kahve görseli 3 adları yalnızca teknik fotoğraf slotlarıdır. Kullanıcıya görünen yorumda bunları ayrı nesne veya ayrı içilmiş kahve gibi anlatma; "ikinci fincan", "iki fincan kahve", "bir fincan daha" gibi ifadeler kurma.',
+    '- Birden fazla kare varsa bunları tek bir okumanın kanıtlarını tamamlayan farklı açılar gibi birleştir; aynı telve akışını ve aynı niyeti farklı yüzey/açı detaylarıyla okuduğunu varsay.',
+  ].join('\n');
+}
 
 const EXTRA_CLOSING_LIBRARY: Record<string, string[]> = {
   warm: [
@@ -299,12 +319,14 @@ export function buildFortunePrompt(params: {
   images: FortuneImages;
   isFollowUp?: boolean;
   validatedSurfaces?: Array<'cup' | 'saucer' | 'palm'> | null;
+  coffeeImageAnalyses?: CoffeeImageAnalysis[] | null;
   palmValidation?: { isInnerPalm?: boolean; handVisibleEnough?: boolean } | null;
 }) {
   const id = personaId(params.devSettings.assistantId);
   const identity = FORTUNE_PERSONA_DATA[id];
   const imageHint = [
     params.images.cup ? 'kullanıcı fincan görseli gönderdi' : '',
+    params.images.cup2 ? 'kullanıcı ikinci kahve görseli gönderdi' : '',
     params.images.saucer ? 'kullanıcı tabak görseli gönderdi' : '',
     params.images.palm ? 'kullanıcı avuç içi görseli gönderdi' : '',
   ].filter(Boolean).join(', ') || 'bu turda görsel gelmemiş olabilir';
@@ -413,13 +435,8 @@ export function buildFortunePrompt(params: {
   if (params.isFollowUp) {
     parts.push([
       '## Follow-up Yanıt Sözleşmesi',
-      '- Bu tur yeni bir okuma açılışı değildir; önceki okuma metnini yeniden yazma, özetleme veya kopyalama.',
-      '- Yalnızca kullanıcının son mesajındaki soruya doğrudan cevap ver.',
-      '- Önceki okumayı sadece bağlam olarak kullan; görseli veya ana yorumu baştan yorumlamaya çalışma.',
-      '- Yanıtı 2 kısa paragraf olarak ver; kısa geçiştirme yapma, soruya doyurucu biçimde cevap ver.',
-      '- İlk paragrafta net yanıtı, ikinci paragrafta okuma bağlamından 1-2 gerekçeyi ve uygulanabilir kısa tavsiyeyi ver.',
+      FOLLOW_UP_CHAT_CONTRACT,
       `- ${PERSONAL_FOLLOW_UP_TOKEN_INSTRUCTION}`,
-      '- Kullanıcının son mesajında önceki okumanın transkripsiyonu yanlışlıkla varsa onu yok say ve gerçek soruya odaklan.',
     ].join('\n'));
   }
   if (params.validatedSurfaces) {
@@ -436,6 +453,18 @@ export function buildFortunePrompt(params: {
       surfaceRules.push('## Surface Guard', '- Bu turda yalnızca kahve tabağı doğrulandı.', '- Fincan görmüş gibi konuşma.', '- Yorumu tabak yüzeyi, yayılma, göllenme ve dış dünya yansıması üzerinden kur.');
     } else if (params.validatedSurfaces.length) {
       surfaceRules.push('## Surface Guard', '- Bu turda fincan içi ve tabak birlikte doğrulandı.', '- Hangi yüzeyi yorumladığını açıkça ayır.');
+    }
+    const continuity = buildCoffeeMultiImageContinuityInstruction(params.images);
+    if (continuity) surfaceRules.push(continuity);
+    if (params.coffeeImageAnalyses?.length) {
+      surfaceRules.push(
+        '## Doğrulanmış Kahve Görselleri',
+        ...params.coffeeImageAnalyses.map(
+          (item) =>
+            `- ${item.label}: ${item.surfaceCode}; telve=${item.hasCoffeeGrounds ? 'var' : 'yok'}; miktar=${item.groundsAmount || 'belirsiz'}.`,
+        ),
+        '- Slot adı değil, yukarıdaki doğrulanmış yüzey kodu belirleyicidir; tek tabak varsa fincan görmüş gibi, tek fincan varsa tabak görmüş gibi konuşma.',
+      );
     }
     parts.push(surfaceRules.join('\n'));
   }

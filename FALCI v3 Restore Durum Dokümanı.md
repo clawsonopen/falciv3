@@ -314,9 +314,9 @@ Uygulananlar:
 - Server cache veya lokal fallback dönen genel astro metinleri için sahte token yazılmıyor; yalnız gerçek Gemini çağrısı sayılıyor.
 
 9. **Agent backend restore kontrolü**
-Durum: Açık.
+Durum: Uygulandı.
 
-Bakılacaklar:
+Bakılanlar:
 - `token_server.py`
 - `/gemini-generate`
 - `/gemini-embed`
@@ -324,6 +324,20 @@ Bakılacaklar:
 - Olası `/general-astro` endpoint eski loglarda var mıydı
 - Backend UTF-8 metinleri
 - Server cache mantığı
+
+Bulgu:
+- `token_server.py` restore edilmiş Gemini proxy çizgisinde çalışıyor.
+- `/gemini-generate` endpoint'i mobil prompt payload'ını Gemini `generateContent` API'sine gönderiyor; effective/raw input-output-total token bilgilerini ve `tokenSafetyMultiplier` değerini döndürüyor.
+- `/gemini-embed` endpoint'i `gemini-embedding-2` modelini kullanıyor; embedding vektörü ve effective/raw usage bilgisi dönüyor.
+- `/gemini-api-key` ve `/health` endpointleri model, embedding model ve quota/health bilgisini taşıyor.
+- 25 Mayıs sonrası loglarda `/gemini-generate` proxy hattı açıkça göründü; canlı backend bu çizgiyi ve embedding proxy ekini taşıyor.
+- `/general-astro` için backend route kanıtı bulunmadı. Canlı frontend bunu yalnız opsiyonel server cache olarak deniyor; endpoint yoksa Gemini üretimi ve lokal fallback akışına düşüyor.
+- `agent/AGENTS.md` eski “sadece api-key/health” sınırını taşıyordu ve canlı restore mimarisiyle çelişiyordu.
+
+Uygulananlar:
+- `agent/AGENTS.md` güncellendi; backend artık doğru şekilde Gemini anahtar/proxy ve kota/sağlık kapısı olarak tanımlanıyor.
+- Endpoint listesi `/gemini-generate`, `/gemini-embed`, `/gemini-api-key`, `/health` olacak şekilde düzeltildi.
+- `/general-astro` endpoint'inin zorunlu backend endpoint'i olmadığı, mobil tarafta opsiyonel cache denemesi olduğu belirtildi.
 
 10. **Final clean git / commit / push**
 Durum: Henüz final değil.

@@ -29,12 +29,16 @@ UTF-8 byte'larının yanlış yorumlanmasından oluşan bozuk karakterler yasakt
 
 ## Backend Sınırı
 
-Backend Gemini proxy değildir ve prompt üretmez. Mobil uygulama promptu cihazda kurar, backendden yalnızca Gemini API anahtarını alır ve Gemini'ye doğrudan mobil cihazdan istek gönderir.
+Backend prompt üretmez; mobil uygulama promptu cihazda kurar. `token_server.py` yalnızca Gemini anahtar/proxy ve kota/sağlık kapısıdır.
 
-`token_server.py` sadece bu endpointleri sunmalıdır:
+`token_server.py` şu endpointleri sunar:
 
+- `POST /gemini-generate`
+- `POST /gemini-embed`
 - `GET /gemini-api-key`
 - `GET /health`
+
+`/general-astro` şu an zorunlu backend endpoint'i değildir. Mobil taraf bunu opsiyonel server cache olarak dener; endpoint yoksa Gemini üretimi veya lokal fallback akışına düşer.
 
 ## Doğrulama
 

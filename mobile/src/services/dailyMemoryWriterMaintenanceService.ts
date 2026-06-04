@@ -1,6 +1,4 @@
 import * as FileSystem from 'expo-file-system/legacy';
-import * as BackgroundTask from 'expo-background-task';
-import * as TaskManager from 'expo-task-manager';
 import { runAndApplyProfileIdentityMemoryWriter } from './memoryWriterDebugService';
 import { loadAccountState } from './profileMemoryService';
 
@@ -39,15 +37,44 @@ type DailyMemoryWriterStore = {
 };
 
 let inMemoryRun: Promise<DailyMemoryWriterRun | null> | null = null;
+let backgroundTaskDefined = false;
 
-TaskManager.defineTask(DAILY_MEMORY_WRITER_TASK, async () => {
+function loadBackgroundTaskModules():
+  | {
+      BackgroundTask: any;
+      TaskManager: any;
+    }
+  | null {
   try {
-    await maybeRunDailyMemoryWriterMaintenance({ source: 'background-task' });
-    return BackgroundTask.BackgroundTaskResult.Success;
+    return {
+      BackgroundTask: require('expo-background-task'),
+      TaskManager: require('expo-task-manager'),
+    };
   } catch {
-    return BackgroundTask.BackgroundTaskResult.Failed;
+    return null;
   }
-});
+}
+
+function ensureBackgroundTaskDefined() {
+  if (backgroundTaskDefined) return loadBackgroundTaskModules();
+  const modules = loadBackgroundTaskModules();
+  if (!modules) return null;
+  const { BackgroundTask, TaskManager } = modules;
+  try {
+    TaskManager.defineTask(DAILY_MEMORY_WRITER_TASK, async () => {
+      try {
+        await maybeRunDailyMemoryWriterMaintenance({ source: 'background-task' });
+        return BackgroundTask.BackgroundTaskResult.Success;
+      } catch {
+        return BackgroundTask.BackgroundTaskResult.Failed;
+      }
+    });
+    backgroundTaskDefined = true;
+  } catch {
+    return null;
+  }
+  return modules;
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -144,6 +171,9 @@ export async function shouldBlockForDailyMemoryWriterMaintenance() {
 
 export async function registerDailyMemoryWriterBackgroundTask() {
   if (!ENABLE_DAILY_MEMORY_WRITER_MAINTENANCE) return;
+  const modules = ensureBackgroundTaskDefined();
+  if (!modules) return;
+  const { BackgroundTask } = modules;
   const status = await BackgroundTask.getStatusAsync().catch(() => BackgroundTask.BackgroundTaskStatus.Restricted);
   if (status !== BackgroundTask.BackgroundTaskStatus.Available) return;
   await BackgroundTask.registerTaskAsync(DAILY_MEMORY_WRITER_TASK, { minimumInterval: 15 }).catch(() => {});

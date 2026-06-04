@@ -13,7 +13,7 @@ import { selectNumerologyLifeEvents } from './fortuneSpecificityBank';
 import { loadAccountState } from './profileMemoryService';
 import {
   appendHealthProfessionalReminder,
-  completeWithPersonaClosing,
+  completeWithRememberedPersonaClosing,
   sanitizeGenderedAddress,
   sanitizePublicReadingLanguage,
   userAskedHealthConcern,
@@ -979,16 +979,16 @@ export async function createPersonalNumerologyReading(params: {
     });
     const payload = await generateGeminiTextDirect(geminiPayload, 45000, { usageMode: 'raw' });
     if (payload.text) {
+      const completed = await completeWithRememberedPersonaClosing({
+        text: cleanNumerologyText(payload.text),
+        assistantId: params.assistantId,
+        domain: 'numerology',
+        seed: `${params.profile.profileId}:${params.mode}:${selectedPeriodKey || 'core'}`,
+        allowHealthClosing: false,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      });
       const text = sanitizeGenderedAddress(
-        appendHealthProfessionalReminder(completeWithPersonaClosing({
-          text: cleanNumerologyText(payload.text),
-          assistantId: params.assistantId,
-          domain: 'numerology',
-          seed: `${params.profile.profileId}:${params.mode}:${selectedPeriodKey || 'core'}`,
-          forceClosing: payload.finishReason === 'MAX_TOKENS',
-          allowHealthClosing: false,
-          isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
-        }), { isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan' }),
+        appendHealthProfessionalReminder(completed.text, { isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan' }),
         {
           assistantId: params.assistantId,
           memorySnippet: params.memorySnippet,
@@ -1096,16 +1096,16 @@ export async function createPersonalNumerologyFollowUp(params: {
       maxOutputTokens: PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
     },
   }, 45000, { usageMode: 'raw' });
-  const text = sanitizeGenderedAddress(
-    appendHealthProfessionalReminder(completeWithPersonaClosing({
+  const completed = await completeWithRememberedPersonaClosing({
       text: cleanNumerologyText(payload.text),
       assistantId: params.assistantId,
       domain: 'numerology',
       seed: `${params.profileName}:${params.mode}:${params.question}`,
-      forceClosing: payload.finishReason === 'MAX_TOKENS',
       allowHealthClosing: userAskedHealthConcern(params.question),
       isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-    }), {
+    });
+  const text = sanitizeGenderedAddress(
+    appendHealthProfessionalReminder(completed.text, {
       userText: params.question,
       isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
     }),

@@ -12,7 +12,7 @@ import { generateGeminiTextDirect } from './geminiDirectService';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import {
   appendHealthProfessionalReminder,
-  completeWithPersonaClosing,
+  completeWithRememberedPersonaClosing,
   sanitizeGenderedAddress,
   sanitizePublicReadingLanguage,
   stripPersonaSelfIntroduction,
@@ -1735,19 +1735,18 @@ export async function createPersonalAstroReading(params: {
           finishReason: undefined,
         }
       : await generateGeminiTextDirect(geminiPayload, 45000, { usageMode: 'raw' });
-    const text = completeWithPersonaClosing({
+    const text = await completeWithRememberedPersonaClosing({
       text: cleanGeneratedTurkishText(data.text),
       assistantId: params.assistantId,
       domain: 'astro',
       seed: `${params.profile.profileId}:${params.period}:${currentPeriodKey}`,
-      forceClosing: data.finishReason === 'MAX_TOKENS',
       allowHealthClosing: userAskedHealthConcern(params.focusQuestion),
       isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
     });
 
     const reading: AstroReadingResult = {
       text: sanitizeGenderedAddress(
-        appendHealthProfessionalReminder(text, {
+        appendHealthProfessionalReminder(text.text, {
           userText: params.focusQuestion,
           isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
         }),
@@ -1905,18 +1904,17 @@ export async function createPersonalAstroFollowUp(params: {
         finishReason: undefined,
       }
     : await generateGeminiTextDirect(followUpPayload, 45000, { usageMode: 'raw' });
-  const text = completeWithPersonaClosing({
+  const text = await completeWithRememberedPersonaClosing({
     text: cleanGeneratedTurkishText(data.text),
     assistantId: params.assistantId,
     domain: 'astro',
     seed: `${params.profileName}:${params.period}:${params.question}`,
-    forceClosing: data.finishReason === 'MAX_TOKENS',
     allowHealthClosing: userAskedHealthConcern(params.question),
     isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text, {
+      appendHealthProfessionalReminder(text.text, {
         userText: params.question,
         isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
       }),
@@ -1955,18 +1953,17 @@ export async function createAstroRelationshipReading(params: {
     { usageMode: 'raw' },
   );
   const seed = `${params.mode}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}:${params.compatibilityContext || ''}`;
-  const text = completeWithPersonaClosing({
+  const text = await completeWithRememberedPersonaClosing({
     text: cleanGeneratedTurkishText(data.text),
     assistantId: params.assistantId,
     domain: 'astro',
     seed,
-    forceClosing: data.finishReason === 'MAX_TOKENS',
     allowHealthClosing: userAskedHealthConcern(String(params.compatibilityContext || '')),
     isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text, {
+      appendHealthProfessionalReminder(text.text, {
         userText: String(params.compatibilityContext || ''),
         isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
       }),
@@ -2049,18 +2046,17 @@ export async function createAstroRelationshipFollowUp(params: {
       maxOutputTokens: PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS,
     },
   }, 45000, { usageMode: 'raw' });
-  const text = completeWithPersonaClosing({
+  const text = await completeWithRememberedPersonaClosing({
     text: cleanGeneratedTurkishText(data.text),
     assistantId: params.assistantId,
     domain: 'astro',
     seed: `${params.mode}:${params.question}:${params.subjects.map((subject) => subject.profile.profileId).join(':')}`,
-    forceClosing: data.finishReason === 'MAX_TOKENS',
     allowHealthClosing: userAskedHealthConcern(params.question),
     isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
   return {
     text: sanitizeGenderedAddress(
-      appendHealthProfessionalReminder(text, {
+      appendHealthProfessionalReminder(text.text, {
         userText: params.question,
         isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
       }),

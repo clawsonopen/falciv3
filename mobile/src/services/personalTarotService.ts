@@ -12,10 +12,9 @@ import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import { generateGeminiTextDirect } from './geminiDirectService';
 import {
   appendHealthProfessionalReminder,
-  isHealthClosingSentence,
   sanitizeGenderedAddress,
   sanitizePublicReadingLanguage,
-  selectAnimalClosingSentence,
+  selectRememberedPersonaClosingSentence,
   stripPersonaSelfIntroduction,
   userAskedHealthConcern,
 } from './personaClosingService';
@@ -45,8 +44,6 @@ export type TarotFollowUpMessage = {
 
 const TAROT_MAX_OUTPUT_TOKENS = PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS;
 const TAROT_FOLLOW_UP_MAX_OUTPUT_TOKENS = PERSONAL_FOLLOW_UP_MAX_OUTPUT_TOKENS;
-const TAROT_FORBIDDEN_CLOSING_TERMS = /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|doğum haritası|numeroloji|rüya yorumu/i;
-
 function personaId(value?: string): PersonaId {
   return (value && value in FORTUNE_PERSONA_DATA ? value : 'suzan') as PersonaId;
 }
@@ -97,31 +94,7 @@ function trimIncompleteTail(text: string) {
   return cleaned;
 }
 
-function selectTarotClosing(params: { assistantId: string; seed: string; usedClosings?: string[]; allowHealthClosing?: boolean; isAnimalProfile?: boolean }) {
-  const id = personaId(params.assistantId);
-  if (params.isAnimalProfile) {
-    return selectAnimalClosingSentence({
-      assistantId: id,
-      seed: `tarot:${params.seed}`,
-      usedClosings: params.usedClosings,
-    });
-  }
-  const used = new Set((params.usedClosings || []).map((item) => item.trim()).filter(Boolean));
-  const library = FORTUNE_PERSONA_DATA[id].closingLibrary as Record<string, readonly string[]>;
-  const options = Object.values(library)
-    .flatMap((items) => [...items])
-    .filter(
-      (sentence) =>
-        sentence &&
-        !TAROT_FORBIDDEN_CLOSING_TERMS.test(sentence) &&
-        !used.has(sentence) &&
-        (params.allowHealthClosing || !isHealthClosingSentence(sentence)),
-    );
-  if (!options.length) return '';
-  return options[hashString(`tarot:${id}:${params.seed}:${used.size}`) % options.length];
-}
-
-function completeWithTarotClosing(params: {
+async function completeWithTarotClosing(params: {
   text: string;
   assistantId: string;
   seed: string;
@@ -131,10 +104,17 @@ function completeWithTarotClosing(params: {
   isAnimalProfile?: boolean;
 }) {
   const base = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(trimIncompleteTail(params.text)));
-  const closing = selectTarotClosing(params);
+  if (!params.forceClosing && hasTerminalPunctuation(base)) return { text: base, closingSentence: '' };
+  const closing = await selectRememberedPersonaClosingSentence({
+    assistantId: params.assistantId,
+    domain: 'tarot',
+    seed: `${params.seed}:${base.slice(-160)}`,
+    allowHealthClosing: params.allowHealthClosing,
+    isAnimalProfile: params.isAnimalProfile,
+    usedClosings: params.usedClosings,
+  });
   if (!closing) return { text: base, closingSentence: '' };
   if (!base) return { text: closing, closingSentence: closing };
-  if (!params.forceClosing && hasTerminalPunctuation(base)) return { text: base, closingSentence: '' };
   if (base.includes(closing)) return { text: base, closingSentence: closing };
   return { text: `${base}\n\n${closing}`.trim(), closingSentence: closing };
 }
@@ -361,7 +341,7 @@ export async function createPersonalTarotReading(params: {
     70000,
     { usageMode: 'raw' },
   );
-  const completed = completeWithTarotClosing({
+  const completed = await completeWithTarotClosing({
     text: data.text,
     assistantId: params.assistantId,
     seed: `${params.profile.profileId}:${params.spread.id}:${params.cards.map((card) => card.id).join('|')}`,
@@ -438,7 +418,7 @@ export async function createPersonalTarotFollowUp(params: {
     70000,
     { usageMode: 'raw' },
   );
-  const completed = completeWithTarotClosing({
+  const completed = await completeWithTarotClosing({
     text: data.text,
     assistantId: params.assistantId,
     seed: `${params.profileName}:${params.spread.id}:${params.question}:${params.previousFollowUps?.length || 0}`,

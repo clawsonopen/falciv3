@@ -24,7 +24,7 @@ Silinen/bozuk restore sonrası çalışılacak branch oluşturuldu:
 Restore işleri bu branch üzerinde ilerliyor.
 
 2. **Memory Architecture v2 / RuhBAz çizgisi**
-Durum: Büyük ölçüde uygulandı, ama “son küçük ayarlar” için hâlâ açık başlık var.
+Durum: Uygulandı; ileride yeni log kanıtı çıkarsa yeniden açılabilir.
 
 Yapıldı:
 - `RuhBAz memory architecture v2` çizgisine yakın memory dokümanı ve memory v2 restore edildi.
@@ -35,9 +35,9 @@ Yapıldı:
 Commit:
 `5ccd870 Restore Gemini embedding memory v2 docs`
 
-Açık kalan:
-- `profileMemoryService` için 29-31 Mayıs loglarında görünen küçük son farklar hâlâ derin karşılaştırılmalı.
-- Özellikle memory indexing, reading intent, correction memory, self-knowledge insight, dedupe ve memory v2 artifact tarafında loglarda daha fazla parça olabilir.
+Sonradan tamamlanan:
+- `profileMemoryService` küçük son ayarları derin karşılaştırıldı.
+- Reading intent, follow-up question, correction memory, self-knowledge insight, semantic indexing, embedding indexing ve reading-derived memory v2 artifact çizgisi geri oturtuldu.
 
 3. **cup2 / çoklu kahve fotoğrafı akışı**
 Durum: Uygulandı.
@@ -67,7 +67,7 @@ Commit:
 `2a38e63 Restore follow-up and multi-image coffee flow`
 
 5. **completeWithRememberedPersonaClosing**
-Durum: Fortune tarafında uygulandı; yayılım kontrolü hâlâ açık.
+Durum: Uygulandı.
 
 Yapıldı:
 - Fal kapanışlarında hatırlanan persona kapanışı sistemi geri getirildi.
@@ -76,12 +76,13 @@ Yapıldı:
 Commit:
 `2a38e63 Restore follow-up and multi-image coffee flow`
 
-Açık kalan:
-- Bu sistem rüya, tarot, numeroloji, astro gibi diğer okuma türlerine doğru yayılmış mı, loglarla karşılaştırılmalı.
-- Merkezi `genderedAddressSanitizer + persona closing yayılımı` başlığı altında ayrıca kontrol edilmeli.
+Sonradan tamamlanan:
+- Rüya, tarot, numeroloji ve astro kapanışları merkezi persona closing/sanitizer çizgisiyle karşılaştırıldı.
+- Rüya remembered closing’e bağlandı.
+- Astro, numeroloji ve tarot remembered closing geçmişli kapanış sistemine kontrollü ikinci fazda geçirildi.
 
 6. **Astro package restore**
-Durum: Genel astro tarafı uygulandı.
+Durum: Uygulandı.
 
 Yapıldı:
 - Genel astro artık sadece basit fallback değil.
@@ -95,9 +96,10 @@ Yapıldı:
 Commit:
 `a64f5c5 Restore general astro generation flow`
 
-Açık kalan:
-- Kişisel astro, compatibility/family astro ve astro follow-up tarafında loglardaki küçük son farklar hâlâ ayrıca taranmalı.
-- Astro package restore “genel astro” tarafında tamamlandı; tüm astro ailesi için son kontrol açık.
+Sonradan tamamlanan:
+- Kişisel astro, compatibility/family astro, astro follow-up ve doğum haritası memory snippet hatları kontrol edildi.
+- Doğum haritası initial/follow-up memory snippet bağlantısı restore edildi.
+- Astro ailesi final metinleri merkezi sanitizer ve remembered closing ikinci fazına bağlandı.
 
 **Çalıştırılan Kontroller**
 
@@ -109,7 +111,7 @@ Geçti:
 
 Bilinen son temiz push:
 - Branch: `codex/recovery-baseline`
-- Son commit: `a64f5c5`
+- Son commit: Güncel branch commitleriyle ilerliyor; final cleanup öncesi son push ayrıca aşağıda işlenecek.
 
 **Eksiksiz Kalan Restore Başlıkları**
 
@@ -216,7 +218,7 @@ Uygulananlar:
 - Modelin görsel yeniden-yükleme isteği ürettiği durumlar genişletme dışı bırakıldı ve kısa retry mesajı persona closing eklenmeden korunuyor.
 
 5. **Merkezi genderedAddressSanitizer + persona closing yayılımı**
-Durum: Kısmen uygulandı; remembered closing yayılımı için kontrollü ikinci faz açık.
+Durum: Uygulandı.
 
 Bakılanlar:
 - Kullanıcıya cinsiyetli hitaplar yanlış geliyor mu
@@ -237,11 +239,13 @@ Uygulananlar:
 - Evcil hayvan profilleri sanitizer’da korunuyor; hayvan metinlerine insan hitap dönüşümü uygulanmıyor.
 - Cinsiyet/yaş farkı bilinmeyen insan profillerinde riskli `kızım/oğlum/yavrum/evladım` türü hitaplar daha nötr dile çekiliyor.
 
-Açık kalan kontrollü alt madde:
-- Astro/numeroloji/tarot kapanışlarını `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirmek ayrıca değerlendirilecek. Özellikle tarot özel domain filtresi nedeniyle bu ayrı test isteyen bir iş.
+İkinci faz:
+- Astro ve numeroloji kapanışları `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirildi.
+- Tarot kapanışları da remembered history seçimine bağlandı; tarot özel domain leak temizliği ve tarot dışı sembol filtresi korunarak geçirildi.
+- Rüya ve fortune tarafındaki remembered closing çizgisiyle aynı `falci-data/personal-closing-history.json` geçmişi kullanılmaya devam ediyor.
 
 6. **Astro ailesi son kontrolü**
-Durum: Uygulandı; remembered closing alt fazı 5. maddede açık tutuluyor.
+Durum: Uygulandı.
 
 Tamamlanan:
 - Genel astro generation/cache/repeat/Gemini hattı.
@@ -259,11 +263,11 @@ Uygulananlar:
 - `BirthChartInterpretationScreen` initial yorumdan önce profile memory snippet yüklüyor.
 - Doğum haritası follow-up sorularında soru bazlı semantic memory snippet yüklenip servise gönderiliyor.
 
-Açık kalan kontrollü alt madde:
-- Astro kapanışlarının `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirilmesi 5. maddedeki remembered closing ikinci fazına bağlı.
+Son durum:
+- Astro kapanışları remembered persona closing ikinci fazıyla geçmişli kapanış sistemine geçirildi.
 
 7. **Prompt restore genel taraması**
-Durum: Uygulandı; remembered closing ikinci fazı 5. maddede açık.
+Durum: Uygulandı.
 
 Bakılanlar:
 - `fortunePromptBuilder`

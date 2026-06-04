@@ -216,13 +216,29 @@ Uygulananlar:
 - Modelin görsel yeniden-yükleme isteği ürettiği durumlar genişletme dışı bırakıldı ve kısa retry mesajı persona closing eklenmeden korunuyor.
 
 5. **Merkezi genderedAddressSanitizer + persona closing yayılımı**
-Durum: Açık.
+Durum: Kısmen uygulandı; remembered closing yayılımı için kontrollü ikinci faz açık.
 
-Bakılacaklar:
+Bakılanlar:
 - Kullanıcıya cinsiyetli hitaplar yanlış geliyor mu
 - Hayvan profillerinde insan romantik/iş/kariyer dili sızıyor mu
 - Kahve, el, tarot, rüya, numeroloji, astro aynı sanitizer/closing mantığına mı bağlı
 - `completeWithRememberedPersonaClosing` sadece fortune tarafında mı kaldı, diğer akışlarda eksik mi
+
+Bulgu:
+- `fortuneApiService` içinde yerel `sanitizeGenderedAddress` kopyası vardı; merkezi servis içinde ortak helper yoktu.
+- Astro, numeroloji ve tarot prompt seviyesinde hitap politikası taşısa da final metin kapısında aynı sanitizer’dan geçmiyordu.
+- Rüya ve fortune remembered persona closing çizgisine geçmiş durumda.
+- Astro ve numeroloji `completeWithPersonaClosing` kullanıyor; tarot ise domain leak riskine karşı özel `completeWithTarotClosing` kullanıyor. Bunları tek hamlede remembered closing’e geçirmek davranış riski taşıyor.
+
+Uygulananlar:
+- `sanitizeGenderedAddress` merkezi olarak `personaClosingService` içine taşındı.
+- Fortune yerel sanitizer kopyası kaldırıldı ve merkezi helper’a bağlandı.
+- Astro, numeroloji ve tarot final metinleri merkezi sanitizer’dan geçiriliyor.
+- Evcil hayvan profilleri sanitizer’da korunuyor; hayvan metinlerine insan hitap dönüşümü uygulanmıyor.
+- Cinsiyet/yaş farkı bilinmeyen insan profillerinde riskli `kızım/oğlum/yavrum/evladım` türü hitaplar daha nötr dile çekiliyor.
+
+Açık kalan kontrollü alt madde:
+- Astro/numeroloji/tarot kapanışlarını `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirmek ayrıca değerlendirilecek. Özellikle tarot özel domain filtresi nedeniyle bu ayrı test isteyen bir iş.
 
 6. **Astro ailesi son kontrolü**
 Durum: Kısmen tamamlandı, açık.

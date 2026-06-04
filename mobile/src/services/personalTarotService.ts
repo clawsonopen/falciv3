@@ -13,6 +13,7 @@ import { generateGeminiTextDirect } from './geminiDirectService';
 import {
   appendHealthProfessionalReminder,
   isHealthClosingSentence,
+  sanitizeGenderedAddress,
   sanitizePublicReadingLanguage,
   selectAnimalClosingSentence,
   stripPersonaSelfIntroduction,
@@ -370,10 +371,17 @@ export async function createPersonalTarotReading(params: {
     isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
   return {
-    text: appendHealthProfessionalReminder(completed.text, {
-      userText: params.question,
-      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(completed.text, {
+        userText: params.question,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      }),
+      {
+        assistantId: params.assistantId,
+        memorySnippet: params.memorySnippet,
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      },
+    ),
     closingSentence: completed.closingSentence,
     modelName: data.model,
     usage: data.usage,
@@ -440,10 +448,13 @@ export async function createPersonalTarotFollowUp(params: {
     isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   return {
-    text: appendHealthProfessionalReminder(completed.text, {
-      userText: params.question,
-      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(completed.text, {
+        userText: params.question,
+        isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+      }),
+      { assistantId: params.assistantId, memorySnippet: params.memorySnippet },
+    ),
     closingSentence: completed.closingSentence,
     modelName: data.model,
     usage: data.usage,

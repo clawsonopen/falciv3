@@ -13,7 +13,12 @@ import {
   type FortuneMessage as BuilderFortuneMessage,
   type FortuneReadingType,
 } from './fortunePromptBuilder';
-import { appendHealthProfessionalReminder, sanitizePublicReadingLanguage, stripPersonaSelfIntroduction } from './personaClosingService';
+import {
+  appendHealthProfessionalReminder,
+  sanitizeGenderedAddress,
+  sanitizePublicReadingLanguage,
+  stripPersonaSelfIntroduction,
+} from './personaClosingService';
 import { cleanFollowUpReply, getSimpleFollowUpReply } from './followUpResponseService';
 
 export type FortuneMessage = BuilderFortuneMessage;
@@ -416,32 +421,6 @@ function completeWithRememberedPersonaClosing(params: {
   return appendClosing(params.text, params.closingSentence);
 }
 
-function canUseFamilyAddress(devSettings: DevSettings, memorySnippet?: ProfileMemorySnippet | null) {
-  const assistantAge = { 'suzan': 58, 'teoman': 60, 'selin': 34, 'berk': 36, arin: 29 }[devSettings.assistantId || ''];
-  const birthDate = memorySnippet?.birthChartData?.birthDate || '';
-  const match = birthDate.match(/^(\d{4})-\d{2}-\d{2}$/);
-  const profileAge = match ? new Date().getFullYear() - Number(match[1]) : null;
-  return Boolean(['suzan', 'teoman'].includes(devSettings.assistantId) && assistantAge && profileAge && assistantAge - profileAge >= 10);
-}
-
-function sanitizeGenderedAddress(text: string, memorySnippet: ProfileMemorySnippet | null | undefined, devSettings: DevSettings) {
-  if (memorySnippet?.relationshipPrimary === 'evcil_hayvan') return text;
-  const feminineTerms: Record<string, string> = { 'güzel kızım': 'güzel evladım', kızım: 'evladım', 'güzel kız': 'güzel evlat' };
-  const masculineTerms: Record<string, string> = { 'güzel oğlum': 'güzel evladım', oğlum: 'evladım', 'güzel oğlan': 'güzel evlat' };
-  const familyTerms: Record<string, string> = { yavrum: 'canım', evladım: 'canım', 'güzel evladım': 'canım' };
-  let replacements: Record<string, string> = {};
-  if (memorySnippet?.profileGender === 'erkek') replacements = feminineTerms;
-  else if (memorySnippet?.profileGender === 'kadin') replacements = masculineTerms;
-  else if (memorySnippet?.profileGender === 'hicbiri' || memorySnippet?.profileGender === 'belirtmek_istemiyorum') replacements = { ...feminineTerms, ...masculineTerms };
-  if (!canUseFamilyAddress(devSettings, memorySnippet)) replacements = { ...replacements, ...feminineTerms, ...masculineTerms, ...familyTerms };
-  let cleaned = text;
-  Object.entries(replacements).forEach(([source, target]) => {
-    cleaned = cleaned.replace(new RegExp(source, 'g'), target);
-    cleaned = cleaned.replace(new RegExp(source.charAt(0).toLocaleUpperCase('tr-TR') + source.slice(1), 'g'), target.charAt(0).toLocaleUpperCase('tr-TR') + target.slice(1));
-  });
-  return cleaned;
-}
-
 function sanitizeAffectionateRepetition(text: string) {
   return (text || '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -599,7 +578,10 @@ function cleanFortuneText(params: {
         closingSentence: params.closingSentence,
         messages: params.messages,
       });
-  const addressed = sanitizeGenderedAddress(withClosing, params.memorySnippet, params.devSettings);
+  const addressed = sanitizeGenderedAddress(withClosing, {
+    assistantId: params.devSettings.assistantId,
+    memorySnippet: params.memorySnippet,
+  });
   const nonRomantic = stripRomanticForNonRomanticRelations(addressed, params.memorySnippet);
   const noRepeat = sanitizeAffectionateRepetition(nonRomantic);
   const publicSafe = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(noRepeat));

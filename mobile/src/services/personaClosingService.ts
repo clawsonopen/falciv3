@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import type { ProfileMemorySnippet } from '../types/memory';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
@@ -478,6 +479,72 @@ export function appendHealthProfessionalReminder(
   if (animalConcern && /\bveteriner/.test(text.toLocaleLowerCase('tr-TR'))) return text;
   if (!animalConcern && /\b(doktor|sağlık uzman)/.test(text.toLocaleLowerCase('tr-TR'))) return text;
   return `${text.trim()}\n\n${reminder}`.trim();
+}
+
+function profileAgeFromMemory(memorySnippet?: ProfileMemorySnippet | null) {
+  const birthDate = memorySnippet?.birthChartData?.birthDate || '';
+  const match = birthDate.match(/^(\d{4})-\d{2}-\d{2}$/);
+  return match ? new Date().getFullYear() - Number(match[1]) : null;
+}
+
+function canUseFamilyAddress(params: {
+  assistantId?: string | null;
+  memorySnippet?: ProfileMemorySnippet | null;
+}) {
+  const assistantAge = FORTUNE_PERSONA_DATA[personaId(params.assistantId || undefined)]?.age;
+  const profileAge = profileAgeFromMemory(params.memorySnippet);
+  return Boolean(
+    ['suzan', 'teoman', 'ayse'].includes(params.assistantId || '') &&
+      assistantAge &&
+      profileAge &&
+      assistantAge - profileAge >= 10,
+  );
+}
+
+export function sanitizeGenderedAddress(
+  text: string,
+  params?: {
+    assistantId?: string | null;
+    memorySnippet?: ProfileMemorySnippet | null;
+    isAnimalProfile?: boolean;
+  },
+) {
+  const memorySnippet = params?.memorySnippet;
+  if (params?.isAnimalProfile || memorySnippet?.relationshipPrimary === 'evcil_hayvan') return text;
+  const feminineTerms: Record<string, string> = {
+    'güzel kızım': 'güzel evladım',
+    kızım: 'evladım',
+    'güzel kız': 'güzel evlat',
+  };
+  const masculineTerms: Record<string, string> = {
+    'güzel oğlum': 'güzel evladım',
+    oğlum: 'evladım',
+    'aslan oğlum': 'aslanım',
+    'güzel oğlan': 'güzel evlat',
+  };
+  const familyTerms: Record<string, string> = {
+    yavrum: 'canım',
+    evladım: 'canım',
+    'güzel evladım': 'canım',
+  };
+  let replacements: Record<string, string> = {};
+  if (memorySnippet?.profileGender === 'erkek') replacements = feminineTerms;
+  else if (memorySnippet?.profileGender === 'kadin') replacements = masculineTerms;
+  else if (memorySnippet?.profileGender === 'hicbiri' || memorySnippet?.profileGender === 'belirtmek_istemiyorum') {
+    replacements = { ...feminineTerms, ...masculineTerms };
+  }
+  if (!canUseFamilyAddress({ assistantId: params?.assistantId, memorySnippet })) {
+    replacements = { ...replacements, ...feminineTerms, ...masculineTerms, ...familyTerms };
+  }
+  let cleaned = text;
+  Object.entries(replacements).forEach(([source, target]) => {
+    cleaned = cleaned.replace(new RegExp(source, 'g'), target);
+    cleaned = cleaned.replace(
+      new RegExp(source.charAt(0).toLocaleUpperCase('tr-TR') + source.slice(1), 'g'),
+      target.charAt(0).toLocaleUpperCase('tr-TR') + target.slice(1),
+    );
+  });
+  return cleaned;
 }
 
 export function completeWithPersonaClosing(params: {

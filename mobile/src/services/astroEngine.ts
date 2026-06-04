@@ -13,6 +13,7 @@ import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import {
   appendHealthProfessionalReminder,
   completeWithPersonaClosing,
+  sanitizeGenderedAddress,
   sanitizePublicReadingLanguage,
   stripPersonaSelfIntroduction,
   userAskedHealthConcern,
@@ -1360,9 +1361,12 @@ export async function createBirthChartInterpretation(params: {
     };
   }
   return {
-    text: appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(text)), {
-      isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(text)), {
+        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+      }),
+      { isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan' },
+    ),
     sign: normalizeSignLabel(chart.sign),
     risingSign: chart.ascendant,
     timezoneUsed: location.timezone,
@@ -1442,10 +1446,13 @@ export async function createBirthChartFollowUp(params: {
     45000,
   );
   return {
-    text: appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(cleanGeneratedTurkishText(data.text))), {
-      userText: params.question,
-      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(cleanGeneratedTurkishText(data.text))), {
+        userText: params.question,
+        isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+      }),
+      { memorySnippet: params.memorySnippet },
+    ),
     modelName: data.model,
     usage: data.usage,
   };
@@ -1731,10 +1738,17 @@ export async function createPersonalAstroReading(params: {
     });
 
     const reading: AstroReadingResult = {
-      text: appendHealthProfessionalReminder(text, {
-        userText: params.focusQuestion,
-        isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
-      }),
+      text: sanitizeGenderedAddress(
+        appendHealthProfessionalReminder(text, {
+          userText: params.focusQuestion,
+          isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+        }),
+        {
+          assistantId: params.assistantId,
+          memorySnippet: params.memorySnippet,
+          isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
+        },
+      ),
       sign: normalizeSignLabel(chart.sign),
       risingSign: chart.ascendant,
       timezoneUsed: location.timezone,
@@ -1893,10 +1907,13 @@ export async function createPersonalAstroFollowUp(params: {
     isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   return {
-    text: appendHealthProfessionalReminder(text, {
-      userText: params.question,
-      isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(text, {
+        userText: params.question,
+        isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
+      }),
+      { assistantId: params.assistantId, memorySnippet: params.memorySnippet },
+    ),
     modelName: data.model,
     usage: data.usage,
   };
@@ -1940,10 +1957,17 @@ export async function createAstroRelationshipReading(params: {
     isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
   return {
-    text: appendHealthProfessionalReminder(text, {
-      userText: String(params.compatibilityContext || ''),
-      isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(text, {
+        userText: String(params.compatibilityContext || ''),
+        isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+      }),
+      {
+        assistantId: params.assistantId,
+        memorySnippet: params.memorySnippet,
+        isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+      },
+    ),
     sign: params.mode === 'family' ? 'Aile' : 'Uyum',
     timezoneUsed: 'Çoklu doğum verisi',
     periodKey: todayIsoDate(),
@@ -2027,10 +2051,17 @@ export async function createAstroRelationshipFollowUp(params: {
     isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
   });
   return {
-    text: appendHealthProfessionalReminder(text, {
-      userText: params.question,
-      isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
-    }),
+    text: sanitizeGenderedAddress(
+      appendHealthProfessionalReminder(text, {
+        userText: params.question,
+        isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+      }),
+      {
+        assistantId: params.assistantId,
+        memorySnippet: params.memorySnippet,
+        isAnimalProfile: params.subjects.some((subject) => subject.profile.relationshipPrimary === 'evcil_hayvan'),
+      },
+    ),
     modelName: data.model,
     usage: data.usage,
   };

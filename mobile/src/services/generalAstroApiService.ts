@@ -1,8 +1,12 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import type { SubjectProfile } from '../types/memory';
 import type { AstroPeriod, AstroReadingResult } from './astroEngine';
+import { buildGeneralAstroSkyContext } from './astroEngine';
 import { buildAnimalProfileInstructionFromProfile, isAnimalProfile } from './animalProfilePrompt';
 import { sanitizePublicReadingLanguage } from './personaClosingService';
 import { AGENT_API_URL } from '../config/constants';
+import { generateGeminiTextDirect } from './geminiDirectService';
+import { appendReadingSummary, loadAccountState } from './profileMemoryService';
 
 const SIGN_ORDER = [
   'aries',
@@ -40,6 +44,23 @@ const PERIOD_TR: Record<Exclude<AstroPeriod, 'yearly'>, string> = {
   monthly: 'aylık',
 };
 
+const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
+const GENERAL_ASTRO_CACHE_FILE = `${DATA_DIR}general-astro-cache.json`;
+const MAX_GENERAL_ASTRO_CACHE_ITEMS = 120;
+
+type GeneralAstroCacheFile = {
+  schemaVersion: 1;
+  entries: Array<{
+    cacheKey: string;
+    profileId: string;
+    sign: (typeof SIGN_ORDER)[number];
+    period: Exclude<AstroPeriod, 'yearly'>;
+    periodKey: string;
+    createdAt: string;
+    reading: AstroReadingResult;
+  }>;
+};
+
 const WEEKDAY_TR = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
 const MONTH_TR = [
   '',
@@ -63,6 +84,81 @@ function hashSeed(input: string): number {
     h = (h * 31 + input.charCodeAt(i)) >>> 0;
   }
   return h;
+}
+
+async function readGeneralAstroCache(): Promise<GeneralAstroCacheFile> {
+  try {
+    const info = await FileSystem.getInfoAsync(GENERAL_ASTRO_CACHE_FILE);
+    if (!info.exists) return { schemaVersion: 1, entries: [] };
+    const raw = await FileSystem.readAsStringAsync(GENERAL_ASTRO_CACHE_FILE);
+    const parsed = JSON.parse(raw) as GeneralAstroCacheFile;
+    return {
+      schemaVersion: 1,
+      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
+    };
+  } catch {
+    return { schemaVersion: 1, entries: [] };
+  }
+}
+
+async function writeGeneralAstroCache(cache: GeneralAstroCacheFile) {
+  await FileSystem.makeDirectoryAsync(DATA_DIR, { intermediates: true }).catch(() => {});
+  await FileSystem.writeAsStringAsync(
+    GENERAL_ASTRO_CACHE_FILE,
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        entries: cache.entries.slice(0, MAX_GENERAL_ASTRO_CACHE_ITEMS),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function generalAstroCacheKey(params: {
+  profileId: string;
+  sign: (typeof SIGN_ORDER)[number];
+  period: Exclude<AstroPeriod, 'yearly'>;
+  periodKey: string;
+}) {
+  return `${params.profileId}:${params.sign}:${params.period}:${params.periodKey}`;
+}
+
+async function loadGeneralAstroFromCache(params: {
+  profileId: string;
+  sign: (typeof SIGN_ORDER)[number];
+  period: Exclude<AstroPeriod, 'yearly'>;
+  periodKey: string;
+}) {
+  const cacheKey = generalAstroCacheKey(params);
+  const cache = await readGeneralAstroCache();
+  const hit = cache.entries.find((entry) => entry.cacheKey === cacheKey);
+  return hit ? { ...hit.reading, cached: true } : null;
+}
+
+async function saveGeneralAstroToCache(params: {
+  profileId: string;
+  sign: (typeof SIGN_ORDER)[number];
+  period: Exclude<AstroPeriod, 'yearly'>;
+  periodKey: string;
+  reading: AstroReadingResult;
+}) {
+  const cacheKey = generalAstroCacheKey(params);
+  const cache = await readGeneralAstroCache();
+  const entry = {
+    cacheKey,
+    profileId: params.profileId,
+    sign: params.sign,
+    period: params.period,
+    periodKey: params.periodKey,
+    createdAt: new Date().toISOString(),
+    reading: { ...params.reading, cached: false },
+  };
+  await writeGeneralAstroCache({
+    schemaVersion: 1,
+    entries: [entry, ...cache.entries.filter((item) => item.cacheKey !== cacheKey)],
+  });
 }
 
 function deriveSign(profile: SubjectProfile): (typeof SIGN_ORDER)[number] {
@@ -184,6 +280,8 @@ function buildGeneralAstroPayload(params: {
   periodKey: string;
   periodContextLabel: string;
   periodInstruction: string;
+  skyContextJson?: string;
+  repeatMemory?: string;
 }) {
   const signLabel = SIGN_TR[params.sign];
   const periodLabel = PERIOD_TR[params.period];
@@ -204,8 +302,17 @@ function buildGeneralAstroPayload(params: {
     `Dönem anahtarı: ${params.periodKey}`,
     `Dönem bağlamı: ${params.periodContextLabel}`,
     `Zaman kuralı: ${params.periodInstruction}`,
+    params.skyContextJson
+      ? `Gerçek gökyüzü verisi JSON:\n${params.skyContextJson}`
+      : '',
+    params.repeatMemory
+      ? `Tekrar önleme hafızası: ${params.repeatMemory}. Bu önceki genel astro metinlerindeki ana kalıpları tekrar etme; aynı temayı kullanman gerekirse farklı açı ve farklı cümlelerle işle.`
+      : '',
     [
       'Yükselen veya kişiye özel doğum haritası bilgisi varmış gibi davranma.',
+      'Verilen gerçek gökyüzü verisini kullan; yorumu yalnızca genel Güneş burcu bağlamında kur. Kullanıcının Ay burcu, yükseleni, doğum saati, natal evi veya kişisel doğum haritası varmış gibi yazma.',
+      'Teknik dili ölçülü kullan: retro, kare, karşıt, kavuşum, sert etki, destekleyici etki gibi 1-3 doğal ifade yeterli. Derece listesi, tablo dili, ev numarası veya hesap raporu yazma.',
+      'Gökyüzü verisiyle bağ kurmadan tamamen jenerik motivasyon metni yazma; en az bir gezegen/retro/açı veya dönem timeline vurgusu doğal biçimde yoruma girsin.',
       animalProfile
         ? '3-4 ana konuya değin: mizaç/duygu tonu, oyun ve dinlenme ritmi, ev içi güven ve sahibiyle bağ, küçük bir gözlem önerisi.'
         : '3-4 ana konuya değin: duygu hali, ilişkiler, iş/para ve küçük bir öneri.',
@@ -228,6 +335,48 @@ function buildGeneralAstroPayload(params: {
       temperature: 0.68,
       maxOutputTokens: params.period === 'daily' ? 520 : params.period === 'weekly' ? 720 : 820,
     },
+  };
+}
+
+function recentGeneralAstroMemory(params: {
+  profileId: string;
+  period: Exclude<AstroPeriod, 'yearly'>;
+  signLabel: string;
+}) {
+  return loadAccountState()
+    .then((state) =>
+      state.readings
+        .filter(
+          (reading) =>
+            reading.profileId === params.profileId &&
+            reading.readingType === 'general-astro' &&
+            reading.period === params.period,
+        )
+        .slice(0, 3)
+        .map((reading) => reading.summary.replace(/\s+/g, ' ').trim().slice(0, 260))
+        .filter(Boolean)
+        .join(' | '),
+    )
+    .catch(() => '');
+}
+
+async function generateGeneralAstroWithGemini(params: {
+  period: Exclude<AstroPeriod, 'yearly'>;
+  profile: SubjectProfile;
+  sign: (typeof SIGN_ORDER)[number];
+  periodKey: string;
+  periodContextLabel: string;
+  periodInstruction: string;
+  skyContextJson?: string;
+  repeatMemory?: string;
+}) {
+  const payload = buildGeneralAstroPayload(params);
+  const response = await generateGeminiTextDirect(payload, 45000, { usageMode: 'raw' });
+  const text = response.text.trim();
+  if (!text) throw new Error('Genel astro Gemini yanıtı boş döndü.');
+  return {
+    text,
+    modelName: response.model || 'gemini-2.5-flash-lite',
   };
 }
 
@@ -257,15 +406,35 @@ function buildLocalGeneralAstroFallback(params: {
   period: Exclude<AstroPeriod, 'yearly'>;
   sign: (typeof SIGN_ORDER)[number];
   label: string;
+  repeatMemory?: string;
 }) {
   const signLabel = SIGN_TR[params.sign];
+  const avoidRepeat = params.repeatMemory
+    ? ' Önceki genel yorumlarla aynı cümle kalıbına düşmemek için bu kez odağı daha pratik ve farklı bir açıdan tutmak iyi olur.'
+    : '';
   if (params.period === 'daily') {
-    return `${signLabel} için bugün genel hava daha sade ve toparlayıcı ilerliyor. Duygusal tarafta acele tepki vermek yerine önce gözlem yapmak, ilişkilerde gereksiz yanlış anlamaları azaltabilir. İş ve para tarafında küçük ama net bir düzenleme günü rahatlatır; büyük kararları ise kanıt ve zamanla tartmak daha iyi olur. Günün önerisi, enerjini tek bir önceliğe toplamak ve akşam saatlerinde zihnini dağıtan küçük işleri kapatmak.`;
+    return `${signLabel} için bugün genel hava daha sade ve toparlayıcı ilerliyor. Duygusal tarafta acele tepki vermek yerine önce gözlem yapmak, ilişkilerde gereksiz yanlış anlamaları azaltabilir. İş ve para tarafında küçük ama net bir düzenleme günü rahatlatır; büyük kararları ise kanıt ve zamanla tartmak daha iyi olur. Günün önerisi, enerjini tek bir önceliğe toplamak ve akşam saatlerinde zihnini dağıtan küçük işleri kapatmak.${avoidRepeat}`;
   }
   if (params.period === 'weekly') {
-    return `${signLabel} için ${params.label} haftasının genel ritmi parça parça netleşme üzerine kurulu. Haftanın başında iletişim ve planlama öne çıkarken, orta bölümde ilişkilerde denge ve karşılıklı beklentiler daha görünür olabilir. İş ve para tarafında hızlı büyütmek yerine mevcut düzeni sağlamlaştırmak destekleyici duruyor. Hafta sonuna doğru dinlenme, sadeleşme ve bir konuyu kapatma isteği artabilir.`;
+    return `${signLabel} için ${params.label} haftasının genel ritmi parça parça netleşme üzerine kurulu. Haftanın başında iletişim ve planlama öne çıkarken, orta bölümde ilişkilerde denge ve karşılıklı beklentiler daha görünür olabilir. İş ve para tarafında hızlı büyütmek yerine mevcut düzeni sağlamlaştırmak destekleyici duruyor. Hafta sonuna doğru dinlenme, sadeleşme ve bir konuyu kapatma isteği artabilir.${avoidRepeat}`;
   }
-  return `${signLabel} için ${params.label} genel olarak yön belirleme ve yük azaltma teması taşıyor. Ayın ilk kısmında gündelik düzen, iş akışı ve kişisel sorumluluklar öne çıkabilir. Orta bölümde ilişkilerde açıklık, aile veya yakın çevreyle uyum arayışı belirginleşir. Ay sonuna doğru daha sade hedefler seçmek, enerjiyi dağıtmadan ilerlemeyi kolaylaştırır. Bu yorum genel Güneş burcu ritmidir; kişisel doğum haritası yerine kolektif eğilimi anlatır.`;
+  return `${signLabel} için ${params.label} genel olarak yön belirleme ve yük azaltma teması taşıyor. Ayın ilk kısmında gündelik düzen, iş akışı ve kişisel sorumluluklar öne çıkabilir. Orta bölümde ilişkilerde açıklık, aile veya yakın çevreyle uyum arayışı belirginleşir. Ay sonuna doğru daha sade hedefler seçmek, enerjiyi dağıtmadan ilerlemeyi kolaylaştırır. Bu yorum genel Güneş burcu ritmidir; kişisel doğum haritası yerine kolektif eğilimi anlatır.${avoidRepeat}`;
+}
+
+async function rememberGeneralAstroReading(params: {
+  profileId: string;
+  period: Exclude<AstroPeriod, 'yearly'>;
+  text: string;
+}) {
+  await appendReadingSummary({
+    profileId: params.profileId,
+    assistantId: 'general-astro',
+    readingType: 'general-astro',
+    period: params.period,
+    surfacesRead: [],
+    summary: params.text,
+    transcript: [{ role: 'assistant', text: params.text, timestamp: Date.now() }],
+  }).catch(() => {});
 }
 
 export async function fetchGeneralAstroDirect(params: {
@@ -274,6 +443,21 @@ export async function fetchGeneralAstroDirect(params: {
 }): Promise<AstroReadingResult | null> {
   const sign = deriveSign(params.profile);
   const context = periodContext(params.period);
+  const signLabel = SIGN_TR[sign];
+  const cachedReading = await loadGeneralAstroFromCache({
+    profileId: params.profile.profileId,
+    sign,
+    period: params.period,
+    periodKey: context.key,
+  });
+  if (cachedReading) return cachedReading;
+
+  const skyContextJson = JSON.stringify(buildGeneralAstroSkyContext(signLabel, params.period));
+  const repeatMemory = await recentGeneralAstroMemory({
+    profileId: params.profile.profileId,
+    period: params.period,
+    signLabel,
+  });
   try {
     const text = await fetchServerGeneralAstroCached({
       period: params.period,
@@ -281,27 +465,60 @@ export async function fetchGeneralAstroDirect(params: {
       periodKey: context.key,
       timezone: context.timezone,
     });
-    return {
-      text: sanitizePublicReadingLanguage(text),
-      sign: SIGN_TR[sign],
+    const sanitizedText = sanitizePublicReadingLanguage(text);
+    const reading: AstroReadingResult = {
+      text: sanitizedText,
+      sign: signLabel,
       timezoneUsed: context.timezone,
       periodKey: context.key,
       cached: true,
       modelName: 'server-general-astro-cache',
     };
+    await saveGeneralAstroToCache({ profileId: params.profile.profileId, sign, period: params.period, periodKey: context.key, reading });
+    await rememberGeneralAstroReading({ profileId: params.profile.profileId, period: params.period, text: sanitizedText });
+    return reading;
   } catch (err: any) {
+    try {
+      const generated = await generateGeneralAstroWithGemini({
+        period: params.period,
+        profile: params.profile,
+        sign,
+        periodKey: context.key,
+        periodContextLabel: context.label,
+        periodInstruction: context.instruction,
+        skyContextJson,
+        repeatMemory,
+      });
+      const sanitizedText = sanitizePublicReadingLanguage(generated.text);
+      const reading: AstroReadingResult = {
+        text: sanitizedText,
+        sign: signLabel,
+        timezoneUsed: context.timezone,
+        periodKey: context.key,
+        cached: false,
+        modelName: generated.modelName,
+      };
+      await saveGeneralAstroToCache({ profileId: params.profile.profileId, sign, period: params.period, periodKey: context.key, reading });
+      await rememberGeneralAstroReading({ profileId: params.profile.profileId, period: params.period, text: sanitizedText });
+      return reading;
+    } catch {}
     const fallback = buildLocalGeneralAstroFallback({
       period: params.period,
       sign,
       label: context.label,
+      repeatMemory,
     });
-    return {
-      text: sanitizePublicReadingLanguage(fallback),
-      sign: SIGN_TR[sign],
+    const sanitizedText = sanitizePublicReadingLanguage(fallback);
+    const reading: AstroReadingResult = {
+      text: sanitizedText,
+      sign: signLabel,
       timezoneUsed: context.timezone,
       periodKey: context.key,
       cached: true,
       modelName: 'local-general-astro-fallback',
     };
+    await saveGeneralAstroToCache({ profileId: params.profile.profileId, sign, period: params.period, periodKey: context.key, reading });
+    await rememberGeneralAstroReading({ profileId: params.profile.profileId, period: params.period, text: sanitizedText });
+    return reading;
   }
 }

@@ -856,6 +856,89 @@ function stripTransitLongitude(planet: ReturnType<typeof buildTransitPlanets>[nu
   return rest;
 }
 
+function solarAreaFromTransit(signLabel: string, transitSignLabel: string) {
+  const natalIndex = SIGN_LABELS.indexOf(signLabel);
+  const transitIndex = SIGN_LABELS.indexOf(transitSignLabel);
+  if (natalIndex < 0 || transitIndex < 0) return null;
+  const areaIndex = ((transitIndex - natalIndex + 12) % 12) + 1;
+  const labels: Record<number, string> = {
+    1: 'benlik ve enerji',
+    2: 'para, değer ve güven',
+    3: 'iletişim ve yakın çevre',
+    4: 'ev, aile ve iç denge',
+    5: 'yaratıcılık ve keyif',
+    6: 'rutin, iş akışı ve sağlık düzeni',
+    7: 'ilişkiler ve ortaklıklar',
+    8: 'paylaşım, kriz ve dönüşüm',
+    9: 'uzaklar, eğitim ve inançlar',
+    10: 'hedefler ve görünürlük',
+    11: 'sosyal çevre ve gelecek planları',
+    12: 'içe dönüş ve kapanışlar',
+  };
+  return { areaNo: areaIndex, label: labels[areaIndex] };
+}
+
+function buildGeneralSkyAspects(date: Date) {
+  const time = new Astronomy.AstroTime(date);
+  const planets = buildLocalPlanets(time, null);
+  return buildAspects(planets)
+    .slice(0, 7)
+    .map((aspect) => ({
+      planet1Label: aspect.planetA,
+      planet2Label: aspect.planetB,
+      aspect: aspect.type,
+      orb: aspect.orb,
+      tone: aspect.type === 'Kare' || aspect.type === 'Karşıt' ? 'sert etki' : 'akışkan/destekleyici etki',
+    }));
+}
+
+export function buildGeneralAstroSkyContext(signLabel: string, period: AstroPeriod = 'daily') {
+  const checkpoints = periodCheckpointDates(period);
+  const currentDate = checkpoints[0] || new Date(`${todayIsoDate()}T12:00:00.000Z`);
+  const currentPositions = buildLocalPlanets(new Astronomy.AstroTime(currentDate), null).slice(0, 8);
+  const dominantSolarAreas = currentPositions
+    .map((planet) => {
+      const area = solarAreaFromTransit(signLabel, planet.sign);
+      if (!area) return null;
+      return {
+        planetLabel: planet.name,
+        signLabel: planet.sign,
+        retrograde: planet.retrograde,
+        solarArea: area.label,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 6);
+  return {
+    source: 'mobile-local-astro',
+    rule: 'Genel Güneş burcu yorumu; kişisel yükselen, Ay burcu, doğum saati ve natal ev bilgisi içermez.',
+    signLabel,
+    period,
+    currentSky: {
+      dateKey: dateKeyFromDate(currentDate),
+      positions: currentPositions.map((planet) => ({
+        planetLabel: planet.name,
+        signLabel: planet.sign,
+        degreeInSign: Number(planet.degree.toFixed(1)),
+        retrograde: planet.retrograde,
+      })),
+      aspects: buildGeneralSkyAspects(currentDate),
+      solarSignFocus: dominantSolarAreas,
+    },
+    periodTimeline: checkpoints.map((date) => ({
+      dateKey: dateKeyFromDate(date),
+      positions: buildLocalPlanets(new Astronomy.AstroTime(date), null)
+        .slice(0, 7)
+        .map((planet) => ({
+          planetLabel: planet.name,
+          signLabel: planet.sign,
+          retrograde: planet.retrograde,
+        })),
+      aspects: buildGeneralSkyAspects(date).slice(0, 4),
+    })),
+  };
+}
+
 function buildCompactAstroPayload(
   profile: SubjectProfile,
   chart: BirthChartSnapshot,

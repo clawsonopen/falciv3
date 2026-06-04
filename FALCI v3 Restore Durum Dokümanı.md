@@ -145,9 +145,9 @@ Commit:
 `Restore profile memory intent indexing` başlıklı restore commit’i.
 
 2. **Rüya yorum akışını kontrol et**
-Durum: Açık.
+Durum: Uygulandı; merkezi gendered sanitizer yayılımı kendi maddesinde açık kalıyor.
 
-Bakılacaklar:
+Bakılanlar:
 - Rüya initial interpretation
 - Rüya follow-up
 - persona closing sistemiyle uyumu
@@ -156,6 +156,20 @@ Bakılacaklar:
 - token usage kaydı
 - UTF-8 / Türkçe görünür metinler
 - loglarda 29-31 Mayıs değişikliği var mı
+
+Uygulananlar:
+- Rüya servisinde `FOLLOW_UP_CHAT_CONTRACT` geri bağlandı.
+- Basit sosyal takip cevapları için `getSimpleFollowUpReply` kullanımı eklendi.
+- Follow-up yanıtları `cleanFollowUpReply` ile temizleniyor.
+- `completeWithRememberedPersonaClosing` merkezi helper olarak geri getirildi ve rüya initial/follow-up kapanışlarına bağlandı.
+- Persona kapanış geçmişi `falci-data/personal-closing-history.json` altında tutuluyor; böylece aynı persona kapanışları farklı oturumlarda daha az tekrar ediyor.
+- Rüya ekranı günlük hafıza bakımı sırasında yeni yorum isteğini `DAILY_MEMORY_WRITER_BUSY_MESSAGE` ile bloke ediyor.
+
+Not:
+- `genderedAddressSanitizer` dosyası mevcut değil; bu konu “Merkezi genderedAddressSanitizer + persona closing yayılımı” maddesinde bütün servisler için ayrıca ele alınacak.
+
+Commit:
+`Restore dream follow-up closing flow` başlıklı restore commit’i.
 
 3. **El/pati görsel doğrulama yumuşatma paketi**
 Durum: Açık.

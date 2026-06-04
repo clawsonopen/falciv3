@@ -9,6 +9,7 @@ import { generateGeminiTextDirect } from './geminiDirectService';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 import {
   appendHealthProfessionalReminder,
+  completeWithRememberedPersonaClosing,
   isHealthClosingSentence,
   sanitizePublicReadingLanguage,
   selectAnimalClosingSentence,
@@ -18,6 +19,7 @@ import {
 import { buildAnimalProfileInstructionFromMemory, buildAnimalProfileInstructionFromProfile, isAnimalProfile } from './animalProfilePrompt';
 import { formatPromptMemoryPack } from './memoryPromptPackFormatter';
 import { formatPetMentionMemoryContext, formatStandardPersonalMemoryContext } from './personalMemoryPromptContext';
+import { cleanFollowUpReply, FOLLOW_UP_CHAT_CONTRACT, getSimpleFollowUpReply } from './followUpResponseService';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
 
@@ -256,12 +258,10 @@ function buildBaseSystem(params: {
       '- Sağlık ve finans konularında tanı, tedavi, garanti kazanç veya kesin karar dili kullanma.',
       '- Yanıt başlıksız, listesiz, sohbet gibi akan düz yazı olsun. Markdown, yıldızlı vurgu, emoji, ikon veya dekoratif sembol kullanma.',
       `- Ana rüya yorumunda ${PERSONAL_INITIAL_READING_TOKEN_INSTRUCTION}`,
+      `- Takip sorularında: ${FOLLOW_UP_CHAT_CONTRACT}`,
       '- Soru yanıtlarında önce soruya net cevap ver, sonra rüya bağlamından 1-2 gerekçe ve kısa tavsiye ekle.',
       '- Tüm oturum boyunca seçili profil, rüya metni, ilk yorum ve önceki soru cevap bağlamı korunmalı; başka kişiye kayma.',
-      '- Kapanışta yeni imza cümlesi üretme; sistem persona kapanışını sonradan ekleyecek.',
-      '- Bu oturumda daha önce kullanılan kapanış cümlelerini veya çok yakın varyasyonlarını tekrar etme.',
       '- Türkçe karakterleri daima doğru UTF-8 yaz: ç, ğ, ı, İ, ö, ş, ü. Bozuk karakter dizileri kullanma.',
-      params.usedClosings?.length ? `- Bu oturumda kullanılmış kapanışlar: ${params.usedClosings.join(' | ')}` : '',
     ].filter(Boolean).join('\n'),
     buildDreamMemoryContext(params.profileName, params.memorySnippet),
   ].join('\n\n');
@@ -320,12 +320,12 @@ export async function createDreamInterpretation(params: {
     70000,
     { usageMode: 'raw' },
   );
-  const completed = completeWithDreamClosing({
+  const completed = await completeWithRememberedPersonaClosing({
     text: data.text,
     assistantId: params.assistantId,
+    domain: 'dream',
     seed: `${params.profile.profileId}:${params.dreamText.slice(0, 180)}`,
     usedClosings: params.usedClosings,
-    forceClosing: data.finishReason === 'MAX_TOKENS',
     allowHealthClosing: userAskedHealthConcern(params.dreamText),
     isAnimalProfile: params.profile.relationshipPrimary === 'evcil_hayvan',
   });
@@ -351,6 +351,15 @@ export async function createDreamFollowUp(params: {
   memorySnippet?: ProfileMemorySnippet | null;
   usedClosings?: string[];
 }) {
+  const simpleReply = getSimpleFollowUpReply(params.question);
+  if (simpleReply) {
+    return {
+      text: simpleReply,
+      closingSentence: '',
+      modelName: 'local-follow-up-reply',
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    };
+  }
   const systemText = buildBaseSystem({
     assistantId: params.assistantId,
     assistantLabel: params.assistantLabel,
@@ -387,20 +396,20 @@ export async function createDreamFollowUp(params: {
     70000,
     { usageMode: 'raw' },
   );
-  const completed = completeWithDreamClosing({
+  const completed = await completeWithRememberedPersonaClosing({
     text: data.text,
     assistantId: params.assistantId,
+    domain: 'dream',
     seed: `${params.profileName}:${params.question}:${params.previousFollowUps?.length || 0}`,
     usedClosings: params.usedClosings,
-    forceClosing: data.finishReason === 'MAX_TOKENS',
     allowHealthClosing: userAskedHealthConcern(params.question),
     isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
   });
   return {
-    text: appendHealthProfessionalReminder(completed.text, {
+    text: cleanFollowUpReply(appendHealthProfessionalReminder(completed.text, {
       userText: params.question,
       isAnimalProfile: params.memorySnippet?.relationshipPrimary === 'evcil_hayvan',
-    }),
+    })),
     closingSentence: completed.closingSentence,
     modelName: data.model,
     usage: data.usage,

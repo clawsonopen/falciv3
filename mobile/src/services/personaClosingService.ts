@@ -1,15 +1,20 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import { FORTUNE_PERSONA_DATA } from './fortunePersonaData';
 
 type PersonaId = keyof typeof FORTUNE_PERSONA_DATA;
-export type PersonalReadingDomain = 'astro' | 'numerology';
+export type PersonalReadingDomain = 'coffee' | 'palm' | 'astro' | 'numerology' | 'tarot' | 'dream';
 
 const DOMAIN_FORBIDDEN_TERMS: Record<PersonalReadingDomain, RegExp> = {
+  coffee: /avuç|el okuması|el çizg|doğum haritası|natal|transit|burç|numeroloji|rüya yorumu/i,
+  palm: /kahve|fincan|telve|tabak|doğum haritası|natal|transit|burç|numeroloji|rüya yorumu/i,
   astro: /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|tarot|kart|melek kart|rune|i ching|hexagram/i,
   numerology:
     /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|görsel|fotoğraf|tarot|kart|melek kart|rune|i ching|hexagram|gökyüzü|yıldız|gezegen|natal|transit|burç|ay döng/i,
+  tarot: /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|doğum haritası|numeroloji|rüya yorumu/i,
+  dream: /kahve|fincan|telve|tabak|avuç|el okuması|el çizg|doğum haritası|numeroloji|tarot|kart/i,
 };
 
-const FALLBACK_CLOSINGS: Record<PersonalReadingDomain, Record<string, string[]>> = {
+const FALLBACK_CLOSINGS: Record<'astro' | 'numerology', Record<string, string[]>> = {
   astro: {
     'selin': [
       'Bugün kendine yumuşak bir farkındalık alanı aç tatlım; bu etkiyi zorlamadan yönettiğinde daha temiz bir akış bulacaksın.',
@@ -158,6 +163,54 @@ function hashString(value: string) {
   return h >>> 0;
 }
 
+const PERSONAL_CLOSING_HISTORY_LIMIT = 30;
+const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
+const PERSONAL_CLOSING_HISTORY_FILE = `${DATA_DIR}personal-closing-history.json`;
+
+type PersonalClosingHistoryFile = {
+  schemaVersion: 1;
+  byAssistant: Record<string, string[]>;
+};
+
+function defaultClosingHistory(): PersonalClosingHistoryFile {
+  return { schemaVersion: 1, byAssistant: {} };
+}
+
+async function readPersonalClosingHistory(): Promise<PersonalClosingHistoryFile> {
+  try {
+    const info = await FileSystem.getInfoAsync(PERSONAL_CLOSING_HISTORY_FILE);
+    if (!info.exists) return defaultClosingHistory();
+    const parsed = JSON.parse(await FileSystem.readAsStringAsync(PERSONAL_CLOSING_HISTORY_FILE)) as Partial<PersonalClosingHistoryFile>;
+    return {
+      schemaVersion: 1,
+      byAssistant: parsed.byAssistant && typeof parsed.byAssistant === 'object' ? parsed.byAssistant : {},
+    };
+  } catch {
+    return defaultClosingHistory();
+  }
+}
+
+async function writePersonalClosingHistory(history: PersonalClosingHistoryFile) {
+  await FileSystem.makeDirectoryAsync(DATA_DIR, { intermediates: true }).catch(() => {});
+  await FileSystem.writeAsStringAsync(PERSONAL_CLOSING_HISTORY_FILE, JSON.stringify(history, null, 2));
+}
+
+async function rememberPersonalClosing(assistantId: string, closing: string) {
+  const sentence = closing.trim();
+  if (!sentence) return;
+  const id = personaId(assistantId);
+  const history = await readPersonalClosingHistory();
+  const recent = history.byAssistant[id] || [];
+  history.byAssistant[id] = [sentence, ...recent.filter((item) => item !== sentence)].slice(0, PERSONAL_CLOSING_HISTORY_LIMIT);
+  await writePersonalClosingHistory(history);
+}
+
+export async function getRecentPersonalClosings(assistantId: string) {
+  const id = personaId(assistantId);
+  const history = await readPersonalClosingHistory();
+  return (history.byAssistant[id] || []).slice(0, PERSONAL_CLOSING_HISTORY_LIMIT);
+}
+
 const HEALTH_CLOSING_TERMS =
   /\b(sağlık|saglik|sağlığ|saglig|beden|bedeni|bedenin|bedensel|ruh sağlığı|hasta|hastalık|hastalik|rahatsız|rahatsiz|ağrı|agri|acı|aci|sancı|sanci|ateş|ates|öksür|oksur|uyku|uykusuz|iyileş|iyiles|şifa|sifa|doktor|uzman|veteriner|ilaç|ilac|doz|tedavi)\b/iu;
 
@@ -191,7 +244,8 @@ function safeClosingOptions(id: PersonaId, domain: PersonalReadingDomain, allowH
         !forbidden.test(sentence.toLocaleLowerCase('tr-TR')) &&
         (allowHealthClosing || !isHealthClosingSentence(sentence)),
     );
-  const fallback = FALLBACK_CLOSINGS[domain][id] || FALLBACK_CLOSINGS[domain]['suzan'];
+  const fallbackByDomain = domain === 'astro' || domain === 'numerology' ? FALLBACK_CLOSINGS[domain] : null;
+  const fallback = fallbackByDomain ? fallbackByDomain[id] || fallbackByDomain['suzan'] : [];
   return options.length ? options : fallback;
 }
 
@@ -200,10 +254,15 @@ export function selectPersonaClosingSentence(params: {
   domain: PersonalReadingDomain;
   seed: string;
   allowHealthClosing?: boolean;
+  usedClosings?: string[];
 }) {
   const id = personaId(params.assistantId);
   const options = safeClosingOptions(id, params.domain, params.allowHealthClosing);
-  return options[hashString(`${params.domain}:${id}:${params.seed}`) % options.length] || '';
+  const used = new Set((params.usedClosings || []).map((item) => item.trim()).filter(Boolean));
+  const available = options.filter((option) => !used.has(option));
+  const pool = available.length ? available : options;
+  if (!pool.length) return '';
+  return pool[hashString(`${params.domain}:${id}:${params.seed}:${used.size}`) % pool.length] || '';
 }
 
 export function selectAnimalClosingSentence(params: {
@@ -448,4 +507,55 @@ export function completeWithPersonaClosing(params: {
   if (!base) return closing;
   if (base.includes(closing)) return base;
   return `${base}\n\n${closing}`.trim();
+}
+
+export async function selectRememberedPersonaClosingSentence(params: {
+  assistantId: string;
+  domain: PersonalReadingDomain;
+  seed: string;
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
+  usedClosings?: string[];
+}) {
+  const recent = await getRecentPersonalClosings(params.assistantId);
+  const usedClosings = [...recent, ...(params.usedClosings || [])];
+  const closing = params.isAnimalProfile
+    ? selectAnimalClosingSentence({
+        assistantId: params.assistantId,
+        seed: `${params.domain}:${params.seed}`,
+        usedClosings,
+      })
+    : selectPersonaClosingSentence({
+        assistantId: params.assistantId,
+        domain: params.domain,
+        seed: params.seed,
+        allowHealthClosing: params.allowHealthClosing,
+        usedClosings,
+      });
+  if (closing) await rememberPersonalClosing(params.assistantId, closing);
+  return closing;
+}
+
+export async function completeWithRememberedPersonaClosing(params: {
+  text: string;
+  assistantId: string;
+  domain: PersonalReadingDomain;
+  seed: string;
+  allowHealthClosing?: boolean;
+  isAnimalProfile?: boolean;
+  usedClosings?: string[];
+}) {
+  const base = sanitizePublicReadingLanguage(stripPersonaSelfIntroduction(trimIncompleteTail(params.text)));
+  const closing = await selectRememberedPersonaClosingSentence({
+    assistantId: params.assistantId,
+    domain: params.domain,
+    seed: `${params.seed}:${base.slice(-160)}`,
+    allowHealthClosing: params.allowHealthClosing,
+    isAnimalProfile: params.isAnimalProfile,
+    usedClosings: params.usedClosings,
+  });
+  if (!closing) return { text: base, closingSentence: '' };
+  if (!base) return { text: closing, closingSentence: closing };
+  if (base.includes(closing)) return { text: base, closingSentence: closing };
+  return { text: `${base}\n\n${closing}`.trim(), closingSentence: closing };
 }

@@ -49,6 +49,10 @@ import {
   startOrResumeAssistantSpeech,
   stopAssistantSpeech,
 } from '../services/ttsService';
+import {
+  DAILY_MEMORY_WRITER_BUSY_MESSAGE,
+  shouldBlockForDailyMemoryWriterMaintenance,
+} from '../services/dailyMemoryWriterMaintenanceService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DreamInterpretation'>;
 
@@ -204,6 +208,10 @@ export function DreamInterpretationScreen({ route, navigation }: Props) {
     setEditorVisible(false);
     setIsSending(true);
     try {
+      if (await shouldBlockForDailyMemoryWriterMaintenance()) {
+        setInfoModal({ visible: true, title: 'Hafıza Bakımı', message: DAILY_MEMORY_WRITER_BUSY_MESSAGE });
+        return;
+      }
       await appendUserConversationMemory(profileId, text).catch(() => {});
       const state = await loadAccountState();
       const profile = state.profiles.find((item) => item.profileId === profileId) || null;

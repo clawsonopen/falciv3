@@ -50,6 +50,14 @@ const PHOTO_RETRY_MESSAGE =
   'Fotoğraf şu an net okunamadı canım. Işığı biraz artırıp telveyi ya da avuç içini daha yakından göstererek yeniden deneyelim.';
 const FRIENDLY_FALLBACK =
   'Bu fotoğraf bu okuma türü için uygun görünmüyor canım. Uygun okuma türünü seçip fotoğrafı yeniden yükleyelim.';
+const SURFACE_INITIAL_MIN_OUTPUT_TOKENS: Partial<Record<FortuneReadingType, number>> = {
+  coffee: 900,
+  palm: 750,
+};
+const SURFACE_INITIAL_EXPAND_MAX_OUTPUT_TOKENS: Partial<Record<FortuneReadingType, number>> = {
+  coffee: 1700,
+  palm: 1400,
+};
 
 function emptyUsage(): GeminiUsage {
   return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -496,6 +504,76 @@ function stripFollowUpReopeners(text: string) {
   return sentences.join(' ').trim() || text;
 }
 
+function looksLikeImageRetryRequest(text: string, readingType: FortuneReadingType) {
+  const normalized = (text || '').toLocaleLowerCase('tr-TR');
+  const asksUpload = /\b(fotoğraf|görsel|yükle|gönder)\b/.test(normalized);
+  if (!asksUpload) return false;
+  if (readingType === 'coffee') {
+    return /\b(telve|fincan|tabak|kahve)\b/.test(normalized);
+  }
+  return /\b(avuç|el|pati|ayak)\b/.test(normalized);
+}
+
+function compactImageRetryReply(text: string, readingType: FortuneReadingType) {
+  if (!looksLikeImageRetryRequest(text, readingType)) return text;
+  const sentences = (text || '').trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+  const useful = sentences.filter((sentence) =>
+    /\b(fotoğraf|görsel|yükle|gönder|telve|fincan|tabak|avuç|pati|ayak)\b/i.test(sentence),
+  );
+  return (useful.length ? useful : sentences).slice(0, 2).join(' ').trim() || text;
+}
+
+function shouldExpandInitialSurfaceReading(params: {
+  readingType: FortuneReadingType;
+  coffeeMode?: CoffeeMode;
+  isFollowUp?: boolean;
+  outputTokens: number;
+  text: string;
+}) {
+  if (params.isFollowUp) return false;
+  if (params.readingType === 'coffee' && (params.coffeeMode || 'upload') !== 'upload') return false;
+  const minTokens = SURFACE_INITIAL_MIN_OUTPUT_TOKENS[params.readingType];
+  if (!minTokens) return false;
+  const paragraphCount = (params.text || '').split(/\n\s*\n/).filter((part) => part.trim().length > 40).length;
+  return params.outputTokens > 0 && (params.outputTokens < minTokens || paragraphCount < 5);
+}
+
+async function expandShortInitialSurfaceReading(params: {
+  prompt: string;
+  draftText: string;
+  readingType: FortuneReadingType;
+  devSettings: DevSettings;
+}) {
+  const target = params.readingType === 'coffee' ? '1400-1700' : '1000-1400';
+  return generateGeminiTextDirect(
+    {
+      system_instruction: {
+        parts: [
+          {
+            text:
+              `${params.prompt}\n\n` +
+              'Internal length repair: Aşağıdaki ilk taslak kullanıcı için kısa kaldı. Aynı dili, aynı persona sesini ve aynı görsel kanıt mantığını koruyarak metni baştan yaz. ' +
+              `Metni ${target} ham Gemini output token aralığına yaklaştır; tekrar, liste, başlık, markdown ve yeni kesin iddia üretme. ` +
+              'Önceki metindeki somut gözlemleri koru, geçişleri doğal uzat, geçmiş-şimdi-yakın dönem ve uygulanabilir öneri dengesini tamamla.',
+          },
+        ],
+      },
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: `İlk kısa taslak:\n${params.draftText}` }],
+        },
+      ],
+      generationConfig: {
+        temperature: Number(params.devSettings.temperature || 0.8),
+        maxOutputTokens: SURFACE_INITIAL_EXPAND_MAX_OUTPUT_TOKENS[params.readingType] || PERSONAL_INITIAL_READING_MAX_OUTPUT_TOKENS,
+      },
+    },
+    45000,
+    { usageMode: 'raw' },
+  );
+}
+
 function cleanFortuneText(params: {
   text: string;
   closingSentence: string;
@@ -513,11 +591,14 @@ function cleanFortuneText(params: {
   const noAstroLeak = stripExplicitAstroLeaks(aligned, params.readingType);
   const noPaceLoop = stripUnaskedPaceTheme(noAstroLeak, params.messages);
   const noReopener = params.isFollowUp ? stripFollowUpReopeners(noPaceLoop) : noPaceLoop;
-  const withClosing = completeWithRememberedPersonaClosing({
-    text: noReopener,
-    closingSentence: params.closingSentence,
-    messages: params.messages,
-  });
+  const retryCompact = compactImageRetryReply(noReopener, params.readingType);
+  const withClosing = looksLikeImageRetryRequest(retryCompact, params.readingType)
+    ? retryCompact
+    : completeWithRememberedPersonaClosing({
+        text: retryCompact,
+        closingSentence: params.closingSentence,
+        messages: params.messages,
+      });
   const addressed = sanitizeGenderedAddress(withClosing, params.memorySnippet, params.devSettings);
   const nonRomantic = stripRomanticForNonRomanticRelations(addressed, params.memorySnippet);
   const noRepeat = sanitizeAffectionateRepetition(nonRomantic);
@@ -639,10 +720,32 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
       { usageMode: 'raw' },
     );
     addUsage(usage, response.usage);
+    let rawReplyText = response.text;
+    let modelName = response.model;
+    if (
+      !looksLikeImageRetryRequest(response.text, body.readingType) &&
+      shouldExpandInitialSurfaceReading({
+        readingType: body.readingType,
+        coffeeMode: body.coffeeMode || 'upload',
+        isFollowUp: body.isFollowUp,
+        outputTokens: response.usage.outputTokens,
+        text: response.text,
+      })
+    ) {
+      const expanded = await expandShortInitialSurfaceReading({
+        prompt: prompt.systemInstruction,
+        draftText: response.text,
+        readingType: body.readingType,
+        devSettings: body.devSettings,
+      });
+      addUsage(usage, expanded.usage);
+      rawReplyText = expanded.text;
+      modelName = expanded.model || modelName;
+    }
     const simpleFollowUp = body.isFollowUp
       ? getSimpleFollowUpReply([...body.messages].reverse().find((message) => message.role === 'user')?.text || '')
       : '';
-    const responseText = simpleFollowUp || (body.isFollowUp ? cleanFollowUpReply(response.text) : response.text);
+    const responseText = simpleFollowUp || (body.isFollowUp ? cleanFollowUpReply(rawReplyText) : rawReplyText);
     return {
       text: cleanFortuneText({
         text: responseText,
@@ -655,7 +758,7 @@ export async function getFortuneReply(body: FortuneRequest): Promise<FortuneRepl
         isFollowUp: body.isFollowUp,
         focusQuestion: body.focusQuestion,
       }),
-      modelName: response.model,
+      modelName,
       specificityUsage: prompt.specificityUsage,
       usage,
     };

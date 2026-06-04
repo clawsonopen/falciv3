@@ -195,14 +195,25 @@ Not:
 - Tamamen yanlış görseller hâlâ reddediliyor; bu paket yalnızca el/pati sınırındaki belirsiz görselleri yumuşatıyor.
 
 4. **Kısa okuma genişletme sistemi: kahve/el**
-Durum: Açık.
+Durum: Uygulandı.
 
-Bakılacaklar:
+Bakılanlar:
 - Kahve veya el yorumu kısa dönerse otomatik devam/genişletme var mı
 - `MAX_TOKENS` kapanışları doğru tamamlanıyor mu
 - Follow-up sistemiyle çakışmadan genişletme yapılabiliyor mu
 - Persona closing iki kere ekleniyor mu
 - Token usage doğru yazılıyor mu
+
+Bulgu:
+- Mevcut canlı dosyada kahve/el initial yorum kısa kaldığında otomatik genişletme yoktu.
+- D recovery kopyasında `shouldExpandInitialSurfaceReading`, `expandShortInitialSurfaceReading`, `looksLikeImageRetryRequest` ve retry compact mantığı görülüyordu.
+- Bu sistem yalnızca ilk kahve/el yüzey okuması için çalışmalı; follow-up cevaplarını veya görsel yeniden-yükleme mesajlarını genişletmemeli.
+
+Uygulananlar:
+- Kahve upload ve el/pati initial okumasında output token düşükse ya da metin çok az paragrafla dönmüşse ikinci bir Gemini çağrısıyla aynı persona/prompt çizgisinde genişletme eklendi.
+- Genişletme çağrısının token usage’ı ana usage toplamına ekleniyor.
+- Follow-up cevapları genişletme dışı bırakıldı.
+- Modelin görsel yeniden-yükleme isteği ürettiği durumlar genişletme dışı bırakıldı ve kısa retry mesajı persona closing eklenmeden korunuyor.
 
 5. **Merkezi genderedAddressSanitizer + persona closing yayılımı**
 Durum: Açık.

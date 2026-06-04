@@ -1,0 +1,25 @@
+node_modules/
+mobile/node_modules/
+agent/__pycache__/
+agent/**/*.pyc
+agent/.env
+.env
+
+.expo/
+mobile/.expo/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/.cxx/
+
+_recovery_*/
+_log_recovered_*/
+FALCI v3 node_modules corrupt archives/
+
+*.log
+*.tmp
+
+expo access token.txt
+google ai studik key curl.txt
+google ai studio key.txt
+live kit API info.txt

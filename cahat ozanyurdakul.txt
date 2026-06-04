@@ -1,0 +1,156 @@
+
+Bu turda ana akışı toparladım; artık profil, hafıza, history ve el falı aynı omurga üzerinde çalışıyor.
+
+Ana akış artık Fal türü -> profil seçimi/ekleme -> okuma şeklinde ilerliyor. Profil Ekle kartı profil kartlarının arasına taşındı, Kahve ve El Fali ayrımı eklendi, Benim yerime ic ile normal upload aynı ekranda ayrıldı.
+HomeScreen
+.tsx
+(lines 392-520)
+Son Fallar ve Hafiza Ozeti ana ekrandan ayrılıp ayrı sayfalara taşındı. History artık sadece falcı, fal türü ve tarih gösteriyor; özet metin yok. Hafıza debug ekranı da kullanıcının yazdıkları ve fallarda çıkanlar diye iki ayrı blok gösteriyor.
+App
+.tsx
+(lines 10-20)
+
+App
+.tsx
+(lines 37-44)
+
+HistoryScreen
+.tsx
+(lines 17-36)
+
+MemoryDebugScreen
+.tsx
+(lines 60-78)
+Profil hafızası iki ayrı JSON akışına bölündü: user-stated.json ve reading-derived.json. Ayrıca profil ilişkileri için karşılıklı hafıza yazımı eklendi; kullanıcı bir profilden başka bir profili adıyla ve ilişki sinyaliyle anarsa, iki tarafta da important-people kaydı güncelleniyor. evcil_hayvan ilişkisi de veri modeline eklendi.
+profileMemoryService
+.ts
+(lines 74-78)
+
+profileMemoryService
+.ts
+(lines 286-311)
+
+profileMemoryService
+.ts
+(lines 441-472)
+
+memory
+.ts
+(lines 1-12)
+
+memory
+.ts
+(line 33)
+
+memory
+.ts
+(lines 118-120)
+Session tarafı hem kahve hem el falı için güncellendi. Seed mesajları artık kendim ve başkası ayrımını biliyor; el falında avuç içi fotoğrafıyla başlıyor, history kaydı da readingType ve surfacesRead ile yazılıyor.
+useSession
+.ts
+(line 26)
+
+useSession
+.ts
+(lines 104-145)
+
+useSession
+.ts
+(lines 182-190)
+
+SessionScreen
+.tsx
+(lines 273-291)
+
+SessionScreen
+.tsx
+(lines 320-330)
+Görsel guard sertleştirildi. Kahve tarafında tek fotoğrafta hem fincan hem tabak varsa ikisini de tespit etmeye çalışıyor; artık sadece tek yüzeymiş gibi davranmıyor. El falında da ayrı doğrulama var: insan eli mi, avuç içi mi, yeterince görünür mü diye kontrol ediyor; uygun değilse 422 ile reddediyor.
+token_server
+.py
+(lines 65-128)
+
+token_server
+.py
+(lines 149-206)
+
+token_server
+.py
+(lines 232-268)
+
+token_server
+.py
+(lines 334-339)
+Upload kutularındaki iç yazıyı kaldırdım; başlıklar artık kutunun dışında, ekrandan yönetiliyor. Böylece siyah CUP/TABAK görünümü tekrar bindirmemeli.
+ImageUploader
+.tsx
+(lines 16-25)
+
+ImageUploader
+.tsx
+(lines 63-64)
+
+HomeScreen
+.tsx
+(lines 502-518)
+
+SessionScreen
+.tsx
+(lines 344-394)
+Doğrulama:
+
+npx tsc --noEmit geçti.
+python -m py_compile agent\token_server.py agent\persona_prompt_builder.py geçti.
+Android assembleDebug geçti.
+APK:
+
+C:\Users\ozany\Documents\FALCI v2\mobile\android\app\build\outputs\apk\debug\app-debug.apk
+Bir önemli not:
+
+El falında şu an bilinçli olarak sert overlay / zorunlu el kalıbı / mirror dayatma yapmadım. İlk sürümde daha kapsayıcı bir soft validation var; engelli kullanıcıyı veya tek elle kullanım senaryosunu gereksiz yere bloke etmiyor.
+HomeScreen
+.tsx
+(line 520)
+
+SessionScreen
+.tsx
+(lines 328-330)
+Denemede özellikle şunlara bak:
+
+Tek tabak yükleyince sadece tabak üzerinden konuşuyor mu
+Tek fotoğrafta fincan+tabak varsa ikisini de anıyor mu
+El dışı görsel yükleyince el falını reddediyor mu
+Ozan ve Mika arasında ilişki anınca hafıza ekranlarında iki tarafa da düşüyor mu
+İstersen sonraki turda şu ikisinden biriyle devam edelim:
+
+Ozan <-> Mika ilişki çıkarımını daha deterministik hale getireyim ve profiller arasında açık ilişki editörü ekleyeyim
+El falı için isteğe bağlı, erişilebilir bir yardımcı outline ve rehber çekim ekranı ekleyeyim
+
+
+
+01:17
+10 files changed
++341
+-82
+Undo
+App.tsx
+agent/token_server.py
+src/components/ImageUploader.tsx
+src/hooks/useSession.ts
+src/screens/HomeScreen.tsx
+src/screens/SessionScreen.tsx
+src/services/fortuneApiService.ts
+src/services/profileMemoryService.ts
+src/types/index.ts
+src/types/memory.ts
+
+
+
+--------------------
+
+
+
+bu arada yanlis fotoda cikan uyari mesajini hata kodu kisimlarini silerek sadece son kullaniciya 
+yonelik app branding tarzinda bir yazi ile in app uyari olarak gosterrelim. profil ekleyebiliyorsak cikarabiliyor
+ da olmaliyiz degil mi? 
+ama profil silerken sorulmali sildiginiz profilin sizinle iliskili kayitlari da silinsin mi? 

@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Falcı Ailesi Sezuşgiller",
+    "slug": "falci-ailesi-sezusgiller",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Kahve ve el yorumu için fotoğraf çekebilmek adına kamera izni gerekiyor.",
+        "NSPhotoLibraryUsageDescription": "Kahve ve el yorumu için fotoğraf seçebilmek adına galeri izni gerekiyor.",
+        "NSMicrophoneUsageDescription": "Falınıza bakabilmek için sesinizi dinlememiz gerekiyor."
+      }
+    },
+    "android": {
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.mobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "3ade94e0-7335-4992-9485-2a26bed59560"
+      }
+    },
+    "plugins": [
+      "expo-speech-recognition",
+      "expo-camera",
+      "expo-sqlite",
+      "expo-background-task"
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import {
   type MemoryEmbeddingEntry,
   upsertMemoryEmbedding,
 } from './memorySqliteService';
+import { addPersonalTokenUsage } from './tokenLedgerService';
 
 export type MemoryEmbeddingMatch = MemoryEmbeddingEntry & { score: number };
 
@@ -62,6 +63,25 @@ function cosineSimilarity(a: number[], b: number[]) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+async function recordEmbeddingUsage(
+  result: Awaited<ReturnType<typeof embedGeminiText>>,
+  readingName: string,
+) {
+  const inputTokens = Number(result.usage?.inputTokens ?? result.usage?.rawInputTokens ?? 0);
+  const rawInputTokens = Number(result.usage?.rawInputTokens ?? inputTokens);
+  const rawTotalTokens = Number(result.usage?.rawTotalTokens ?? rawInputTokens);
+  if (!inputTokens && !rawInputTokens && !rawTotalTokens) return;
+  await addPersonalTokenUsage({
+    modelName: result.model || GEMINI_EMBEDDING_MODEL,
+    readingName,
+    textInputTokens: inputTokens,
+    outputTokens: 0,
+    rawPromptTokens: rawInputTokens,
+    rawOutputTokens: 0,
+    rawTotalTokens,
+  }).catch(() => {});
+}
+
 async function upsertEmbedding(params: {
   accountId: string;
   profileId: string;
@@ -73,6 +93,7 @@ async function upsertEmbedding(params: {
   if (!text) return;
   const textHash = stableTextHash(text);
   const result = await embedGeminiText(text, 30000, 'RETRIEVAL_DOCUMENT');
+  await recordEmbeddingUsage(result, 'Hafıza Embedding');
   await upsertMemoryEmbedding({
     refId: `${params.profileId}:${params.sourceTable}:${params.sourceId}:${GEMINI_EMBEDDING_MODEL}`,
     accountId: params.accountId,
@@ -154,6 +175,7 @@ export async function searchMemoryEmbeddings(params: {
   const query = params.query.trim();
   if (!query) return [];
   const queryEmbedding = await embedGeminiText(query, 30000, 'RETRIEVAL_QUERY');
+  await recordEmbeddingUsage(queryEmbedding, 'Hafıza Arama Embedding');
   const rows = await getMemoryEmbeddingsForProfile(params.profileId, {
     model: GEMINI_EMBEDDING_MODEL,
     sourceTables: params.sourceTables,

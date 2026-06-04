@@ -1,96 +1,98 @@
 # Ruhbaz Memory Mimarisi
 
 Tarih: 2026-05-28  
-AmaÃ§: Ruhbaz/FALCI ekosisteminde kullanÄ±cÄ±yÄ± zamanla tanÄ±yan, tekrarlarÄ± azaltan, persona tutarlÄ±lÄ±ÄŸÄ±nÄ± bozmayan, 1 GB'a kadar bÃ¼yÃ¼yebilen ve prompta sadece anlamlÄ± kÄ±sa baÄŸlam gÃ¶nderen bÃ¼tÃ¼nsel memory mimarisini tanÄ±mlamak.
+V2 referansı: `docs/RUHBaz_MEMORY_ARCHITECTURE_V2.md` dosyası 31 Mayıs öncesi yaklaştığımız geniş "Memory Architecture v2" çizgisini proje içine temiz UTF-8 olarak geri koyar. Bu dosya ise o çizginin Ruhbaz/FALCI uygulama katmanına uyarlanmış mimari notudur.
 
-## 1. Ana AyrÄ±m
+Amaç: Ruhbaz/FALCI ekosisteminde kullanıcıyı zamanla tanıyan, tekrarları azaltan, persona tutarlılığını bozmayan, 1 GB'a kadar büyüyebilen ve prompta sadece anlamlı kısa bağlam gönderen bütünsel memory mimarisini tanımlamak.
 
-Bu mimaride Ã¼Ã§ ÅŸey kesinlikle birbirine karÄ±ÅŸtÄ±rÄ±lmaz:
+## 1. Ana Ayrım
+
+Bu mimaride üç şey kesinlikle birbirine karıştırılmaz:
 
 ```text
 Persona Identity = statik yorumcu karakteri
-User Semantic Memory = kullanÄ±cÄ±ya ait yaÅŸayan hafÄ±za
-Persona-User Relationship = seÃ§ili personanÄ±n bu kullanÄ±cÄ±yla kurduÄŸu dinamik baÄŸ
-Lore Wiki = Ruhbaz evrenine ve iÃ§erik kaynaklarÄ±na ait kullanÄ±cÄ±dan baÄŸÄ±msÄ±z bilgi katmanÄ±
+User Semantic Memory = kullanıcıya ait yaşayan hafıza
+Persona-User Relationship = seçili personanın bu kullanıcıyla kurduğu dinamik bağ
+Lore Wiki = Ruhbaz evrenine ve içerik kaynaklarına ait kullanıcıdan bağımsız bilgi katmanı
 ```
 
-Persona identity kullanÄ±cÄ± hafÄ±zasÄ±ndan tÃ¼remez. KullanÄ±cÄ± hafÄ±zasÄ± da persona identity dosyasÄ±nÄ± deÄŸiÅŸtirmez. Prompt builder bu iki katmanÄ± ayrÄ± bloklar halinde birleÅŸtirir.
+Persona identity kullanıcı hafızasından türemez. Kullanıcı hafızası da persona identity dosyasını değiştirmez. Prompt builder bu iki katmanı ayrı bloklar halinde birleştirir.
 
-Lore Wiki de kullanÄ±cÄ± memory'sinden ayrÄ±dÄ±r. KullanÄ±cÄ±yÄ± tanÄ±mak iÃ§in deÄŸil; Ruhbaz evrenini, persona ailesini, app section kÃ¼ltÃ¼rÃ¼nÃ¼, developer entry'leri ve social feedlerden curate edilmiÅŸ iÃ§erikleri taÅŸÄ±mak iÃ§in vardÄ±r.
+Lore Wiki de kullanıcı memory'sinden ayrıdır. Kullanıcıyı tanımak için değil; Ruhbaz evrenini, persona ailesini, app section kültürünü, developer entry'leri ve social feedlerden curate edilmiş içerikleri taşımak için vardır.
 
 ## 2. Sistem Hedefleri
 
-- KullanÄ±cÄ±yÄ± zamanla tanÄ±mak.
-- KullanÄ±cÄ±ya "hafÄ±zanda gÃ¶rdÃ¼m" demeden tanÄ±dÄ±k hissettirmek.
-- 7 personanÄ±n her birinde tutarlÄ± karakter korumak.
-- Her persona iÃ§in kullanÄ±cÄ±yla ayrÄ± iliÅŸki hafÄ±zasÄ± tutmak.
-- KullanÄ±cÄ±nÄ±n kendi profili ve Ã§evresi iÃ§in oluÅŸturduÄŸu profilleri anlamlÄ± baÄŸlamda kullanmak.
-- Kendini TanÄ±, doÄŸum haritasÄ±, temel numeroloji ve test sonuÃ§larÄ±nÄ± kullanÄ±cÄ± essence olarak taÅŸÄ±mak.
-- TekrarlarÄ± ve kalÄ±p cevaplarÄ± azaltmak.
-- Memory 1 GB'a kadar bÃ¼yÃ¼se bile app'i hÄ±zlÄ± tutmak.
-- LLM token maliyetini online cevap yolunda bÃ¼yÃ¼tmemek.
-- Memory yÃ¶netimini mÃ¼mkÃ¼n olduÄŸunca background/scheduled/flex API iÅŸleriyle yapmak.
+- Kullanıcıyı zamanla tanımak.
+- Kullanıcıya "hafızanda gördüm" demeden tanıdık hissettirmek.
+- 7 personanın her birinde tutarlı karakter korumak.
+- Her persona için kullanıcıyla ayrı ilişki hafızası tutmak.
+- Kullanıcının kendi profili ve çevresi için oluşturduğu profilleri anlamlı bağlamda kullanmak.
+- Kendini Tanı, doğum haritası, temel numeroloji ve test sonuçlarını kullanıcı essence olarak taşımak.
+- Tekrarları ve kalıp cevapları azaltmak.
+- Memory 1 GB'a kadar büyüse bile app'i hızlı tutmak.
+- LLM token maliyetini online cevap yolunda büyütmemek.
+- Memory yönetimini mümkün olduğunca background/scheduled/flex API işleriyle yapmak.
 
-## 2A. Memory Scope SÄ±nÄ±rlarÄ±
+## 2A. Memory Scope Sınırları
 
-Bu bÃ¼tÃ¼nsel memory sistemi esas olarak kiÅŸisel deneyimler iÃ§indir:
+Bu bütünsel memory sistemi esas olarak kişisel deneyimler içindir:
 
 ```text
 Senin Evin
-Kendini TanÄ±
-kiÅŸisel profil bazlÄ± okumalar
+Kendini Tanı
+kişisel profil bazlı okumalar
 follow-up sohbetleri
 persona-user relationship
-profile iliÅŸkileri
+profile ilişkileri
 ```
 
-### Ä°kram MasasÄ± Genel FallarÄ±
+### İkram Masası Genel Falları
 
-Ä°kram MasasÄ± altÄ±ndaki genel fal deneyimleri mevcut halini korur. KiÅŸiye Ã¶zel â€œSenin Evinâ€ memoryâ€™si bu genel fal promptlarÄ±na girmez.
+İkram Masası altındaki genel fal deneyimleri mevcut halini korur. Kişiye özel “Senin Evin” memory’si bu genel fal promptlarına girmez.
 
 Bu kapsama girenler:
 
-- genel kahve falÄ±
+- genel kahve falı
 - genel tarot/fal deneyimleri
-- kiÅŸisel profile baÄŸlÄ± olmayan genel ritÃ¼el/yorumlar
+- kişisel profile bağlı olmayan genel ritüel/yorumlar
 
 Kural:
 
 ```text
-Genel Ä°kram MasasÄ± fallarÄ±nda kullanÄ±cÄ±ya Ã¶zel Senin Evin memory'si kullanÄ±lmaz.
+Genel İkram Masası fallarında kullanıcıya özel Senin Evin memory'si kullanılmaz.
 ```
 
-Bu ayrÄ±m Ã¼rÃ¼n hissi iÃ§in Ã¶nemlidir. Genel/ikram deneyimi daha hafif ve herkesin kullanabileceÄŸi bir alan olarak kalÄ±r; kiÅŸisel tanÄ±ma ve derin memory hissi â€œSenin Evinâ€ ve kiÅŸisel akÄ±ÅŸlarda yaÅŸar.
+Bu ayrım ürün hissi için önemlidir. Genel/ikram deneyimi daha hafif ve herkesin kullanabileceği bir alan olarak kalır; kişisel tanıma ve derin memory hissi “Senin Evin” ve kişisel akışlarda yaşar.
 
-### Ä°kram MasasÄ± Genel Astroloji Ä°stisnasÄ±
+### İkram Masası Genel Astroloji İstisnası
 
-Ä°kram MasasÄ± altÄ±ndaki genel gÃ¼nlÃ¼k/haftalÄ±k/aylÄ±k astroloji okumalarÄ± tekrar azaltmak iÃ§in sÄ±nÄ±rlÄ± bir hafÄ±zadan faydalanabilir.
+İkram Masası altındaki genel günlük/haftalık/aylık astroloji okumaları tekrar azaltmak için sınırlı bir hafızadan faydalanabilir.
 
-Bu hafÄ±za kiÅŸisel Senin Evin memoryâ€™si deÄŸildir. AyrÄ± ve hafif bir tekrar/Ã§eÅŸitlilik hafÄ±zasÄ±dÄ±r.
+Bu hafıza kişisel Senin Evin memory’si değildir. Ayrı ve hafif bir tekrar/çeşitlilik hafızasıdır.
 
-KullanÄ±labilecekler:
+Kullanılabilecekler:
 
-- gÃ¼neÅŸ burcu
-- dÃ¶nem tipi: gÃ¼nlÃ¼k / haftalÄ±k / aylÄ±k
-- yakÄ±n zamanda aynÄ± gÃ¼neÅŸ burcu iÃ§in kullanÄ±lan genel temalar
-- tekrar eden kapanÄ±ÅŸ/tavsiye/kalÄ±p cÃ¼mleler
-- genel astro metinlerinde Ã§eÅŸitlilik ledger'Ä±
+- güneş burcu
+- dönem tipi: günlük / haftalık / aylık
+- yakın zamanda aynı güneş burcu için kullanılan genel temalar
+- tekrar eden kapanış/tavsiye/kalıp cümleler
+- genel astro metinlerinde çeşitlilik ledger'ı
 
-KullanÄ±lmayacaklar:
+Kullanılmayacaklar:
 
-- kullanÄ±cÄ±nÄ±n kiÅŸisel profil memoryâ€™si
-- kullanÄ±cÄ±-persona relationship memoryâ€™si
-- doÄŸum haritasÄ±/numeroloji/test essence
-- Ã¶zel kiÅŸiler, evcil hayvanlar, iliÅŸki profilleri
-- Senin Evin follow-up geÃ§miÅŸi
+- kullanıcının kişisel profil memory’si
+- kullanıcı-persona relationship memory’si
+- doğum haritası/numeroloji/test essence
+- özel kişiler, evcil hayvanlar, ilişki profilleri
+- Senin Evin follow-up geçmişi
 
 Kural:
 
 ```text
-Ä°kram MasasÄ± genel astroloji, gÃ¼neÅŸ burcu dÄ±ÅŸÄ±nda kiÅŸisel kullanÄ±cÄ± memory'si kullanmaz.
+İkram Masası genel astroloji, güneş burcu dışında kişisel kullanıcı memory'si kullanmaz.
 ```
 
-Bu alandaki memoryâ€™nin amacÄ± kullanÄ±cÄ±yÄ± kiÅŸisel olarak tanÄ±mak deÄŸil, genel astro iÃ§eriklerinin tekrara dÃ¼ÅŸmesini azaltmaktÄ±r.
+Bu alandaki memory’nin amacı kullanıcıyı kişisel olarak tanımak değil, genel astro içeriklerinin tekrara düşmesini azaltmaktır.
 
 ## 3. Katmanlar
 
@@ -110,33 +112,33 @@ Prompt Builder
 
 ### Source Archive
 
-Ham kaynak katmanÄ±. Prompta doÄŸrudan gitmez.
+Ham kaynak katmanı. Prompta doğrudan gitmez.
 
 Kaynaklar:
 
-- kullanÄ±cÄ± mesajlarÄ±
-- okuma sonuÃ§larÄ±
+- kullanıcı mesajları
+- okuma sonuçları
 - follow-up sohbetleri
 - profil form verileri
-- kullanÄ±cÄ± dÃ¼zeltmeleri
-- Kendini TanÄ± test sonuÃ§larÄ±
-- doÄŸum haritasÄ± ve temel numeroloji Ã§Ä±ktÄ±larÄ±
-- persona seÃ§imleri
-- sosyal paylaÅŸÄ±m seÃ§imleri
-- usage ve davranÄ±ÅŸ sinyalleri
+- kullanıcı düzeltmeleri
+- Kendini Tanı test sonuçları
+- doğum haritası ve temel numeroloji çıktıları
+- persona seçimleri
+- sosyal paylaşım seçimleri
+- usage ve davranış sinyalleri
 
-RolÃ¼:
+Rolü:
 
 - audit
 - evidence
 - export/delete
-- geÃ§miÅŸe dÃ¶nÃ¼k reprocessing
+- geçmişe dönük reprocessing
 
 ### User Semantic Wiki
 
-LLM'in kolay okuyabileceÄŸi anlamlÄ±, yaÅŸayan kullanÄ±cÄ± hafÄ±zasÄ±dÄ±r. Raw chunk deÄŸildir.
+LLM'in kolay okuyabileceği anlamlı, yaşayan kullanıcı hafızasıdır. Raw chunk değildir.
 
-Wiki sayfalarÄ±:
+Wiki sayfaları:
 
 ```text
 User Overview
@@ -152,78 +154,78 @@ Wellness And Lifestyle Memory
 
 ### Knowledge Graph
 
-Wiki'nin altÄ±ndaki baÄŸlantÄ±lÄ± hafÄ±za haritasÄ±dÄ±r. Prompta ham JSON olarak gitmez; context seÃ§mek iÃ§in kullanÄ±lÄ±r.
+Wiki'nin altındaki bağlantılı hafıza haritasıdır. Prompta ham JSON olarak gitmez; context seçmek için kullanılır.
 
 ### Embedding/Search Index
 
-Embedding sistemin kalbi deÄŸildir; indeks ve arama yardÄ±mcÄ±sÄ±dÄ±r.
+Embedding sistemin kalbi değildir; indeks ve arama yardımcısıdır.
 
-Embed edilecek ÅŸeyler:
+Embed edilecek şeyler:
 
 - wiki section summary
 - semantic memory item
 - graph node label/summary
 - reading/session summary
 
-Embed edilmeyecek ÅŸeyler:
+Embed edilmeyecek şeyler:
 
 - raw chunk
 - uzun okuma metni
 - prompt debug
-- giriÅŸ/kapanÄ±ÅŸ laf salatasÄ±
+- giriş/kapanış laf salatası
 
 ### Context Brief Builder
 
-Wiki ve graph'tan seÃ§ilen bilgiyi prompta gidecek kÄ±sa, anlamlÄ±, LLM-readable brief'e dÃ¶nÃ¼ÅŸtÃ¼rÃ¼r.
+Wiki ve graph'tan seçilen bilgiyi prompta gidecek kısa, anlamlı, LLM-readable brief'e dönüştürür.
 
-Bu mekanik karakter kÄ±rpma deÄŸildir. Anlamsal seÃ§im ve Ã¶zetleme Ã§Ä±ktÄ±sÄ±dÄ±r.
+Bu mekanik karakter kırpma değildir. Anlamsal seçim ve özetleme çıktısıdır.
 
-## 4. Persona Identity KatmanÄ±
+## 4. Persona Identity Katmanı
 
-Persona identity kullanÄ±cÄ±dan baÄŸÄ±msÄ±zdÄ±r.
+Persona identity kullanıcıdan bağımsızdır.
 
-Ä°Ã§erik:
+İçerik:
 
-- persona adÄ±
-- ana Ã¼slup
+- persona adı
+- ana üslup
 - ritim
 - hitap karakteri
-- hangi alanlarda gÃ¼Ã§lÃ¼ olduÄŸu
-- hangi estetikte konuÅŸtuÄŸu
-- persona lore Ã¶zÃ¼
+- hangi alanlarda güçlü olduğu
+- hangi estetikte konuştuğu
+- persona lore özü
 
-Ä°Ã§ermemeli:
+İçermemeli:
 
-- saÄŸlÄ±k/finans guardrail tekrarlarÄ±
-- kesin gelecek iddiasÄ± yasaÄŸÄ± gibi ortak gÃ¼venlik kurallarÄ±
-- kullanÄ±cÄ±ya Ã¶zel tercihler
-- kullanÄ±cÄ± hafÄ±zasÄ±
-- okuma geÃ§miÅŸi
+- sağlık/finans guardrail tekrarları
+- kesin gelecek iddiası yasağı gibi ortak güvenlik kuralları
+- kullanıcıya özel tercihler
+- kullanıcı hafızası
+- okuma geçmişi
 
-Ã–rnek:
+Örnek:
 
 ```text
-Selin: modern, rafine, sakin, psikolojik farkÄ±ndalÄ±k odaklÄ±dÄ±r. Teknik bilgiyi temiz, kontrollÃ¼ ve kiÅŸisel iÃ§gÃ¶rÃ¼ye Ã§evirir. SÃ¼slemeden, premium ve net bir ton kurar.
+Selin: modern, rafine, sakin, psikolojik farkındalık odaklıdır. Teknik bilgiyi temiz, kontrollü ve kişisel içgörüye çevirir. Süslemeden, premium ve net bir ton kurar.
 ```
 
-Bu blok `Global Persona Registry` tarafÄ±ndan saÄŸlanÄ±r ve versiyonlanÄ±r.
+Bu blok `Global Persona Registry` tarafından sağlanır ve versiyonlanır.
 
-## 4A. Lore Wiki KatmanÄ±
+## 4A. Lore Wiki Katmanı
 
-Lore Wiki, User Semantic Memory'den tamamen ayrÄ± bir sistemdir.
+Lore Wiki, User Semantic Memory'den tamamen ayrı bir sistemdir.
 
-AmaÃ§:
+Amaç:
 
 - Ruhbaz evreninin kanonik bilgisini tutmak.
-- Persona ailesinin kullanÄ±cÄ±dan baÄŸÄ±msÄ±z lore'unu taÅŸÄ±mak.
-- FALCI, wellness, diet, journaling, fashion ve events gibi section'larÄ±n kÃ¼ltÃ¼rÃ¼nÃ¼ yÃ¶netmek.
-- Developer tarafÄ±ndan girilen kalÄ±cÄ± notlarÄ± ve kurallarÄ± saklamak.
-- Social feedlerden gelen iÃ§erikleri curation sonrasÄ± kullanÄ±labilir hale getirmek.
-- Uygulamalar arasÄ± ortak iÃ§erik ve evren bilgisini saÄŸlamak.
+- Persona ailesinin kullanıcıdan bağımsız lore'unu taşımak.
+- FALCI, wellness, diet, journaling, fashion ve events gibi section'ların kültürünü yönetmek.
+- Developer tarafından girilen kalıcı notları ve kuralları saklamak.
+- Social feedlerden gelen içerikleri curation sonrası kullanılabilir hale getirmek.
+- Uygulamalar arası ortak içerik ve evren bilgisini sağlamak.
 
-Lore Wiki kullanÄ±cÄ± hakkÄ±nda Ã¶zel bilgi tutmaz. KullanÄ±cÄ± tercihi, kullanÄ±cÄ± dÃ¼zeltmesi, profil iliÅŸkisi veya Ã¶zel yaÅŸam bilgisi Lore Wiki'ye yazÄ±lmaz.
+Lore Wiki kullanıcı hakkında özel bilgi tutmaz. Kullanıcı tercihi, kullanıcı düzeltmesi, profil ilişkisi veya özel yaşam bilgisi Lore Wiki'ye yazılmaz.
 
-### Lore Wiki KaynaklarÄ±
+### Lore Wiki Kaynakları
 
 ```text
 developer_entries
@@ -238,7 +240,7 @@ app_section_docs
 approved social media drafts
 ```
 
-### Lore Wiki SayfalarÄ±
+### Lore Wiki Sayfaları
 
 ```text
 Ruhbaz Universe Canon
@@ -286,35 +288,35 @@ related_to_theme
 approved_for_social
 ```
 
-### User Memory ile Ä°liÅŸkisi
+### User Memory ile İlişkisi
 
-Lore Wiki ve User Semantic Memory ayrÄ± storage/scope kullanÄ±r.
+Lore Wiki ve User Semantic Memory ayrı storage/scope kullanır.
 
-DoÄŸru ayrÄ±m:
+Doğru ayrım:
 
 ```text
-Lore Wiki = evren ve iÃ§erik bilgisi
-User Semantic Memory = kiÅŸisel kullanÄ±cÄ± bilgisi
-Persona-User Relationship = bu kullanÄ±cÄ±nÄ±n bu persona ile baÄŸÄ±
+Lore Wiki = evren ve içerik bilgisi
+User Semantic Memory = kişisel kullanıcı bilgisi
+Persona-User Relationship = bu kullanıcının bu persona ile bağı
 ```
 
-Prompt builder gerekirse ikisini ayrÄ± brief olarak alÄ±r:
+Prompt builder gerekirse ikisini ayrı brief olarak alır:
 
 ```text
 LORE_BRIEF:
-Selin'in genel tonu modern, rafine ve psikolojik farkÄ±ndalÄ±k odaklÄ±dÄ±r. FALCI kiÅŸisel astro section'Ä±nda teknik bilgiyi sÄ±cak iÃ§gÃ¶rÃ¼ye Ã§evirir.
+Selin'in genel tonu modern, rafine ve psikolojik farkındalık odaklıdır. FALCI kişisel astro section'ında teknik bilgiyi sıcak içgörüye çevirir.
 
 USER_MEMORY_BRIEF:
-Bu kullanÄ±cÄ± Selin ile devam eden sohbetlerde tekrar selamlama istemez; kÄ±sa sosyal mesajlara kÄ±sa cevap bekler.
+Bu kullanıcı Selin ile devam eden sohbetlerde tekrar selamlama istemez; kısa sosyal mesajlara kısa cevap bekler.
 ```
 
-Bu iki brief promptta yan yana gelebilir ama kaynaklarÄ±, storage'larÄ± ve update akÄ±ÅŸlarÄ± karÄ±ÅŸtÄ±rÄ±lmaz.
+Bu iki brief promptta yan yana gelebilir ama kaynakları, storage'ları ve update akışları karıştırılmaz.
 
 ### Social Feedlerden Beslenme
 
-Social feedlerden gelen iÃ§erikler doÄŸrudan Lore Wiki'ye yazÄ±lmaz. Ã–nce curation gerekir.
+Social feedlerden gelen içerikler doğrudan Lore Wiki'ye yazılmaz. Önce curation gerekir.
 
-AkÄ±ÅŸ:
+Akış:
 
 ```text
 social feed / trend / post
@@ -326,13 +328,13 @@ social feed / trend / post
 â†’ embedding/index update
 ```
 
-Ã–rnek:
+Örnek:
 
 ```json
 {
   "nodeType": "social_post",
   "section": "wellness",
-  "summary": "Sabah ritÃ¼eli temasÄ±nda kÄ±sa, sÄ±cak ve paylaÅŸÄ±labilir iÃ§erik fikri.",
+  "summary": "Sabah ritüeli temasında kısa, sıcak ve paylaşılabilir içerik fikri.",
   "source": "curated_social_feed",
   "approvalStatus": "approved",
   "safeToSurface": true
@@ -341,51 +343,51 @@ social feed / trend / post
 
 ### Developer Entryler
 
-Developer entryler Lore Wiki'de en gÃ¼Ã§lÃ¼ kanonik kaynaklardan biridir.
+Developer entryler Lore Wiki'de en güçlü kanonik kaynaklardan biridir.
 
-Ã–rnek:
+Örnek:
 
 ```json
 {
   "nodeType": "developer_note",
   "scope": "global_guardrail",
-  "summary": "Ruhbaz personlarÄ± kullanÄ±cÄ±ya gÃ¶rÃ¼nen metinde kendi adlarÄ±nÄ± sÃ¶ylemez.",
+  "summary": "Ruhbaz personları kullanıcıya görünen metinde kendi adlarını söylemez.",
   "source": "developer_entry",
   "priority": "canonical"
 }
 ```
 
-Developer entry kullanÄ±cÄ± memory'sinin Ã¼stÃ¼ne yazmaz; evren, policy, persona ve section bilgisini belirler.
+Developer entry kullanıcı memory'sinin üstüne yazmaz; evren, policy, persona ve section bilgisini belirler.
 
-## 5. Persona-User Relationship KatmanÄ±
+## 5. Persona-User Relationship Katmanı
 
-Bu katman kullanÄ±cÄ±ya Ã¶zeldir ve her persona iÃ§in ayrÄ± bÃ¼yÃ¼r.
+Bu katman kullanıcıya özeldir ve her persona için ayrı büyür.
 
-AmaÃ§:
+Amaç:
 
-- aynÄ± persona karakterini korurken kullanÄ±cÄ±ya Ã¶zel ayar yapmak
-- kullanÄ±cÄ±nÄ±n o persona ile hangi baÄŸlamlarda iyi Ã§alÄ±ÅŸtÄ±ÄŸÄ±nÄ± bilmek
-- personanÄ±n kullanÄ±cÄ±da fazla gelen/iyi gelen yanlarÄ±nÄ± Ã¶ÄŸrenmek
+- aynı persona karakterini korurken kullanıcıya özel ayar yapmak
+- kullanıcının o persona ile hangi bağlamlarda iyi çalıştığını bilmek
+- personanın kullanıcıda fazla gelen/iyi gelen yanlarını öğrenmek
 
-Wiki Ã¶rneÄŸi:
+Wiki örneği:
 
 ```text
 Selin:
-- KullanÄ±cÄ± Selin'i kiÅŸisel astroloji ve farkÄ±ndalÄ±k odaklÄ± yorumlarda iyi karÅŸÄ±lÄ±yor.
-- Modern, sakin, rafine dil iyi Ã§alÄ±ÅŸÄ±yor.
-- Takip sohbetlerinde tekrar selamlama, uzun teknik tekrar ve teÅŸekkÃ¼rden sonra analiz baÅŸlatma kullanÄ±cÄ±yÄ± rahatsÄ±z ediyor.
-- KÄ±sa sosyal tepkilere kÄ±sa, sÄ±cak ve doÄŸal cevap bekliyor.
+- Kullanıcı Selin'i kişisel astroloji ve farkındalık odaklı yorumlarda iyi karşılıyor.
+- Modern, sakin, rafine dil iyi çalışıyor.
+- Takip sohbetlerinde tekrar selamlama, uzun teknik tekrar ve teşekkürden sonra analiz başlatma kullanıcıyı rahatsız ediyor.
+- Kısa sosyal tepkilere kısa, sıcak ve doğal cevap bekliyor.
 ```
 
-Prompt brief Ã¶rneÄŸi:
+Prompt brief örneği:
 
 ```text
-Bu kullanÄ±cÄ± Selin tonunda sakin, net ve psikolojik farkÄ±ndalÄ±k odaklÄ± cevaplarÄ± seviyor. Devam eden sohbetlerde tekrar selamlama yapma; teÅŸekkÃ¼r/onay mesajlarÄ±nda yeni analiz baÅŸlatma.
+Bu kullanıcı Selin tonunda sakin, net ve psikolojik farkındalık odaklı cevapları seviyor. Devam eden sohbetlerde tekrar selamlama yapma; teşekkür/onay mesajlarında yeni analiz başlatma.
 ```
 
-## 6. Ortak Guardrail KatmanÄ±
+## 6. Ortak Guardrail Katmanı
 
-Guardrail'ler persona identity iÃ§inde tekrar edilmez.
+Guardrail'ler persona identity içinde tekrar edilmez.
 
 Tek ortak kaynaktan gelir:
 
@@ -393,93 +395,93 @@ Tek ortak kaynaktan gelir:
 PromptGuardrailContract
 ```
 
-Ä°Ã§erik:
+İçerik:
 
-- TÃ¼rkÃ§e ve doÄŸru karakter
-- kendini tanÄ±tmama
-- persona adÄ±nÄ± kullanÄ±cÄ±ya gÃ¶rÃ¼nen metinde sÃ¶ylememe
-- kesin gelecek iddiasÄ± kurmama
-- saÄŸlÄ±k/finans spesifik tavsiye vermeme
-- ilaÃ§/doz/tedavi/reÃ§ete dili kullanmama
+- Türkçe ve doğru karakter
+- kendini tanıtmama
+- persona adını kullanıcıya görünen metinde söylememe
+- kesin gelecek iddiası kurmama
+- sağlık/finans spesifik tavsiye vermeme
+- ilaç/doz/tedavi/reçete dili kullanmama
 - korkutucu felaket dili kullanmama
-- kullanÄ±cÄ±nÄ±n sorusunu kendi aklÄ±na gelmiÅŸ gibi sahiplenmeme
-- alan sÄ±nÄ±rÄ±: astroda kahve/tarot dili kullanmama, tarotda doÄŸum haritasÄ± dili kullanmama vb.
+- kullanıcının sorusunu kendi aklına gelmiş gibi sahiplenmeme
+- alan sınırı: astroda kahve/tarot dili kullanmama, tarotda doğum haritası dili kullanmama vb.
 
-Prompt builder bunu persona identity'den ayrÄ± blok olarak ekler.
+Prompt builder bunu persona identity'den ayrı blok olarak ekler.
 
-## 7. KullanÄ±cÄ± Wiki SayfalarÄ±
+## 7. Kullanıcı Wiki Sayfaları
 
 ### User Overview
 
-KullanÄ±cÄ±nÄ±n genel essence'Ä±.
+Kullanıcının genel essence'ı.
 
-Ã–rnek iÃ§erik:
+Örnek içerik:
 
 ```text
-KullanÄ±cÄ± belirsizlikte sakin ve net cevaplardan fayda gÃ¶rÃ¼yor. Fikirleri hÄ±zlÄ± bÃ¼yÃ¼yor; geleceÄŸe dÃ¶nÃ¼k Ã¼rÃ¼n vizyonlarÄ±nda erken sezgileri gÃ¼Ã§lÃ¼. Uzun vadeli baÄŸlam kurulmasÄ±nÄ± Ã¶nemsiyor.
+Kullanıcı belirsizlikte sakin ve net cevaplardan fayda görüyor. Fikirleri hızlı büyüyor; geleceğe dönük ürün vizyonlarında erken sezgileri güçlü. Uzun vadeli bağlam kurulmasını önemsiyor.
 ```
 
 ### Profiles And Relationships
 
-KullanÄ±cÄ±nÄ±n kendisi ve oluÅŸturduÄŸu profiller.
+Kullanıcının kendisi ve oluşturduğu profiller.
 
 Tutulacak alanlar:
 
-- profil adÄ±
-- iliÅŸki tipi
+- profil adı
+- ilişki tipi
 - cinsiyet/hitap hassasiyeti
-- doÄŸum bilgisi var mÄ±
-- kullanÄ±cÄ±yla iliÅŸki
-- bu profil hangi okumalarda kullanÄ±lÄ±r
-- Ã¶zel sÄ±nÄ±rlar
+- doğum bilgisi var mı
+- kullanıcıyla ilişki
+- bu profil hangi okumalarda kullanılır
+- özel sınırlar
 
-Ã–rnek:
+Örnek:
 
 ```text
 Ozan = hesap sahibi / kendi profil.
-Boncuk = evcil hayvan; yorumlarda insan kariyeri, romantik iliÅŸki veya para kazanma temasÄ± kurulmaz.
+Boncuk = evcil hayvan; yorumlarda insan kariyeri, romantik ilişki veya para kazanma teması kurulmaz.
 ```
 
 ### Self Knowledge
 
-Kendini TanÄ± Ã§Ä±ktÄ±larÄ±ndan essence.
+Kendini Tanı çıktılarından essence.
 
 Kaynaklar:
 
-- doÄŸum haritasÄ± yorumu
+- doğum haritası yorumu
 - temel numeroloji yorumu
-- kiÅŸilik testleri
-- diÄŸer kendini tanÄ± modÃ¼lleri
+- kişilik testleri
+- diğer kendini tanı modülleri
 
-Prompta kaynak adÄ±yla gÃ¶ze sokulmaz. YalnÄ±zca yorumcunun kiÅŸiyi daha iyi anlamasÄ±na yardÄ±m eder.
+Prompta kaynak adıyla göze sokulmaz. Yalnızca yorumcunun kişiyi daha iyi anlamasına yardım eder.
 
-Ã–rnek:
+Örnek:
 
 ```text
-KullanÄ±cÄ± belirsizlik karÅŸÄ±sÄ±nda kontrol ihtiyacÄ± hissedebiliyor; net, yapÄ±landÄ±rÄ±lmÄ±ÅŸ ama sÄ±cak cevaplar iyi Ã§alÄ±ÅŸÄ±yor.
+Kullanıcı belirsizlik karşısında kontrol ihtiyacı hissedebiliyor; net, yapılandırılmış ama sıcak cevaplar iyi çalışıyor.
 ```
 
 ### User Preferences
 
 Uygulama ve cevap tercihleri.
 
-Ã–rnek:
+Örnek:
 
 ```text
-Devam eden sohbetlerde tekrar selamlama istemez. TeÅŸekkÃ¼r/onay gibi mesajlara kÄ±sa ve doÄŸal cevap bekler. Follow-up cevaplarÄ± son mesaja baÄŸlÄ± olmalÄ±; Ã¶nceki ana yorum gereksiz yere tekrar edilmemeli.
+Devam eden sohbetlerde tekrar selamlama istemez. Teşekkür/onay gibi mesajlara kısa ve doğal cevap bekler. Follow-up cevapları son mesaja bağlı olmalı; önceki ana yorum gereksiz yere tekrar edilmemeli.
 ```
 
 ### Persona Relationships
 
-KullanÄ±cÄ±nÄ±n her persona ile iliÅŸkisi.
+Kullanıcının her persona ile ilişkisi.
 
-Her persona iÃ§in ayrÄ± section:
+Her persona için ayrı section:
 
 ```text
 Selin
 Arin
 Teoman
-AyÅŸe
+Ayşe
 Berk
 Deniz
 Suzan
@@ -487,67 +489,67 @@ Suzan
 
 Her section:
 
-- iyi Ã§alÄ±ÅŸtÄ±ÄŸÄ± domainler
-- kullanÄ±cÄ±dan gelen olumlu sinyaller
-- kullanÄ±cÄ±dan gelen dÃ¼zeltmeler
+- iyi çalıştığı domainler
+- kullanıcıdan gelen olumlu sinyaller
+- kullanıcıdan gelen düzeltmeler
 - fazla gelen tonlar
 - persona-specific hitap tercihi
-- repetition uyarÄ±larÄ±
+- repetition uyarıları
 
 ### Reading Memory
 
-Okuma geÃ§miÅŸinin semantic Ã¶zeti.
+Okuma geçmişinin semantic özeti.
 
-Her okuma iÃ§in:
+Her okuma için:
 
 - reading id
 - reading type
 - profile
 - persona
 - ana tema
-- teknik/ritÃ¼el dayanak
-- kullanÄ±cÄ± follow-up'larÄ±
+- teknik/ritüel dayanak
+- kullanıcı follow-up'ları
 - session summary
-- ileride tekrar edilmemesi gereken yÃ¼zey ifadeleri
-- ileride iÅŸe yarayabilecek yeni aÃ§Ä±
+- ileride tekrar edilmemesi gereken yüzey ifadeleri
+- ileride işe yarayabilecek yeni açı
 
 ### Repetition And Variety Ledger
 
-TekrarÄ± azaltmak iÃ§in tutulur.
+Tekrarı azaltmak için tutulur.
 
-Ä°zlenecekler:
+İzlenecekler:
 
-- kullanÄ±lan temalar
-- kullanÄ±lan tavsiyeler
-- kapanÄ±ÅŸ cÃ¼mleleri
+- kullanılan temalar
+- kullanılan tavsiyeler
+- kapanış cümleleri
 - hitaplar
 - metaforlar
-- teknik aÃ§Ä±klamalar
-- persona bazlÄ± tekrarlar
-- okuma tÃ¼rÃ¼ bazlÄ± tekrarlar
+- teknik açıklamalar
+- persona bazlı tekrarlar
+- okuma türü bazlı tekrarlar
 
-Prompta negatif liste olarak gitmez. Context selector bunu filtre olarak kullanÄ±r.
+Prompta negatif liste olarak gitmez. Context selector bunu filtre olarak kullanır.
 
-Prompta gidecek pozitif yÃ¶nlendirme:
+Prompta gidecek pozitif yönlendirme:
 
 ```text
-Son soruya yeni aÃ§Ä±dan cevap ver; Ã¶nceki aÃ§Ä±klamayÄ± tekrar etmeden kÄ±sa ve somut ilerle.
+Son soruya yeni açıdan cevap ver; önceki açıklamayı tekrar etmeden kısa ve somut ilerle.
 ```
 
 ### Social And Sharing Memory
 
-KullanÄ±cÄ±nÄ±n paylaÅŸÄ±m estetiÄŸi ve izinleri.
+Kullanıcının paylaşım estetiği ve izinleri.
 
-Ä°Ã§erik:
+İçerik:
 
-- paylaÅŸmayÄ± sevdiÄŸi okuma tÃ¼rleri
-- gÃ¶rsel stil tercihleri
+- paylaşmayı sevdiği okuma türleri
+- görsel stil tercihleri
 - caption tonu
-- anonimlik isteÄŸi
+- anonimlik isteği
 - Instagram/story/reel format tercihi
-- otomatik paylaÅŸÄ±m izinleri
+- otomatik paylaşım izinleri
 
-## 8. Knowledge Graph ÅžemasÄ±
+## 8. Knowledge Graph Şeması
 
 ### Node Tipleri
 
@@ -603,7 +605,7 @@ updated_by
 supersedes
 ```
 
-### Edge AlanlarÄ±
+### Edge Alanları
 
 ```json
 {
@@ -623,9 +625,9 @@ supersedes
 
 ## 9. Source Strength
 
-Her memory ve edge aynÄ± aÄŸÄ±rlÄ±kta deÄŸildir.
+Her memory ve edge aynı ağırlıkta değildir.
 
-Ã–ncelik:
+Öncelik:
 
 ```text
 user_corrected
@@ -641,27 +643,27 @@ system_inferred
 Kurallar:
 
 - `user_corrected` eski bilgiyi supersede edebilir.
-- `user_stated` yÃ¼ksek gÃ¼venilirliktir.
-- `profile_data` hitap ve profil kaymasÄ±nÄ± Ã¶nlemek iÃ§in core baÄŸlamdÄ±r.
-- `self_knowledge_result` essence olarak kullanÄ±lÄ±r, kaynak adÄ±yla gÃ¶sterilmez.
-- `reading_derived` zayÄ±f sinyaldir; kullanÄ±cÄ± gerÃ§eÄŸi gibi davranmaz.
-- `system_inferred` promptta Ã§ok dikkatli kullanÄ±lÄ±r.
+- `user_stated` yüksek güvenilirliktir.
+- `profile_data` hitap ve profil kaymasını önlemek için core bağlamdır.
+- `self_knowledge_result` essence olarak kullanılır, kaynak adıyla gösterilmez.
+- `reading_derived` zayıf sinyaldir; kullanıcı gerçeği gibi davranmaz.
+- `system_inferred` promptta çok dikkatli kullanılır.
 
 ## 10. Memory Writer
 
-Memory writer gÃ¶rÃ¼nmez sistem ajanÄ±dÄ±r. Persona deÄŸildir. KullanÄ±cÄ±ya konuÅŸmaz.
+Memory writer görünmez sistem ajanıdır. Persona değildir. Kullanıcıya konuşmaz.
 
-GÃ¶revi:
+Görevi:
 
-- wiki edit proposal Ã¼retmek
-- graph edit proposal Ã¼retmek
+- wiki edit proposal üretmek
+- graph edit proposal üretmek
 - source strength atamak
 - promptUse atamak
 - confidence atamak
-- evidence refs baÄŸlamak
-- repetition fingerprint Ã§Ä±karmak
+- evidence refs bağlamak
+- repetition fingerprint çıkarmak
 
-AkÄ±ÅŸ:
+Akış:
 
 ```text
 Raw event
@@ -674,7 +676,7 @@ Raw event
 â†’ Audit log
 ```
 
-Ã–rnek Ã§Ä±ktÄ±:
+Örnek çıktı:
 
 ```json
 {
@@ -683,7 +685,7 @@ Raw event
       "page": "User Preferences",
       "section": "Follow-up behavior",
       "operation": "update",
-      "text": "KullanÄ±cÄ± devam eden sohbetlerde tekrar selamlama istemiyor; teÅŸekkÃ¼r/onay mesajlarÄ±nda kÄ±sa ve doÄŸal cevap bekliyor.",
+      "text": "Kullanıcı devam eden sohbetlerde tekrar selamlama istemiyor; teşekkür/onay mesajlarında kısa ve doğal cevap bekliyor.",
       "importance": "high",
       "promptUse": "core"
     }
@@ -710,15 +712,15 @@ Raw event
 
 ## 11. Context Brief Builder
 
-Prompta gitmeden Ã¶nce Ã§alÄ±ÅŸÄ±r.
+Prompta gitmeden önce çalışır.
 
 Input:
 
-- son kullanÄ±cÄ± mesajÄ±
+- son kullanıcı mesajı
 - aktif app section
-- seÃ§ili profile
-- seÃ§ili persona
-- okuma tÃ¼rÃ¼
+- seçili profile
+- seçili persona
+- okuma türü
 - session state
 - wiki pages
 - graph relations
@@ -726,19 +728,19 @@ Input:
 
 Output:
 
-LLM'in kolay decode edeceÄŸi kÄ±sa baÄŸlam.
+LLM'in kolay decode edeceği kısa bağlam.
 
-Ã–rnek:
+Örnek:
 
 ```text
-Ozan kendi profili iÃ§in kiÅŸisel astro takip sorusu soruyor. Devam eden sohbetlerde tekrar selamlama istemez; teÅŸekkÃ¼r/onay mesajlarÄ±na kÄ±sa doÄŸal cevap bekler. Selin bu kullanÄ±cÄ±da sakin, net ve psikolojik farkÄ±ndalÄ±k tonu ile iyi Ã§alÄ±ÅŸÄ±r. Bu oturumda beklenmedik geliÅŸmelerden korkma temasÄ± iÅŸlendi; aynÄ± aÃ§Ä±klamayÄ± tekrar etme, son soruya yeni ve kÄ±sa aÃ§Ä±dan cevap ver.
+Ozan kendi profili için kişisel astro takip sorusu soruyor. Devam eden sohbetlerde tekrar selamlama istemez; teşekkür/onay mesajlarına kısa doğal cevap bekler. Selin bu kullanıcıda sakin, net ve psikolojik farkındalık tonu ile iyi çalışır. Bu oturumda beklenmedik gelişmelerden korkma teması işlendi; aynı açıklamayı tekrar etme, son soruya yeni ve kısa açıdan cevap ver.
 ```
 
-Bu brief, 1 GB memory olsa bile birkaÃ§ yÃ¼z tokenÄ± geÃ§memelidir.
+Bu brief, 1 GB memory olsa bile birkaç yüz tokenı geçmemelidir.
 
-## 12. Prompt Builder BloklarÄ±
+## 12. Prompt Builder Blokları
 
-Prompt builder ÅŸu bloklarÄ± ayrÄ± tutar:
+Prompt builder şu blokları ayrı tutar:
 
 ```text
 SYSTEM_GUARDRAILS
@@ -753,46 +755,46 @@ TASK_INSTRUCTION
 USER_MESSAGE
 ```
 
-Ã–rnek:
+Örnek:
 
 ```text
 SYSTEM_GUARDRAILS:
-Ortak gÃ¼venlik ve alan kurallarÄ±.
+Ortak güvenlik ve alan kuralları.
 
 PERSONA_IDENTITY:
-Selin: modern, rafine, sakin, psikolojik farkÄ±ndalÄ±k odaklÄ±...
+Selin: modern, rafine, sakin, psikolojik farkındalık odaklı...
 
 LORE_BRIEF:
-FALCI kiÅŸisel astro section'Ä±nda persona sesi yalnÄ±zca Ã¼slup iÃ§in taÅŸÄ±nÄ±r; cevap astro baÄŸlamÄ±nda kalÄ±r.
+FALCI kişisel astro section'ında persona sesi yalnızca üslup için taşınır; cevap astro bağlamında kalır.
 
 USER_PERSONA_RELATIONSHIP:
-Bu kullanÄ±cÄ± Selin tonunda tekrar selamlama istemez; kÄ±sa ve doÄŸal follow-up bekler.
+Bu kullanıcı Selin tonunda tekrar selamlama istemez; kısa ve doğal follow-up bekler.
 
 PROFILE_CONTEXT:
-Ozan hesap sahibinin kendi profili; sen dili kullanÄ±lmalÄ±.
+Ozan hesap sahibinin kendi profili; sen dili kullanılmalı.
 
 ACTIVE_READING_CONTEXT:
-KiÅŸisel astro daily session; Ã¶nceki follow-up beklenmedik geliÅŸmelerden korkma temasÄ±ndaydÄ±.
+Kişisel astro daily session; önceki follow-up beklenmedik gelişmelerden korkma temasındaydı.
 
 USER_MEMORY_BRIEF:
-KullanÄ±cÄ± belirsizlikte net ve sakin cevaplardan fayda gÃ¶rÃ¼yor.
+Kullanıcı belirsizlikte net ve sakin cevaplardan fayda görüyor.
 
 REPETITION_VARIETY_BRIEF:
-Ã–nceki VenÃ¼s/SatÃ¼rn aÃ§Ä±klamasÄ±nÄ± tekrar etme; son soruya yeni aÃ§Ä±dan cevap ver.
+Önceki Venüs/Satürn açıklamasını tekrar etme; son soruya yeni açıdan cevap ver.
 
 TASK_INSTRUCTION:
-Son mesaja gÃ¶re cevap ver.
+Son mesaja göre cevap ver.
 
 USER_MESSAGE:
-TeÅŸekkÃ¼rler.
+Teşekkürler.
 ```
 
 ## 13. Storage ve 1 GB Stratejisi
 
-Memory sÄ±cak/Ä±lÄ±k/soÄŸuk katmanlara ayrÄ±lÄ±r.
+Memory sıcak/ılık/soğuk katmanlara ayrılır.
 
 ```text
-Hot Memory = prompta yakÄ±n, hÄ±zlÄ± eriÅŸilen Ã¶zetler
+Hot Memory = prompta yakın, hızlı erişilen özetler
 Warm Memory = wiki, graph, embeddings
 Cold Memory = raw archive
 ```
@@ -803,8 +805,8 @@ Cold Memory = raw archive
 - aktif profil brief
 - aktif persona-user relationship brief
 - son session summary
-- son kritik tercih/dÃ¼zeltmeler
-- son repetition ledger Ã¶zeti
+- son kritik tercih/düzeltmeler
+- son repetition ledger özeti
 
 ### Warm Memory
 
@@ -819,11 +821,11 @@ Cold Memory = raw archive
 - raw events
 - eski okuma metinleri
 - uzun sohbetler
-- audit kaynaklarÄ±
+- audit kaynakları
 
-Online follow-up sÄ±rasÄ±nda Cold Memory'ye gidilmez.
+Online follow-up sırasında Cold Memory'ye gidilmez.
 
-## 14. SQLite Tablo TaslaÄŸÄ±
+## 14. SQLite Tablo Taslağı
 
 ```text
 raw_events
@@ -846,7 +848,7 @@ lore_sources
 lore_curation_jobs
 ```
 
-Ã–rnek `wiki_sections`:
+Örnek `wiki_sections`:
 
 ```text
 id
@@ -864,7 +866,7 @@ embedding_ref
 metadata_json
 ```
 
-Ã–rnek `persona_relationships`:
+Örnek `persona_relationships`:
 
 ```text
 id
@@ -880,7 +882,7 @@ updated_at
 embedding_ref
 ```
 
-Ã–rnek `reading_fingerprints`:
+Örnek `reading_fingerprints`:
 
 ```text
 id
@@ -900,7 +902,7 @@ created_at
 
 ## 15. Scheduled Jobs
 
-Online cevap yolunda pahalÄ± memory iÅŸi yapÄ±lmaz.
+Online cevap yolunda pahalı memory işi yapılmaz.
 
 Job listesi:
 
@@ -921,35 +923,35 @@ lore_curation_review_job
 lore_embedding_backfill_job
 ```
 
-LLM gereken iÅŸler mÃ¼mkÃ¼nse scheduled/flex/batch API ile yapÄ±lÄ±r.
+LLM gereken işler mümkünse scheduled/flex/batch API ile yapılır.
 
-## 16. Online Cevap AkÄ±ÅŸÄ±
+## 16. Online Cevap Akışı
 
-Follow-up geldiÄŸinde:
+Follow-up geldiğinde:
 
 ```text
-1. Son mesaj intent hÄ±zlÄ± belirlenir.
-2. Aktif profile/persona/session alÄ±nÄ±r.
+1. Son mesaj intent hızlı belirlenir.
+2. Aktif profile/persona/session alınır.
 3. Hot memory okunur.
-4. Graph ve embedding ile birkaÃ§ warm aday seÃ§ilir.
-5. Context Brief Builder kÄ±sa brief Ã¼retir.
-6. Prompt Builder bloklarÄ± birleÅŸtirir.
-7. LLM cevap Ã¼retir.
+4. Graph ve embedding ile birkaç warm aday seçilir.
+5. Context Brief Builder kısa brief üretir.
+6. Prompt Builder blokları birleştirir.
+7. LLM cevap üretir.
 8. Raw event kaydedilir.
-9. Memory update background queue'ya atÄ±lÄ±r.
+9. Memory update background queue'ya atılır.
 ```
 
 Kritik kural:
 
 ```text
-KullanÄ±cÄ± cevabÄ± beklerken 1 GB memory taranmaz ve LLM'e bÃ¼yÃ¼k memory gÃ¶nderilmez.
+Kullanıcı cevabı beklerken 1 GB memory taranmaz ve LLM'e büyük memory gönderilmez.
 ```
 
-## 17. Caveman Brief FormatÄ±
+## 17. Caveman Brief Formatı
 
-Caveman sÄ±kÄ±ÅŸtÄ±rma memory'nin kaynaÄŸÄ± deÄŸil, prompta giden final brief formatlarÄ±ndan biridir.
+Caveman sıkıştırma memory'nin kaynağı değil, prompta giden final brief formatlarından biridir.
 
-Ã–rnek:
+Örnek:
 
 ```text
 USER=Ozan/self. PROFILE_MODE=sen dili. PERSONA=Selin/static modern calm psych-aware. USER_PERSONA=likes calm direct chat; no repeated greeting; no re-analysis after thanks. SESSION=personal astro daily; fear of unexpected changes discussed. VARIETY=do not repeat same Venus/Saturn explanation unless asked. PRIORITY=last user message.
@@ -957,40 +959,40 @@ USER=Ozan/self. PROFILE_MODE=sen dili. PERSONA=Selin/static modern calm psych-aw
 
 Bu format:
 
-- kÄ±sa
-- anlamlÄ±
+- kısa
+- anlamlı
 - LLM-readable
-- deterministic kÄ±rpma deÄŸil
-- wiki/graph context seÃ§iminden tÃ¼remiÅŸ
+- deterministic kırpma değil
+- wiki/graph context seçiminden türemiş
 
-## 18. Uygulama Yol HaritasÄ±
+## 18. Uygulama Yol Haritası
 
-### Faz 1: Åžema ve AyrÄ±m
+### Faz 1: Şema ve Ayrım
 
-- Persona identity registry ve guardrail contract ayrÄ±lÄ±r.
+- Persona identity registry ve guardrail contract ayrılır.
 - User semantic wiki page schema eklenir.
-- Lore wiki user memory'den ayrÄ± scope olarak tanÄ±mlanÄ±r.
+- Lore wiki user memory'den ayrı scope olarak tanımlanır.
 - Persona-user relationship schema eklenir.
-- Raw chunk prompt pack'ten Ã§Ä±karÄ±lÄ±r.
+- Raw chunk prompt pack'ten çıkarılır.
 
 ### Faz 2: Memory Writer MVP
 
-- KullanÄ±cÄ± dÃ¼zeltmeleri ve tercihleri wiki/graph'a yazÄ±lÄ±r.
-- Profile relationships graph'a yazÄ±lÄ±r.
-- Kendini TanÄ± essence wiki'ye yazÄ±lÄ±r.
-- Reading summary ve fingerprint Ã§Ä±karÄ±lÄ±r.
+- Kullanıcı düzeltmeleri ve tercihleri wiki/graph'a yazılır.
+- Profile relationships graph'a yazılır.
+- Kendini Tanı essence wiki'ye yazılır.
+- Reading summary ve fingerprint çıkarılır.
 
 ### Faz 3: Context Brief Builder
 
-- Aktif profile/persona/session iÃ§in brief Ã¼retir.
-- Persona identity ve user-persona relationship ayrÄ± prompt bloklarÄ± olur.
-- Repetition ledger prompta negatif liste olarak deÄŸil, pozitif Ã§eÅŸitlilik brief'i olarak yansÄ±r.
+- Aktif profile/persona/session için brief üretir.
+- Persona identity ve user-persona relationship ayrı prompt blokları olur.
+- Repetition ledger prompta negatif liste olarak değil, pozitif çeşitlilik brief'i olarak yansır.
 
 ### Faz 4: Local Embedding Index
 
 - Semantic wiki section ve memory item embed edilir.
 - Raw chunk embed edilmez.
-- Retrieval hÄ±zlÄ± ve lokal hale gelir.
+- Retrieval hızlı ve lokal hale gelir.
 
 ### Faz 5: Scheduled Memory Management
 
@@ -1000,38 +1002,38 @@ Bu format:
 - weekly user model synthesis
 - repetition cleanup
 
-### Faz 6: External Tool/Agent HazÄ±rlÄ±ÄŸÄ±
+### Faz 6: External Tool/Agent Hazırlığı
 
-- AynÄ± memory core app assistant, Gemini, ChatGPT, Claude, MCP adapter tarafÄ±ndan kullanÄ±labilir.
-- UI baÄŸÄ±msÄ±z tool/action layer ile entegre edilir.
+- Aynı memory core app assistant, Gemini, ChatGPT, Claude, MCP adapter tarafından kullanılabilir.
+- UI bağımsız tool/action layer ile entegre edilir.
 
 ### Faz 7: Lore Content Ops
 
-- Developer entry formatÄ± eklenir.
+- Developer entry formatı eklenir.
 - Social feed ingestion queue kurulur.
 - Curation ve approval flow eklenir.
-- OnaylÄ± iÃ§erikler Lore Wiki'ye yazÄ±lÄ±r.
-- Lore brief, prompt builder'a user memory brief'ten ayrÄ± blok olarak baÄŸlanÄ±r.
+- Onaylı içerikler Lore Wiki'ye yazılır.
+- Lore brief, prompt builder'a user memory brief'ten ayrı blok olarak bağlanır.
 
-## 19. ÃœrÃ¼n Hissi
+## 19. Ürün Hissi
 
-KullanÄ±cÄ± ÅŸunu gÃ¶rmemeli:
+Kullanıcı şunu görmemeli:
 
 ```text
-HafÄ±zanda gÃ¶rdÃ¼ÄŸÃ¼me gÃ¶re...
-Ã–nceki okumanda...
+Hafızanda gördüğüme göre...
+Önceki okumanda...
 Profilinde...
 ```
 
-KullanÄ±cÄ± ÅŸunu hissetmeli:
+Kullanıcı şunu hissetmeli:
 
 ```text
-Bu yorumcu beni tanÄ±yor.
-Bu persona ailesi beni yavaÅŸ yavaÅŸ Ã¶ÄŸreniyor.
-AynÄ± ÅŸeyleri tekrar etmiyor.
-Benim sevdiÄŸim tonu biliyor.
-Benim Ã§evremi ve profillerimi karÄ±ÅŸtÄ±rmÄ±yor.
-Beni gÃ¶zÃ¼me sokmadan hatÄ±rlÄ±yor.
+Bu yorumcu beni tanıyor.
+Bu persona ailesi beni yavaş yavaş öğreniyor.
+Aynı şeyleri tekrar etmiyor.
+Benim sevdiğim tonu biliyor.
+Benim çevremi ve profillerimi karıştırmıyor.
+Beni gözüme sokmadan hatırlıyor.
 ```
 
-Bu mimarinin ana amacÄ± budur.
+Bu mimarinin ana amacı budur.

@@ -21,6 +21,7 @@ CORS(app)
 
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash-lite"
+GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL") or "gemini-embedding-2"
 GEMINI_RPM_LIMIT = int(os.getenv("GEMINI_RPM_LIMIT") or "10000")
 GEMINI_TPM_LIMIT = int(os.getenv("GEMINI_TPM_LIMIT") or "10000000")
 GEMINI_LIMIT_THRESHOLD = float(os.getenv("GEMINI_LIMIT_THRESHOLD") or "0.85")
@@ -110,6 +111,10 @@ def _gemini_url() -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 
 
+def _gemini_embed_url() -> str:
+    return f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_EMBEDDING_MODEL}:embedContent?key={GEMINI_API_KEY}"
+
+
 def _call_gemini(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
@@ -128,6 +133,27 @@ def _call_gemini(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             data = json.loads(raw)
         except json.JSONDecodeError:
             data = {"error": {"message": raw or "Gemini yanıtı alınamadı."}}
+        return data, err.code
+
+
+def _call_gemini_embedding(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        _gemini_embed_url(),
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return data, response.status
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            data = {"error": {"message": raw or "Gemini embedding yanıtı alınamadı."}}
         return data, err.code
 
 
@@ -190,11 +216,81 @@ def gemini_generate():
     )
 
 
+@app.post("/gemini-embed")
+def gemini_embed():
+    if not GEMINI_API_KEY:
+        return jsonify({"ok": False, "error": "Yorum anahtarı yok."}), 503
+
+    request_payload = request.get_json(silent=True)
+    if not isinstance(request_payload, dict):
+        return jsonify({"ok": False, "error": "Geçersiz embedding isteği."}), 400
+
+    text = str(request_payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "Embedding metni boş."}), 400
+
+    task_type = str(request_payload.get("taskType") or "RETRIEVAL_DOCUMENT")
+    embedding_model = str(request_payload.get("model") or GEMINI_EMBEDDING_MODEL)
+    payload: dict[str, Any] = {
+        "model": f"models/{embedding_model}",
+        "content": {"parts": [{"text": text}]},
+        "taskType": task_type,
+    }
+    output_dimensionality = request_payload.get("outputDimensionality")
+    if output_dimensionality is not None:
+        payload["outputDimensionality"] = output_dimensionality
+
+    estimated_raw_tokens = max(1, int(len(text) / 3))
+    reservation, limit_error = _reserve_quota(estimated_raw_tokens)
+    if limit_error:
+        return jsonify(limit_error), 429
+
+    data, status = _call_gemini_embedding(payload)
+    usage_metadata = data.get("usageMetadata") or {}
+    prompt_tokens = int(usage_metadata.get("promptTokenCount") or estimated_raw_tokens)
+    total_tokens = int(usage_metadata.get("totalTokenCount") or prompt_tokens)
+    if reservation is not None:
+        _finalize_quota(reservation, total_tokens)
+
+    if status < 200 or status >= 300:
+        message = (data.get("error") or {}).get("message") or "Gemini embedding yanıtı alınamadı."
+        return jsonify({"ok": False, "error": message}), status
+
+    values = ((data.get("embedding") or {}).get("values")) or []
+    if not isinstance(values, list) or not values:
+        return jsonify({"ok": False, "error": "Gemini embedding yanıtı boş döndü."}), 502
+
+    return jsonify(
+        {
+            "ok": True,
+            "model": GEMINI_EMBEDDING_MODEL,
+            "provider": "gemini",
+            "embedding": values,
+            "usage": {
+                "inputTokens": _effective_tokens(prompt_tokens),
+                "outputTokens": 0,
+                "totalTokens": _effective_tokens(total_tokens),
+                "rawInputTokens": prompt_tokens,
+                "rawOutputTokens": 0,
+                "rawTotalTokens": total_tokens,
+                "tokenSafetyMultiplier": GEMINI_TOKEN_SAFETY_MULTIPLIER,
+            },
+        }
+    )
+
+
 @app.get("/gemini-api-key")
 def gemini_api_key():
     if not GEMINI_API_KEY:
         return jsonify({"ok": False, "error": "Yorum anahtarı yok."}), 503
-    return jsonify({"ok": True, "apiKey": GEMINI_API_KEY, "model": GEMINI_MODEL})
+    return jsonify(
+        {
+            "ok": True,
+            "apiKey": GEMINI_API_KEY,
+            "model": GEMINI_MODEL,
+            "embeddingModel": GEMINI_EMBEDDING_MODEL,
+        }
+    )
 
 
 @app.get("/health")
@@ -207,6 +303,7 @@ def health():
             "ok": True,
             "service": "gemini-key-service",
             "model": GEMINI_MODEL,
+            "embeddingModel": GEMINI_EMBEDDING_MODEL,
             "quota": {
                 "windowSeconds": WINDOW_SECONDS,
                 "requestsUsed": requests_used,

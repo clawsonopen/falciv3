@@ -17,6 +17,7 @@ import {
   appendReadingDerivedTheme,
   appendReadingSummary,
   appendUserConversationMemory,
+  appendUserReadingIntentMemory,
   loadAccountState,
   loadProfileMemorySnippet,
 } from '../services/profileMemoryService';
@@ -193,7 +194,11 @@ export function TarotReadingScreen({ route, navigation }: Props) {
       if (!profile) throw new Error('Profil bulunamadı.');
       setProfileName(profile.displayName);
       if (initialIntent) {
-        await appendUserConversationMemory(profileId, initialIntent).catch(() => {});
+        await appendUserReadingIntentMemory({
+          profileId,
+          text: initialIntent,
+          readingType: 'personal-tarot',
+        }).catch(() => {});
       }
       const memoryState = initialIntent ? await loadAccountState().catch(() => state) : state;
       const memorySnippet = await loadProfileMemorySnippet(

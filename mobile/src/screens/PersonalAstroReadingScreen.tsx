@@ -9,7 +9,7 @@ import { BrandedScrollView } from '../components/BrandedScrollView';
 import { AssistantLoading } from '../components/AssistantLoading';
 import { TokenUsage } from '../components/TokenUsage';
 import { SelectableFormattedText } from '../components/SelectableFormattedText';
-import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
+import { applyMemoryAnalysisResult, appendReadingDerivedTheme, appendReadingSummary, appendUserConversationMemory, appendUserReadingIntentMemory, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getRetryLaterMessage, isRetryableLlmError } from '../services/llmRetryMessages';
 import { analyzeMemoryTranscript } from '../services/memoryAnalysisService';
 import {
@@ -238,7 +238,11 @@ export function PersonalAstroReadingScreen({ route, navigation }: Props) {
       }
 
       if (focusQuestion) {
-        await appendUserConversationMemory(profile.profileId, focusQuestion).catch(() => {});
+        await appendUserReadingIntentMemory({
+          profileId: profile.profileId,
+          text: focusQuestion,
+          readingType: 'personal-astro',
+        }).catch(() => {});
       }
       const memoryState = focusQuestion ? await loadAccountState().catch(() => state) : state;
       const memorySnippet = await loadProfileMemorySnippet(

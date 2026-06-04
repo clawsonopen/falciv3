@@ -114,12 +114,12 @@ Bilinen son temiz push:
 **Eksiksiz Kalan Restore Başlıkları**
 
 1. **profileMemoryService deep restore / küçük son ayarlar**
-Durum: Açık.
+Durum: Uygulandı; ileride yeni log kanıtı çıkarsa yeniden açılabilir.
 
 Neden önemli:
 Memory v2’nin “asıl son hali” burada olabilir.
 
-Bakılacaklar:
+Bakılanlar:
 - 29-31 Mayıs loglarındaki `profileMemoryService` farkları
 - reading intent memory
 - user correction memory
@@ -130,6 +130,19 @@ Bakılacaklar:
 - reading dedupe
 - delete/clear profile memory behavior
 - raw archive / session journal / fingerprint kayıtları
+
+Uygulananlar:
+- `appendUserReadingIntentMemory` geri getirildi.
+- Okuma öncesi konu/niyet yazan akışlar bu fonksiyona bağlandı: kahve/el setup, konu odaklı kişisel astro, tarot initial intent.
+- `appendUserConversationMemory` takip sorusu hafızası olarak güçlendirildi; yalnız sosyal cevapları hafızaya yazmıyor.
+- Yeni niyet, takip sorusu, düzeltme, test sonucu ve self-knowledge insight gözlemleri sqlite memory node ve Gemini embedding index’e gönderiliyor.
+- `applyMemoryAnalysisResult` analizden gelen user/reading observations için embedding index çağırıyor.
+- Self-knowledge insight kaynak tipi log çizgisine uygun şekilde `reading-derived` yapıldı.
+- Kahve/el gibi yüzeysel fal özetlerinin reading-derived topic/pattern belleğini şişirmemesi için `appendReadingSummary` içinde topic/pattern çıkarımı kapatıldı; memory v2 artifact kaydı korunuyor.
+- 25 Mayıs backup path ve D drive recovery path erişilebilir durumda doğrulandı.
+
+Commit:
+`Restore profile memory intent indexing` başlıklı restore commit’i.
 
 2. **Rüya yorum akışını kontrol et**
 Durum: Açık.

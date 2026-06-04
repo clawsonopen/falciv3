@@ -38,6 +38,7 @@ import {
   indexSessionJournal,
   searchSourceChunks,
 } from './memorySqliteService';
+import { indexObservationEmbeddings } from './memoryEmbeddingService';
 
 const DATA_DIR = `${FileSystem.documentDirectory}falci-data/`;
 const DATA_FILE = `${DATA_DIR}account-state.json`;
@@ -2304,15 +2305,116 @@ function sanitizeObservationForPrompt(item: MemoryObservation): MemoryObservatio
 export async function appendUserConversationMemory(profileId: string, text: string): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) return;
+  const socialOnly = /^(teşekkürler|teşekkür ederim|sağ ol|sağol|harika|tamam|ok|anladım|rica ederim|eyvallah)[.!?\s]*$/iu.test(trimmed);
+  if (socialOnly) return;
   const state = await loadAccountState();
   await ensureProfileMemoryFiles(profileId, state.accountId);
-  if (!state.profiles.find((profile) => profile.profileId === profileId)) return;
+  const profile = state.profiles.find((item) => item.profileId === profileId);
+  if (!profile) return;
   const current = await readJsonFile<UserStatedMemoryFile>(
     userMemoryFile(profileId),
     emptyUserStatedMemory(profileId, state.accountId),
   );
   const next = updateMemoryFromText(current, trimmed);
-  await writeJsonFile(userMemoryFile(profileId), next);
+  const now = nowIso();
+  const key = `followup-question:${normalizeForMatching(trimmed).slice(0, 96) || makeId('question')}`;
+  const existing = next.observations.find((item) => item.key === key);
+  const questionObservation: MemoryObservation = {
+    id: existing?.id || makeId('obs'),
+    key,
+    source: 'user-stated',
+    sourceType: 'user_input',
+    visibility: 'internal',
+    promptUse: 'subtle',
+    category: 'konuşma',
+    group: 'Genel',
+    subgroup: 'Takip sorusu',
+    kind: 'question',
+    title: 'Kullanıcı takip sorusu',
+    summary: trimmed,
+    entities: [
+      {
+        label: profile.displayName,
+        type: 'person',
+        profileId: profile.profileId,
+        relationship: ownerToProfileRelationship(profile),
+        gender: profile.gender,
+      },
+    ],
+    entityRelations: [],
+    emotions: [],
+    mentionedAt: existing?.mentionedAt || now,
+    lastSeenAt: now,
+    confidence: Math.max(existing?.confidence || 0, 0.86),
+  };
+  next.observations = [questionObservation, ...next.observations.filter((item) => item.key !== key)].slice(0, MAX_MEMORY_ITEMS);
+  next.updatedAt = now;
+  await Promise.all([
+    writeJsonFile(userMemoryFile(profileId), next),
+    indexMemoryNodes(state.accountId, profileId, [questionObservation]).catch(() => {}),
+    indexObservationEmbeddings(state.accountId, profileId, [questionObservation]).catch(() => {}),
+  ]);
+}
+
+export async function appendUserReadingIntentMemory(params: {
+  profileId: string;
+  text: string;
+  readingType?: ReadingSummary['readingType'] | string;
+}): Promise<void> {
+  const trimmed = params.text.trim();
+  if (!trimmed) return;
+  const socialOnly = /^(teşekkürler|teşekkür ederim|sağ ol|sağol|harika|tamam|ok|anladım|rica ederim|eyvallah)[.!?\s]*$/iu.test(trimmed);
+  if (socialOnly) return;
+  const state = await loadAccountState();
+  await ensureProfileMemoryFiles(params.profileId, state.accountId);
+  const profile = state.profiles.find((item) => item.profileId === params.profileId);
+  if (!profile) return;
+  const current = await readJsonFile<UserStatedMemoryFile>(
+    userMemoryFile(params.profileId),
+    emptyUserStatedMemory(params.profileId, state.accountId),
+  );
+  const next = updateMemoryFromText(current, trimmed);
+  const now = nowIso();
+  const typeKey = normalizeForMatching(String(params.readingType || 'reading')).slice(0, 40) || 'reading';
+  const textKey = normalizeForMatching(trimmed).slice(0, 96) || makeId('intent');
+  const key = `reading-intent:${typeKey}:${textKey}`;
+  const existing = next.observations.find((item) => item.key === key);
+  const observation: MemoryObservation = {
+    id: existing?.id || makeId('obs'),
+    key,
+    source: 'user-stated',
+    sourceType: 'user_input',
+    visibility: 'internal',
+    promptUse: 'core',
+    category: 'okuma niyeti',
+    group: 'Genel',
+    subgroup: 'Okuma öncesi konu',
+    detailGroup: params.readingType ? String(params.readingType) : undefined,
+    kind: 'question',
+    title: 'Okuma öncesi kullanıcı niyeti',
+    summary: trimmed,
+    entities: [
+      {
+        label: profile.displayName,
+        type: 'person',
+        profileId: profile.profileId,
+        relationship: ownerToProfileRelationship(profile),
+        gender: profile.gender,
+      },
+    ],
+    entityRelations: [],
+    emotions: [],
+    mentionedAt: existing?.mentionedAt || now,
+    lastSeenAt: now,
+    confidence: Math.max(existing?.confidence || 0, 0.92),
+  };
+  next.observations = [observation, ...next.observations.filter((item) => item.key !== key)].slice(0, MAX_MEMORY_ITEMS);
+  next.updatedAt = now;
+  await Promise.all([
+    writeJsonFile(userMemoryFile(params.profileId), next),
+    indexMemoryNodes(state.accountId, params.profileId, [observation]).catch(() => {}),
+    indexObservationEmbeddings(state.accountId, params.profileId, [observation]).catch(() => {}),
+  ]);
 }
 
 export async function appendUserCorrectionMemory(params: {
@@ -2396,6 +2498,7 @@ export async function appendUserCorrectionMemory(params: {
     writeJsonFile(userMemoryFile(params.profileId), next),
     writeJsonFile(memoryEdgesFile(params.profileId), [correctionEdge, ...currentEdges].slice(0, MAX_MEMORY_EDGE_ITEMS)),
     indexMemoryNodes(state.accountId, params.profileId, [observation]).catch(() => {}),
+    indexObservationEmbeddings(state.accountId, params.profileId, [observation]).catch(() => {}),
     indexMemoryEdges([correctionEdge]).catch(() => {}),
   ]);
 }
@@ -2471,7 +2574,11 @@ export async function appendUserStatedTestResult(params: {
     observations: [observation, ...current.observations.filter((item) => item.key !== key)].slice(0, MAX_MEMORY_ITEMS),
     updatedAt: now,
   };
-  await writeJsonFile(userMemoryFile(params.profileId), next);
+  await Promise.all([
+    writeJsonFile(userMemoryFile(params.profileId), next),
+    indexMemoryNodes(state.accountId, params.profileId, [observation]).catch(() => {}),
+    indexObservationEmbeddings(state.accountId, params.profileId, [observation]).catch(() => {}),
+  ]);
 }
 
 export async function appendSelfKnowledgeProfileInsight(params: {
@@ -2500,7 +2607,7 @@ export async function appendSelfKnowledgeProfileInsight(params: {
   const observation: MemoryObservation = {
     id: current.observations.find((item) => item.key === key)?.id || makeId('obs'),
     key,
-    source: 'user-stated',
+    source: 'reading-derived',
     sourceType: 'test_result',
     visibility: 'user_visible',
     promptUse: 'subtle',
@@ -2541,7 +2648,11 @@ export async function appendSelfKnowledgeProfileInsight(params: {
     observations: [observation, ...current.observations.filter((item) => item.key !== key)].slice(0, MAX_MEMORY_ITEMS),
     updatedAt: now,
   };
-  await writeJsonFile(userMemoryFile(params.profileId), next);
+  await Promise.all([
+    writeJsonFile(userMemoryFile(params.profileId), next),
+    indexMemoryNodes(state.accountId, params.profileId, [observation]).catch(() => {}),
+    indexObservationEmbeddings(state.accountId, params.profileId, [observation]).catch(() => {}),
+  ]);
 }
 
 async function deleteUserStatedTestMemoryForReading(reading: ReadingSummary, state: AccountState): Promise<void> {
@@ -2639,6 +2750,10 @@ export async function applyMemoryAnalysisResult(
     ...nextUserMemory.observations,
     ...nextReadingMemory.observations,
   ]).catch(() => {});
+  await indexObservationEmbeddings(state.accountId, profileId, [
+    ...(result.userStated.observations || []),
+    ...(result.readingDerived.observations || []),
+  ]).catch(() => {});
   await applyMemoryV2AnalysisArtifacts(profileId, state.accountId, result);
   await runMemoryConsolidationForProfile(profileId).catch(() => {});
 }
@@ -2726,9 +2841,10 @@ export async function appendReadingSummary(
     readingMemoryFile(reading.profileId),
     emptyReadingDerivedMemory(reading.profileId, state.accountId),
   );
+  const isSurfaceFortune = reading.readingType === 'coffee' || reading.readingType === 'palm';
   const nextReadingMemory = dampenReadingDerivedMemory(updateMemoryFromText(currentReadingMemory, reading.summary, {
-    includeTopics: true,
-    includePatterns: true,
+    includeTopics: !isSurfaceFortune,
+    includePatterns: !isSurfaceFortune,
     includePeople: false,
   }));
   await writeJsonFile(readingMemoryFile(reading.profileId), nextReadingMemory);

@@ -14,7 +14,7 @@ import {
   getAssistantPreset,
 } from '../config/constants';
 import { normalizeLimitedInput, OPTIONAL_READING_TOPIC_MAX_CHARS } from '../config/llmTokenPolicy';
-import { appendUserConversationMemory, getPrimaryProfile, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
+import { appendUserReadingIntentMemory, getPrimaryProfile, loadAccountState, loadProfileMemorySnippet } from '../services/profileMemoryService';
 import { getModelTokenPrices, getTokenLedgerSnapshot } from '../services/tokenLedgerService';
 import type { AccountState } from '../types/memory';
 import type { DevSettings } from '../types';
@@ -121,7 +121,11 @@ export function PersonalReadingSetupScreen({ navigation, route }: Props) {
     }
 
     if (normalizedTopicText) {
-      await appendUserConversationMemory(selectedProfile.profileId, normalizedTopicText).catch(() => {});
+      await appendUserReadingIntentMemory({
+        profileId: selectedProfile.profileId,
+        text: normalizedTopicText,
+        readingType,
+      }).catch(() => {});
     }
     const memoryState = normalizedTopicText ? await loadAccountState().catch(() => state) : state;
     const memorySnippet = await loadProfileMemorySnippet(

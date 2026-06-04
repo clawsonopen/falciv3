@@ -60,7 +60,7 @@ Yanıtı sohbet akışı gibi kur. Metinde başlık kullanma. Liste yapma. Kulla
 
 İçerikte doğal olarak şu akışın hissedilmesi gerekir:
 
-- Kisa karşılama ve enerji okuma
+- Kısa karşılama ve enerji okuma
 - Görsel kanıtlarla kurulan ana hikâye
 - Hane, aile, akraba, çevre ve kem göz etkileri
 - Ev içi düzen, kalp hali, yakın çevre, niyet ve küçük hayat seçimlerine dair anaç tavsiye

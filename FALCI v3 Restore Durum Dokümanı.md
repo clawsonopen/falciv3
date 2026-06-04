@@ -263,17 +263,30 @@ Açık kalan kontrollü alt madde:
 - Astro kapanışlarının `completeWithRememberedPersonaClosing` geçmişli kapanış sistemine geçirilmesi 5. maddedeki remembered closing ikinci fazına bağlı.
 
 7. **Prompt restore genel taraması**
-Durum: Açık.
+Durum: Uygulandı; remembered closing ikinci fazı 5. maddede açık.
 
-Bakılacaklar:
+Bakılanlar:
 - `fortunePromptBuilder`
 - `astroEngine`
 - `dreamInterpretationService`
-- `tarotReadingService`
-- `numerologyService`
+- `personalTarotService`
+- `personalNumerologyEngine`
 - animal profile prompt kuralları
 - follow-up contract her yerde doğru kullanılıyor mu
 - kısa cevap / uzun cevap / devam ettirme sistemleri
+
+Bulgu:
+- Prompt servislerinde `FOLLOW_UP_CHAT_CONTRACT`, memory prompt pack, pet mention memory context ve token instruction bağlantıları büyük ölçüde yerinde.
+- Dokümandaki eski servis adları `tarotReadingService` / `numerologyService`; güncel gerçek dosyalar `personalTarotService` / `personalNumerologyEngine`.
+- `mobile/src/identity/assistants/fortune-family/common.md` zengin ortak prompt kurallarını taşıyordu, generator da `common.md` okumaya hazırdı.
+- Ancak generated `fortunePersonaData.ts` hâlâ eski/kısa `COMMON_FORTUNE_IDENTITY_BODY` taşıyordu; `common.md` restore içeriği runtime prompt verisine yansımamıştı.
+- Suzan identity kaynak dosyasında ASCII-Türkçe `Kisa karşılama` kalmıştı.
+
+Uygulananlar:
+- `mobile/scripts/generate-fortune-persona-data.js` çalıştırılarak `fortunePersonaData.ts` identity markdown + `common.md` üzerinden yeniden üretildi.
+- `COMMON_FORTUNE_IDENTITY_BODY` artık güncel ortak Vision/Safety/Length/Implementation kurallarını taşıyor.
+- Persona `systemBody` içerikleri generator çizgisine uygun şekilde ortak bölümlerden ayrıldı; ortak kurallar `COMMON_FORTUNE_IDENTITY_BODY` üzerinden veriliyor.
+- Suzan identity kaynağındaki `Kisa karşılama` -> `Kısa karşılama` düzeltildi ve generated dosya yeniden üretildi.
 
 8. **Token usage ana ekran / genel sayaçlar**
 Durum: Açık veya kısmen restore edilmiş olabilir, net kontrol gerekiyor.

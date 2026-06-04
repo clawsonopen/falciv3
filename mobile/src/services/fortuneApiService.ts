@@ -310,11 +310,19 @@ async function classifyPalmImage(imageData: string) {
 }
 
 function isHumanHandVisual(result: PalmClassification) {
-  return result.visualType === 'human_palm';
+  return result.visualType === 'human_palm' || result.visualType === 'human_hand_back' || Boolean(result.handVisibleEnough);
 }
 
 function isAnimalPawVisual(result: PalmClassification) {
   return ['cat_paw', 'dog_paw', 'rabbit_paw', 'bird_foot', 'reptile_foot', 'animal_paw'].includes(result.visualType || '');
+}
+
+function isClearlyDifferentPetSpecies(result: PalmClassification, expectedSpecies: string | null) {
+  if (!expectedSpecies || !result.animalSpecies || result.animalSpecies === 'none' || result.animalSpecies === 'other') {
+    return false;
+  }
+  if (result.visualType === 'animal_paw') return false;
+  return result.animalSpecies !== expectedSpecies && Number(result.confidence || 0) >= 0.78;
 }
 
 function normalizePetSpecies(value?: string | null) {
@@ -356,15 +364,15 @@ async function validatePalmImage(images: FortuneImages, memorySnippet?: ProfileM
     const expectedSpecies = normalizePetSpecies(memorySnippet?.petSpecies);
     const expectedLabel = speciesTr(expectedSpecies, memorySnippet?.petSpecies);
     if (!isAnimalPawVisual(result)) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
+      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin fakat ${loadedLabel} yükledin. Patinin daha net göründüğü bir ${expectedLabel} fotoğrafıyla yeniden deneyelim.`, usage);
     }
-    if (expectedSpecies && result.animalSpecies !== expectedSpecies) {
-      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin; profil ${expectedLabel} olarak kayıtlı fakat ${speciesTr(result.animalSpecies)} patisi yükledin. Lütfen ${expectedLabel} patisi fotoğrafı yükle.`, usage);
+    if (isClearlyDifferentPetSpecies(result, expectedSpecies)) {
+      throw jsonPayloadError(`${memorySnippet?.profileName || 'Bu profil'} için pati okuması istemiştin; profil ${expectedLabel} olarak kayıtlı fakat ${speciesTr(result.animalSpecies)} patisi yükledin. ${expectedLabel} patisinin daha net göründüğü bir fotoğraf yükleyelim.`, usage);
     }
     return { validation: result, usage };
   }
   if (!isHumanHandVisual(result)) {
-    throw jsonPayloadError(`El okuması istemiştin fakat ${loadedLabel} yükledin. Lütfen avuç içi fotoğrafı yükle.`, usage);
+    throw jsonPayloadError(`El okuması istemiştin fakat ${loadedLabel} yükledin. Avuç içi ya da el çizgilerinin seçildiği daha net bir fotoğrafla yeniden deneyelim.`, usage);
   }
   return { validation: result, usage };
 }

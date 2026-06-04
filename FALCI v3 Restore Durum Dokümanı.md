@@ -172,14 +172,27 @@ Commit:
 `Restore dream follow-up closing flow` başlıklı restore commit’i.
 
 3. **El/pati görsel doğrulama yumuşatma paketi**
-Durum: Açık.
+Durum: Uygulandı.
 
-Bakılacaklar:
+Bakılanlar:
 - El falı görsel validasyonu çok sert mi
 - Pati/hayvan profili görsel doğrulaması doğru mu
 - Kullanıcı yanlışlıkla el/pati dışı görsel atınca UX
 - “görsel reddi” dili fazla katı mı
 - kahve multi-image restore ile çakışıyor mu
+
+Bulgu:
+- Mevcut `fortunePromptBuilder` zaten el görseli kısmi veya net değilse bunu kesin hata saymadan temkinli yorumlama talimatı taşıyordu.
+- Ancak `fortuneApiService` validation katmanı yalnızca `human_palm` kabul ettiği için `human_hand_back` veya çizgileri kısmen seçilen el görselleri prompt'a hiç ulaşmadan reddediliyordu.
+- Evcil hayvan/pati akışında tür farkı çok erken ve sert reddediliyordu; generic/belirsiz pati fotoğraflarında bu kullanıcıyı gereksiz bloklayabilirdi.
+
+Uygulananlar:
+- İnsan el okumasında `human_palm`, `human_hand_back` ve `handVisibleEnough` olan kısmi el görselleri kabul ediliyor.
+- Evcil hayvan/pati okumasında tür uyuşmazlığı yalnızca sınıflandırma açık ve yüksek güvenliyse reddediliyor; generic `animal_paw` veya düşük güvenli belirsiz pati fotoğrafları akışa bırakılıyor.
+- Reddetme mesajları daha yumuşak, yeniden denemeye yönlendiren Türkçe UX diline çekildi.
+
+Not:
+- Tamamen yanlış görseller hâlâ reddediliyor; bu paket yalnızca el/pati sınırındaki belirsiz görselleri yumuşatıyor.
 
 4. **Kısa okuma genişletme sistemi: kahve/el**
 Durum: Açık.
